@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ClashWinUI (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ClashWinUI (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
