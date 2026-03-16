@@ -1,19 +1,166 @@
-<?xml version="1.0" encoding="utf-8"?>
-<Window
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page
     x:Class="ClashWinUI.Views.Pages.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:ClashWinUI.Views.Pages"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d"
-    Title="SettingsPage">
+    xmlns:ui="using:CommunityToolkit.WinUI"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    mc:Ignorable="d">
+    <Page.Resources>
+        <x:Double x:Key="SettingsCardSpacing">4</x:Double>
 
-    <Window.SystemBackdrop>
-        <MicaBackdrop />
-    </Window.SystemBackdrop>
+        <Style
+            x:Key="SettingsSectionHeaderTextBlockStyle"
+            BasedOn="{StaticResource BodyStrongTextBlockStyle}"
+            TargetType="TextBlock">
+            <Style.Setters>
+                <Setter Property="Margin" Value="1,30,0,6" />
+            </Style.Setters>
+        </Style>
+    </Page.Resources>
+    <ScrollViewer>
+        <Grid>
+            <StackPanel
+                MaxWidth="1000"
+                HorizontalAlignment="Stretch"
+                Spacing="{StaticResource SettingsCardSpacing}">
+                <win:StackPanel.ChildrenTransitions>
+                    <win:EntranceThemeTransition FromVerticalOffset="50" />
+                    <win:RepositionThemeTransition IsStaggeringEnabled="False" />
+                </win:StackPanel.ChildrenTransitions>
 
-    <Grid>
+                <TextBlock
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="{Binding [SettingsSection1], Source={StaticResource L}}" />
 
-    </Grid>
-</Window>
+                <controls:SettingsCard
+                    Description="{Binding [ThemeDescription], Source={StaticResource L}}"
+                    Header="{Binding [ThemeHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE790;}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="{Binding [ThemeModeLabel], Source={StaticResource L}}" />
+                        <ComboBox
+                            SelectedValuePath="Tag"
+                            SelectedValue="{Binding SelectedAppThemeTag, Mode=TwoWay}">
+                            <ComboBoxItem
+                                Tag="system"
+                                Content="{Binding [ThemeModeSystem], Source={StaticResource L}}" />
+                            <ComboBoxItem
+                                Tag="light"
+                                Content="{Binding [ThemeModeLight], Source={StaticResource L}}" />
+                            <ComboBoxItem
+                                Tag="dark"
+                                Content="{Binding [ThemeModeDark], Source={StaticResource L}}" />
+                        </ComboBox>
+
+                        <TextBlock Text="{Binding [ThemeBackdropLabel], Source={StaticResource L}}" />
+                        <ComboBox
+                            SelectedValuePath="Tag"
+                            SelectedValue="{Binding SelectedBackdropTag, Mode=TwoWay}">
+                            <ComboBoxItem
+                                Tag="mica"
+                                Content="{Binding [ThemeMica], Source={StaticResource L}}" />
+                            <ComboBoxItem
+                                Tag="mica_alt"
+                                Content="{Binding [ThemeMicaAlt], Source={StaticResource L}}" />
+                            <ComboBoxItem
+                                Tag="acrylic"
+                                Content="{Binding [ThemeAcrylic], Source={StaticResource L}}" />
+                        </ComboBox>
+                    </StackPanel>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard
+                    Description="{Binding [LanguageDescription], Source={StaticResource L}}"
+                    Header="{Binding [LanguageHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE909;}">
+                    <ComboBox
+                        SelectedValuePath="Tag"
+                        SelectedValue="{Binding SelectedLanguageTag, Mode=TwoWay}">
+                        <ComboBoxItem
+                            Tag="en-US"
+                            Content="{Binding [LanguageEnglish], Source={StaticResource L}}" />
+                        <ComboBoxItem
+                            Tag="zh-Hans"
+                            Content="{Binding [LanguageSimplifiedChinese], Source={StaticResource L}}" />
+                    </ComboBox>
+                </controls:SettingsCard>
+
+                <TextBlock
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="{Binding [SettingsSection2], Source={StaticResource L}}" />
+
+                <controls:SettingsCard
+                    Description="{Binding [CloseBehaviorDescription], Source={StaticResource L}}"
+                    Header="{Binding [CloseBehaviorHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE8BB;}">
+                    <ComboBox
+                        SelectedValuePath="Tag"
+                        SelectedValue="{Binding SelectedCloseBehaviorTag, Mode=TwoWay}">
+                        <ComboBoxItem
+                            Tag="minimize_to_tray"
+                            Content="{Binding [CloseBehaviorMinimizeToTray], Source={StaticResource L}}" />
+                        <ComboBoxItem
+                            Tag="exit"
+                            Content="{Binding [CloseBehaviorExit], Source={StaticResource L}}" />
+                    </ComboBox>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard
+                    Description="{Binding [KernelPathDescription], Source={StaticResource L}}"
+                    Header="{Binding [KernelPathHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE838;}">
+                    <StackPanel Spacing="10">
+                        <TextBox
+                            Text="{Binding KernelPathInput, Mode=TwoWay}"
+                            PlaceholderText="{Binding [KernelPathPlaceholder], Source={StaticResource L}}" />
+
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="8">
+                            <Button
+                                Click="BrowseKernelPathButton_Click"
+                                Content="{Binding [KernelPathBrowseButton], Source={StaticResource L}}" />
+                            <Button
+                                Command="{Binding SaveKernelPathCommand}"
+                                Content="{Binding [KernelPathSaveButton], Source={StaticResource L}}" />
+                        </StackPanel>
+                    </StackPanel>
+                </controls:SettingsCard>
+
+                <TextBlock
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="About" />
+
+                <controls:SettingsExpander
+                    Description="(C) 2026. All rights reserved."
+                    Header="Community Toolkit Gallery"
+                    HeaderIcon="{ui:BitmapIcon Source=ms-appx:///Assets/AppTitleBar.scale-200.png}">
+                    <TextBlock
+                        win:IsTextSelectionEnabled="True"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Version 8.0.0" />
+                    <controls:SettingsExpander.Items>
+                        <controls:SettingsCard
+                            HorizontalContentAlignment="Left"
+                            ContentAlignment="Left">
+                            <StackPanel
+                                Margin="-12,0,0,0"
+                                Orientation="Vertical">
+                                <HyperlinkButton Content="Link 1" />
+                                <HyperlinkButton Content="Link 2" />
+                                <HyperlinkButton Content="Link 3" />
+                            </StackPanel>
+                        </controls:SettingsCard>
+                    </controls:SettingsExpander.Items>
+                </controls:SettingsExpander>
+                <HyperlinkButton
+                    Margin="0,8,0,0"
+                    Content="Send feedback" />
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>

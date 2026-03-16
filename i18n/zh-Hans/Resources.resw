@@ -1,42 +1,378 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<root>  
-    <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
-        <xsd:element name="root" msdata:IsDataSet="true">
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
             <xsd:complexType>
-                <xsd:choice maxOccurs="unbounded">
-                    <xsd:element name="data">
-                        <xsd:complexType>
-                            <xsd:sequence>
-                                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-                                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
-                            </xsd:sequence>
-                            <xsd:attribute name="name" type="xsd:string" msdata:Ordinal="1" />
-                            <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
-                            <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
-                        </xsd:complexType>
-                    </xsd:element>
-                    <xsd:element name="resheader">
-                        <xsd:complexType>
-                            <xsd:sequence>
-                                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-                            </xsd:sequence>
-                            <xsd:attribute name="name" type="xsd:string" use="required" />
-                        </xsd:complexType>
-                    </xsd:element>
-                </xsd:choice>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
             </xsd:complexType>
-        </xsd:element>
-    </xsd:schema>
-    <resheader name="resmimetype">
-        <value>text/microsoft-resx</value>
-    </resheader>
-    <resheader name="version">
-        <value>1.3</value>
-    </resheader>
-    <resheader name="reader">
-        <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=2.0.3500.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-    </resheader>
-    <resheader name="writer">
-        <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.3500.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-    </resheader>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter</value>
+  </resheader>
+  <data name="AppTitle" xml:space="preserve">
+    <value>Clash WinUI</value>
+  </data>
+  <data name="NavOverview" xml:space="preserve">
+    <value>概览</value>
+  </data>
+  <data name="NavProfiles" xml:space="preserve">
+    <value>订阅</value>
+  </data>
+  <data name="NavProxies" xml:space="preserve">
+    <value>代理</value>
+  </data>
+  <data name="NavConnections" xml:space="preserve">
+    <value>连接</value>
+  </data>
+  <data name="NavLogs" xml:space="preserve">
+    <value>日志</value>
+  </data>
+  <data name="NavRules" xml:space="preserve">
+    <value>规则</value>
+  </data>
+  <data name="NavSettings" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="PageOverview" xml:space="preserve">
+    <value>概览</value>
+  </data>
+  <data name="PageProfiles" xml:space="preserve">
+    <value>订阅</value>
+  </data>
+  <data name="PageProxies" xml:space="preserve">
+    <value>代理</value>
+  </data>
+  <data name="PageConnections" xml:space="preserve">
+    <value>连接</value>
+  </data>
+  <data name="PageLogs" xml:space="preserve">
+    <value>日志</value>
+  </data>
+  <data name="PageRules" xml:space="preserve">
+    <value>规则</value>
+  </data>
+  <data name="PageSettings" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="LogsCopyButton" xml:space="preserve">
+    <value>复制全部日志</value>
+  </data>
+  <data name="LogsSaveButton" xml:space="preserve">
+    <value>下载日志</value>
+  </data>
+  <data name="LogsAutoScrollButton" xml:space="preserve">
+    <value>自动滚动</value>
+  </data>
+  <data name="LogsClearButton" xml:space="preserve">
+    <value>清空日志</value>
+  </data>
+  <data name="LanguageLabel" xml:space="preserve">
+    <value>语言</value>
+  </data>
+  <data name="SettingsSection1" xml:space="preserve">
+    <value>第 1 部分</value>
+  </data>
+  <data name="SettingsSection2" xml:space="preserve">
+    <value>第 2 部分</value>
+  </data>
+  <data name="CloseBehaviorHeader" xml:space="preserve">
+    <value>关闭行为</value>
+  </data>
+  <data name="CloseBehaviorDescription" xml:space="preserve">
+    <value>选择点击关闭按钮时是最小化到托盘，还是直接退出。</value>
+  </data>
+  <data name="CloseBehaviorMinimizeToTray" xml:space="preserve">
+    <value>最小化到托盘</value>
+  </data>
+  <data name="CloseBehaviorExit" xml:space="preserve">
+    <value>直接退出</value>
+  </data>
+  <data name="KernelPathHeader" xml:space="preserve">
+    <value>内核路径</value>
+  </data>
+  <data name="KernelPathDescription" xml:space="preserve">
+    <value>选择并保存自定义内核可执行文件路径。</value>
+  </data>
+  <data name="KernelPathPlaceholder" xml:space="preserve">
+    <value>请选择本地内核可执行文件路径</value>
+  </data>
+  <data name="KernelPathBrowseButton" xml:space="preserve">
+    <value>浏览</value>
+  </data>
+  <data name="KernelPathSaveButton" xml:space="preserve">
+    <value>保存</value>
+  </data>
+  <data name="ThemeHeader" xml:space="preserve">
+    <value>主题</value>
+  </data>
+  <data name="ThemeDescription" xml:space="preserve">
+    <value>切换应用主题和窗口背景材质。</value>
+  </data>
+  <data name="ThemeModeLabel" xml:space="preserve">
+    <value>应用主题</value>
+  </data>
+  <data name="ThemeModeSystem" xml:space="preserve">
+    <value>跟随系统</value>
+  </data>
+  <data name="ThemeModeLight" xml:space="preserve">
+    <value>浅色</value>
+  </data>
+  <data name="ThemeModeDark" xml:space="preserve">
+    <value>深色</value>
+  </data>
+  <data name="ThemeBackdropLabel" xml:space="preserve">
+    <value>窗口背景</value>
+  </data>
+  <data name="ThemeMica" xml:space="preserve">
+    <value>Mica</value>
+  </data>
+  <data name="ThemeMicaAlt" xml:space="preserve">
+    <value>Mica Alt</value>
+  </data>
+  <data name="ThemeAcrylic" xml:space="preserve">
+    <value>Acrylic</value>
+  </data>
+  <data name="LanguageHeader" xml:space="preserve">
+    <value>语言</value>
+  </data>
+  <data name="LanguageDescription" xml:space="preserve">
+    <value>即时切换应用语言。</value>
+  </data>
+  <data name="LanguageEnglish" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="LanguageSimplifiedChinese" xml:space="preserve">
+    <value>中文（简体）</value>
+  </data>
+  <data name="LogsFilterLabel" xml:space="preserve">
+    <value>Level</value>
+  </data>
+  <data name="LogsFilterAll" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="LogsFilterTrace" xml:space="preserve">
+    <value>Trace</value>
+  </data>
+  <data name="LogsFilterDebug" xml:space="preserve">
+    <value>Debug</value>
+  </data>
+  <data name="LogsFilterInfo" xml:space="preserve">
+    <value>Info</value>
+  </data>
+  <data name="LogsFilterWarning" xml:space="preserve">
+    <value>Warning</value>
+  </data>
+  <data name="LogsFilterError" xml:space="preserve">
+    <value>Error</value>
+  </data>
+  <data name="LogsSearchPlaceholder" xml:space="preserve">
+    <value>搜索日志关键字</value>
+  </data>
+  <data name="ProfilesRefreshButton" xml:space="preserve">
+    <value>刷新</value>
+  </data>
+  <data name="ProfilesImportLocalButton" xml:space="preserve">
+    <value>导入本地</value>
+  </data>
+  <data name="ProfilesActivateButton" xml:space="preserve">
+    <value>激活</value>
+  </data>
+  <data name="ProfilesDeleteButton" xml:space="preserve">
+    <value>删除</value>
+  </data>
+  <data name="ProfilesSubscriptionUrlLabel" xml:space="preserve">
+    <value>订阅链接</value>
+  </data>
+  <data name="ProfilesSubscriptionUrlPlaceholder" xml:space="preserve">
+    <value>粘贴 Clash 订阅链接</value>
+  </data>
+  <data name="ProfilesFetchButton" xml:space="preserve">
+    <value>获取并保存</value>
+  </data>
+  <data name="ProfilesNoActive" xml:space="preserve">
+    <value>无</value>
+  </data>
+  <data name="ProfilesActiveLabel" xml:space="preserve">
+    <value>当前配置</value>
+  </data>
+  <data name="ProfilesStatusFetchedAndApplied" xml:space="preserve">
+    <value>订阅已获取并应用到 Mihomo。</value>
+  </data>
+  <data name="ProfilesStatusFetchedOnly" xml:space="preserve">
+    <value>订阅已获取，但应用到 Mihomo 失败。</value>
+  </data>
+  <data name="ProfilesStatusImportedAndApplied" xml:space="preserve">
+    <value>本地配置已导入并应用。</value>
+  </data>
+  <data name="ProfilesStatusImportedOnly" xml:space="preserve">
+    <value>本地配置已导入，但应用到 Mihomo 失败。</value>
+  </data>
+  <data name="ProfilesStatusActivated" xml:space="preserve">
+    <value>配置已激活并应用。</value>
+  </data>
+  <data name="ProfilesStatusActivatedNotApplied" xml:space="preserve">
+    <value>配置已激活，但应用到 Mihomo 失败。</value>
+  </data>
+  <data name="ProfilesStatusDeleted" xml:space="preserve">
+    <value>配置已删除。</value>
+  </data>
+  <data name="ProfilesStatusFailed" xml:space="preserve">
+    <value>操作失败</value>
+  </data>
+  <data name="ProfilesStatusNotMihomoCompatible" xml:space="preserve">
+    <value>配置已保存，但当前格式不可直接应用到 Mihomo。</value>
+  </data>
+  <data name="ProxiesRefreshButton" xml:space="preserve">
+    <value>刷新节点</value>
+  </data>
+  <data name="ProxiesTestSelectedButton" xml:space="preserve">
+    <value>测速选中</value>
+  </data>
+  <data name="ProxiesTestAllButton" xml:space="preserve">
+    <value>测速全部</value>
+  </data>
+  <data name="ProxiesTestUrlPlaceholder" xml:space="preserve">
+    <value>测速 URL</value>
+  </data>
+  <data name="ProxiesStatusNoActiveProfile" xml:space="preserve">
+    <value>当前没有激活配置，请先到订阅页设置。</value>
+  </data>
+  <data name="ProxiesStatusLoaded" xml:space="preserve">
+    <value>已从 Mihomo 加载 {0} 个节点。</value>
+  </data>
+  <data name="ProxiesStatusLoadedNoApply" xml:space="preserve">
+    <value>已加载 {0} 个节点，但配置应用失败，使用当前 Mihomo 状态。</value>
+  </data>
+  <data name="ProxiesStatusLoadedIncompatibleProfile" xml:space="preserve">
+    <value>已从当前运行中的 Mihomo 加载 {0} 个节点，激活配置格式不可直接应用。</value>
+  </data>
+  <data name="ProxiesStatusFallbackLoaded" xml:space="preserve">
+    <value>Mihomo API 不可用，已从配置文件加载 {0} 个节点。</value>
+  </data>
+  <data name="ProxiesStatusFallbackLoadedIncompatibleProfile" xml:space="preserve">
+    <value>激活配置格式不可直接应用，已从配置文件加载 {0} 个节点。</value>
+  </data>
+  <data name="ProxiesStatusDelayFailed" xml:space="preserve">
+    <value>测速失败，请检查 Mihomo 控制器状态。</value>
+  </data>
+  <data name="ProxiesStatusDelaySuccess" xml:space="preserve">
+    <value>{0} 延迟：{1} ms</value>
+  </data>
+  <data name="ProxiesStatusDelaySkippedNonTestable" xml:space="preserve">
+    <value>已跳过不可测速节点：{0}。</value>
+  </data>
+  <data name="ProxiesStatusDelayAllFinished" xml:space="preserve">
+    <value>全部节点测速完成。</value>
+  </data>
+  <data name="ProxiesStatusDelayAllFinishedWithSkipped" xml:space="preserve">
+    <value>测速完成，已跳过 {0} 个不可测速节点。</value>
+  </data>
 </root>

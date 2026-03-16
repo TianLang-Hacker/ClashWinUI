@@ -1,0 +1,117 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="ClashWinUI.Views.Pages.LogsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:helpers="using:ClashWinUI.Helpers"
+    xmlns:viewmodels="using:ClashWinUI.ViewModels"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <helpers:LogLevelToBrushConverter x:Key="LogLevelToBrushConverter" />
+    </Page.Resources>
+
+    <Grid Background="Transparent">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel
+            Margin="24,24,24,12"
+            Spacing="10">
+
+            <StackPanel
+                Orientation="Horizontal"
+                Spacing="8"
+                HorizontalAlignment="Right">
+                <Button
+                    Click="CopyLogsButton_Click"
+                    Content="{Binding [LogsCopyButton], Source={StaticResource L}}" />
+                <ToggleButton
+                    IsChecked="{Binding IsAutoScrollEnabled, Mode=TwoWay}"
+                    Content="{Binding [LogsAutoScrollButton], Source={StaticResource L}}" />
+                <Button
+                    Command="{Binding ClearLogsCommand}"
+                    Content="{Binding [LogsClearButton], Source={StaticResource L}}" />
+                <Button
+                    Click="SaveLogsButton_Click"
+                    Content="{Binding [LogsSaveButton], Source={StaticResource L}}" />
+            </StackPanel>
+        </StackPanel>
+
+        <StackPanel
+            Grid.Row="1"
+            Margin="24,0,24,12"
+            Spacing="8">
+            <TextBlock Text="{Binding [LogsFilterLabel], Source={StaticResource L}}" />
+
+            <ComboBox
+                HorizontalAlignment="Stretch"
+                SelectedValuePath="Tag"
+                SelectedValue="{Binding SelectedLevelFilterTag, Mode=TwoWay}">
+                <ComboBoxItem
+                    Tag="all"
+                    Content="{Binding [LogsFilterAll], Source={StaticResource L}}" />
+                <ComboBoxItem
+                    Tag="trace"
+                    Content="{Binding [LogsFilterTrace], Source={StaticResource L}}" />
+                <ComboBoxItem
+                    Tag="debug"
+                    Content="{Binding [LogsFilterDebug], Source={StaticResource L}}" />
+                <ComboBoxItem
+                    Tag="info"
+                    Content="{Binding [LogsFilterInfo], Source={StaticResource L}}" />
+                <ComboBoxItem
+                    Tag="warning"
+                    Content="{Binding [LogsFilterWarning], Source={StaticResource L}}" />
+                <ComboBoxItem
+                    Tag="error"
+                    Content="{Binding [LogsFilterError], Source={StaticResource L}}" />
+            </ComboBox>
+
+            <TextBox
+                Text="{Binding SearchKeyword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                PlaceholderText="{Binding [LogsSearchPlaceholder], Source={StaticResource L}}" />
+        </StackPanel>
+
+        <Border
+            Grid.Row="2"
+            Margin="24,0,24,24"
+            Padding="4"
+            CornerRadius="8"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <ListView
+                x:Name="LogsListView"
+                ItemsSource="{Binding FilteredLogEntries}"
+                IsItemClickEnabled="False"
+                SelectionMode="None"
+                BorderThickness="0"
+                HorizontalContentAlignment="Stretch"
+                ScrollViewer.HorizontalScrollMode="Disabled"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                Background="Transparent">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="viewmodels:LogsListItem">
+                        <TextBlock
+                            Margin="4,2"
+                            FontFamily="Consolas"
+                            FontSize="12"
+                            Text="{Binding DisplayText}"
+                            IsTextSelectionEnabled="True"
+                            TextWrapping="Wrap"
+                            Foreground="{Binding Level, Converter={StaticResource LogLevelToBrushConverter}}" />
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
+    </Grid>
+</Page>

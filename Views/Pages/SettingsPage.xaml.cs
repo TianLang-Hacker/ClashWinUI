@@ -1,31 +1,59 @@
+﻿using ClashWinUI.ViewModels;
+using System;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
-
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
+using Windows.Storage;
+using Windows.Storage.Pickers;
+using WinRT.Interop;
 
 namespace ClashWinUI.Views.Pages
 {
-    /// <summary>
-    /// An empty window that can be used on its own or navigated to within a Frame.
-    /// </summary>
-    public sealed partial class SettingsPage : Window
+    public sealed partial class SettingsPage : Page
     {
         public SettingsPage()
         {
             InitializeComponent();
+        }
+
+        protected override void OnNavigatedTo(NavigationEventArgs e)
+        {
+            if (e.Parameter is SettingsViewModel viewModel)
+            {
+                DataContext = viewModel;
+            }
+
+            base.OnNavigatedTo(e);
+        }
+
+        private async void BrowseKernelPathButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (DataContext is not SettingsViewModel viewModel)
+            {
+                return;
+            }
+
+            var picker = new FileOpenPicker
+            {
+                SuggestedStartLocation = PickerLocationId.ComputerFolder,
+                ViewMode = PickerViewMode.List,
+            };
+            picker.FileTypeFilter.Add(".exe");
+            picker.FileTypeFilter.Add("*");
+
+            if (Application.Current is App app && app.ActiveWindow is not null)
+            {
+                nint hwnd = WindowNative.GetWindowHandle(app.ActiveWindow);
+                InitializeWithWindow.Initialize(picker, hwnd);
+            }
+
+            StorageFile? file = await picker.PickSingleFileAsync();
+            if (file is null)
+            {
+                return;
+            }
+
+            viewModel.KernelPathInput = file.Path;
         }
     }
 }
