@@ -1,6 +1,8 @@
+using ClashWinUI.Common;
 using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Services.Implementations;
+using ClashWinUI.Services.Implementations.Config;
 using ClashWinUI.Services.Interfaces;
 using ClashWinUI.ViewModels;
 using ClashWinUI.Views;
@@ -17,9 +19,6 @@ namespace ClashWinUI
 {
     public partial class App : Application
     {
-        private const string SystemProxyBypassList =
-            "localhost;127.*;192.168.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.20.*;172.21.*;172.22.*;172.23.*;172.24.*;172.25.*;172.26.*;172.27.*;172.28.*;172.29.*;172.30.*;172.31.*";
-
         private readonly IHost _host;
         private readonly HttpClient _controllerProbeClient = new();
         private readonly SemaphoreSlim _shutdownSync = new(1, 1);
@@ -39,6 +38,7 @@ namespace ClashWinUI
 
                     services.AddSingleton<IThemeService, ThemeService>();
                     services.AddSingleton<IAppLogService, AppLogService>();
+                    services.AddSingleton<IConfigService, ConfigService>();
                     services.AddSingleton<IKernelPathService, KernelPathService>();
                     services.AddSingleton<IKernelBootstrapService, KernelBootstrapService>();
                     services.AddSingleton<IAppSettingsService, AppSettingsService>();
@@ -150,6 +150,7 @@ namespace ClashWinUI
         {
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             IKernelBootstrapService kernelBootstrapService = _host.Services.GetRequiredService<IKernelBootstrapService>();
+            IConfigService configService = _host.Services.GetRequiredService<IConfigService>();
             IProfileService profileService = _host.Services.GetRequiredService<IProfileService>();
             IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
             ISystemProxyService systemProxyService = _host.Services.GetRequiredService<ISystemProxyService>();
@@ -164,16 +165,22 @@ namespace ClashWinUI
                     return;
                 }
 
-                string? preferredConfigPath = profileService.GetActiveProfile()?.FilePath;
-                if (ProfileCompatibilityChecker.Check(preferredConfigPath) == ProfileCompatibilityStatus.Base64NotYaml)
+                string startupConfigPath = processService.EnsureStartupConfigPath();
+                ProfileItem? activeProfile = profileService.GetActiveProfile();
+                if (activeProfile is not null)
                 {
-                    logService.Add(
-                        $"Active profile is not Mihomo-compatible at startup. Use default startup profile instead: {preferredConfigPath}",
-                        LogLevel.Warning);
-                    preferredConfigPath = null;
+                    try
+                    {
+                        startupConfigPath = configService.BuildRuntime(activeProfile);
+                    }
+                    catch (Exception ex)
+                    {
+                        logService.Add(
+                            $"Build runtime config failed for active profile. Use default startup profile instead: {ex.Message}",
+                            LogLevel.Warning);
+                    }
                 }
 
-                string startupConfigPath = processService.EnsureStartupConfigPath(preferredConfigPath);
                 logService.Add($"Startup config path: {startupConfigPath}");
 
                 bool controllerReady = await StartAndWaitControllerReadyAsync(processService, startupConfigPath);
@@ -206,7 +213,7 @@ namespace ClashWinUI
                 }
 
                 int proxyPort = processService.ResolveProxyPort(startupConfigPath);
-                await systemProxyService.EnableAsync("127.0.0.1", proxyPort, SystemProxyBypassList);
+                await systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
 
                 logService.Add($"Startup completed. Controller={processService.ControllerHost}:{processService.ControllerPort}, ProxyPort={proxyPort}");
             }

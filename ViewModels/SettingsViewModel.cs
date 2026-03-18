@@ -1,3 +1,4 @@
+using ClashWinUI.Common;
 using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
@@ -5,6 +6,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Threading.Tasks;
 
 namespace ClashWinUI.ViewModels
 {
@@ -21,14 +24,29 @@ namespace ClashWinUI.ViewModels
         public const string CloseBehaviorMinimizeToTray = "minimize_to_tray";
         public const string CloseBehaviorExit = "exit";
 
+        public const string ModeRule = "rule";
+        public const string ModeGlobal = "global";
+        public const string ModeDirect = "direct";
+
+        public const string LogDebug = "debug";
+        public const string LogInfo = "info";
+        public const string LogWarning = "warning";
+        public const string LogError = "error";
+
         private readonly LocalizedStrings _localizedStrings;
         private readonly IThemeService _themeService;
         private readonly IKernelPathService _kernelPathService;
         private readonly IAppSettingsService _appSettingsService;
+        private readonly IProfileService _profileService;
+        private readonly IConfigService _configService;
+        private readonly IMihomoService _mihomoService;
+        private readonly IProcessService _processService;
+        private readonly ISystemProxyService _systemProxyService;
 
         private bool _isUpdatingFromLocalization;
         private bool _isUpdatingFromThemeService;
         private bool _isUpdatingFromAppSettings;
+        private ProfileItem? _activeMixinProfile;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -48,16 +66,68 @@ namespace ClashWinUI.ViewModels
         [ObservableProperty]
         public partial string SelectedCloseBehaviorTag { get; set; }
 
+        [ObservableProperty]
+        public partial bool HasActiveMixinProfile { get; set; }
+
+        [ObservableProperty]
+        public partial string CurrentMixinProfileName { get; set; }
+
+        [ObservableProperty]
+        public partial string CurrentMixinWorkspacePath { get; set; }
+
+        [ObservableProperty]
+        public partial string MixinStatusMessage { get; set; }
+
+        [ObservableProperty]
+        public partial string MixedPortInput { get; set; }
+
+        [ObservableProperty]
+        public partial string HttpPortInput { get; set; }
+
+        [ObservableProperty]
+        public partial string SocksPortInput { get; set; }
+
+        [ObservableProperty]
+        public partial string RedirPortInput { get; set; }
+
+        [ObservableProperty]
+        public partial string TProxyPortInput { get; set; }
+
+        [ObservableProperty]
+        public partial bool TunEnabled { get; set; }
+
+        [ObservableProperty]
+        public partial bool AllowLanEnabled { get; set; }
+
+        [ObservableProperty]
+        public partial bool Ipv6Enabled { get; set; }
+
+        [ObservableProperty]
+        public partial string SelectedModeTag { get; set; }
+
+        [ObservableProperty]
+        public partial string SelectedLogLevelTag { get; set; }
+
         public SettingsViewModel(
             LocalizedStrings localizedStrings,
             IThemeService themeService,
             IKernelPathService kernelPathService,
-            IAppSettingsService appSettingsService)
+            IAppSettingsService appSettingsService,
+            IProfileService profileService,
+            IConfigService configService,
+            IMihomoService mihomoService,
+            IProcessService processService,
+            ISystemProxyService systemProxyService)
         {
             _localizedStrings = localizedStrings;
             _themeService = themeService;
             _kernelPathService = kernelPathService;
             _appSettingsService = appSettingsService;
+            _profileService = profileService;
+            _configService = configService;
+            _mihomoService = mihomoService;
+            _processService = processService;
+            _systemProxyService = systemProxyService;
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
             _appSettingsService.SettingsChanged += OnAppSettingsChanged;
@@ -68,6 +138,20 @@ namespace ClashWinUI.ViewModels
             SelectedBackdropTag = MapBackdropToTag(_themeService.CurrentBackdrop);
             KernelPathInput = _kernelPathService.CustomKernelPath ?? _kernelPathService.DefaultKernelPath;
             SelectedCloseBehaviorTag = MapCloseBehaviorToTag(_appSettingsService.CloseBehavior);
+
+            HasActiveMixinProfile = false;
+            CurrentMixinProfileName = string.Empty;
+            CurrentMixinWorkspacePath = string.Empty;
+            MixinStatusMessage = string.Empty;
+            MixedPortInput = "0";
+            HttpPortInput = "0";
+            SocksPortInput = "0";
+            RedirPortInput = "0";
+            TProxyPortInput = "0";
+            SelectedModeTag = ModeRule;
+            SelectedLogLevelTag = LogInfo;
+
+            RefreshActiveProfileState();
         }
 
         [RelayCommand]
@@ -75,6 +159,88 @@ namespace ClashWinUI.ViewModels
         {
             _kernelPathService.SetCustomKernelPath(KernelPathInput);
             KernelPathInput = _kernelPathService.CustomKernelPath ?? _kernelPathService.DefaultKernelPath;
+        }
+
+        [RelayCommand(CanExecute = nameof(CanModifyMixin))]
+        private void OpenMixinFolder()
+        {
+            if (_activeMixinProfile is null || string.IsNullOrWhiteSpace(CurrentMixinWorkspacePath))
+            {
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = CurrentMixinWorkspacePath,
+                UseShellExecute = true,
+            });
+        }
+
+        [RelayCommand(CanExecute = nameof(CanModifyMixin))]
+        private async Task ApplyMixinAsync()
+        {
+            if (_activeMixinProfile is null)
+            {
+                return;
+            }
+
+            try
+            {
+                MixinSettings settings = BuildMixinSettingsFromInputs();
+                _configService.SaveMixin(_activeMixinProfile, settings);
+
+                string runtimePath = _configService.BuildRuntime(_activeMixinProfile);
+                bool applied = await _mihomoService.ApplyConfigAsync(runtimePath);
+                if (applied)
+                {
+                    int proxyPort = _processService.ResolveProxyPort(runtimePath);
+                    await _systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+                    MixinStatusMessage = _localizedStrings["SettingsMixinStatusApplied"];
+                }
+                else
+                {
+                    MixinStatusMessage = _localizedStrings["SettingsMixinStatusApplyFailed"];
+                }
+            }
+            catch (Exception ex)
+            {
+                MixinStatusMessage = string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message);
+            }
+        }
+
+        public void RefreshActiveProfileState()
+        {
+            _activeMixinProfile = _profileService.GetActiveProfile();
+            HasActiveMixinProfile = _activeMixinProfile is not null;
+            OpenMixinFolderCommand.NotifyCanExecuteChanged();
+            ApplyMixinCommand.NotifyCanExecuteChanged();
+
+            if (_activeMixinProfile is null)
+            {
+                CurrentMixinProfileName = _localizedStrings["ProfilesNoActive"];
+                CurrentMixinWorkspacePath = string.Empty;
+                MixinStatusMessage = _localizedStrings["SettingsMixinNoActiveProfile"];
+                ResetMixinInputs();
+                return;
+            }
+
+            try
+            {
+                ProfileConfigWorkspace workspace = _configService.EnsureWorkspace(_activeMixinProfile);
+                MixinSettings settings = _configService.LoadMixin(_activeMixinProfile);
+
+                CurrentMixinProfileName = _activeMixinProfile.DisplayName;
+                CurrentMixinWorkspacePath = workspace.DirectoryPath;
+                MixinStatusMessage = string.Empty;
+                ApplyMixinSettings(settings);
+            }
+            catch (Exception ex)
+            {
+                CurrentMixinProfileName = _activeMixinProfile.DisplayName;
+                CurrentMixinWorkspacePath = _activeMixinProfile.WorkspaceDirectory;
+                MixinStatusMessage = string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message);
+                ResetMixinInputs();
+            }
         }
 
         partial void OnSelectedLanguageTagChanged(string value)
@@ -144,6 +310,85 @@ namespace ClashWinUI.ViewModels
             _isUpdatingFromAppSettings = false;
         }
 
+        private bool CanModifyMixin()
+        {
+            return HasActiveMixinProfile;
+        }
+
+        private void ApplyMixinSettings(MixinSettings settings)
+        {
+            MixedPortInput = FormatPort(settings.MixedPort);
+            HttpPortInput = FormatPort(settings.HttpPort);
+            SocksPortInput = FormatPort(settings.SocksPort);
+            RedirPortInput = FormatPort(settings.RedirPort);
+            TProxyPortInput = FormatPort(settings.TProxyPort);
+            TunEnabled = settings.TunEnabled;
+            AllowLanEnabled = settings.AllowLan;
+            Ipv6Enabled = settings.Ipv6Enabled;
+            SelectedModeTag = NormalizeModeTag(settings.Mode);
+            SelectedLogLevelTag = NormalizeLogLevelTag(settings.LogLevel);
+        }
+
+        private MixinSettings BuildMixinSettingsFromInputs()
+        {
+            return new MixinSettings
+            {
+                MixedPort = ParsePort(MixedPortInput),
+                HttpPort = ParsePort(HttpPortInput),
+                SocksPort = ParsePort(SocksPortInput),
+                RedirPort = ParsePort(RedirPortInput),
+                TProxyPort = ParsePort(TProxyPortInput),
+                TunEnabled = TunEnabled,
+                AllowLan = AllowLanEnabled,
+                Ipv6Enabled = Ipv6Enabled,
+                Mode = NormalizeModeTag(SelectedModeTag),
+                LogLevel = NormalizeLogLevelTag(SelectedLogLevelTag),
+            };
+        }
+
+        private void ResetMixinInputs()
+        {
+            ApplyMixinSettings(new MixinSettings());
+        }
+
+        private static string FormatPort(int? value)
+        {
+            return value.HasValue && value.Value > 0
+                ? value.Value.ToString()
+                : "0";
+        }
+
+        private static int? ParsePort(string? raw)
+        {
+            if (!int.TryParse(raw?.Trim(), out int value))
+            {
+                return null;
+            }
+
+            return value > 0 && value <= 65535 ? value : null;
+        }
+
+        private static string NormalizeModeTag(string? tag)
+        {
+            return tag?.Trim().ToLowerInvariant() switch
+            {
+                ModeGlobal => ModeGlobal,
+                ModeDirect => ModeDirect,
+                _ => ModeRule,
+            };
+        }
+
+        private static string NormalizeLogLevelTag(string? tag)
+        {
+            return tag?.Trim().ToLowerInvariant() switch
+            {
+                LogDebug => LogDebug,
+                LogWarning => LogWarning,
+                LogError => LogError,
+                _ => LogInfo,
+            };
+        }
+
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName != nameof(LocalizedStrings.CurrentLanguage) && e.PropertyName != "Item[]")
@@ -157,6 +402,11 @@ namespace ClashWinUI.ViewModels
                 _isUpdatingFromLocalization = true;
                 SelectedLanguageTag = _localizedStrings.CurrentLanguage;
                 _isUpdatingFromLocalization = false;
+            }
+
+            if (!HasActiveMixinProfile)
+            {
+                MixinStatusMessage = _localizedStrings["SettingsMixinNoActiveProfile"];
             }
         }
 

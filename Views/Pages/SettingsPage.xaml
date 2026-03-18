@@ -131,6 +131,175 @@
                     </StackPanel>
                 </controls:SettingsCard>
 
+                <controls:SettingsCard
+                    Description="{Binding [SettingsMixinDescription], Source={StaticResource L}}"
+                    Header="{Binding [SettingsMixinHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE8B7;}"
+                    IsEnabled="{Binding HasActiveMixinProfile}">
+                    <StackPanel Spacing="12">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding [SettingsMixinCurrentProfileLabel], Source={StaticResource L}}" />
+                            <TextBlock
+                                FontWeight="SemiBold"
+                                Text="{Binding CurrentMixinProfileName}" />
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding [SettingsMixinWorkspaceLabel], Source={StaticResource L}}" />
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{Binding CurrentMixinWorkspacePath}"
+                                TextWrapping="WrapWholeWords" />
+                        </StackPanel>
+
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{Binding MixinStatusMessage}"
+                            TextWrapping="WrapWholeWords" />
+
+                        <StackPanel Spacing="12">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel
+                                    Grid.Column="0"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinMixedPortLabel], Source={StaticResource L}}" />
+                                    <TextBox Text="{Binding MixedPortInput, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinHttpPortLabel], Source={StaticResource L}}" />
+                                    <TextBox Text="{Binding HttpPortInput, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    Grid.Column="2"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinSocksPortLabel], Source={StaticResource L}}" />
+                                    <TextBox Text="{Binding SocksPortInput, Mode=TwoWay}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel
+                                    Grid.Column="0"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinRedirPortLabel], Source={StaticResource L}}" />
+                                    <TextBox Text="{Binding RedirPortInput, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinTProxyPortLabel], Source={StaticResource L}}" />
+                                    <TextBox Text="{Binding TProxyPortInput, Mode=TwoWay}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel
+                                    Grid.Column="0"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinTunEnabledLabel], Source={StaticResource L}}" />
+                                    <ToggleSwitch IsOn="{Binding TunEnabled, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinAllowLanLabel], Source={StaticResource L}}" />
+                                    <ToggleSwitch IsOn="{Binding AllowLanEnabled, Mode=TwoWay}" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    Grid.Column="2"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinIpv6Label], Source={StaticResource L}}" />
+                                    <ToggleSwitch IsOn="{Binding Ipv6Enabled, Mode=TwoWay}" />
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel
+                                    Grid.Column="0"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinModeLabel], Source={StaticResource L}}" />
+                                    <ComboBox
+                                        SelectedValuePath="Tag"
+                                        SelectedValue="{Binding SelectedModeTag, Mode=TwoWay}">
+                                        <ComboBoxItem
+                                            Tag="rule"
+                                            Content="{Binding [SettingsMixinModeRule], Source={StaticResource L}}" />
+                                        <ComboBoxItem
+                                            Tag="global"
+                                            Content="{Binding [SettingsMixinModeGlobal], Source={StaticResource L}}" />
+                                        <ComboBoxItem
+                                            Tag="direct"
+                                            Content="{Binding [SettingsMixinModeDirect], Source={StaticResource L}}" />
+                                    </ComboBox>
+                                </StackPanel>
+
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Spacing="8">
+                                    <TextBlock Text="{Binding [SettingsMixinLogLevelLabel], Source={StaticResource L}}" />
+                                    <ComboBox
+                                        SelectedValuePath="Tag"
+                                        SelectedValue="{Binding SelectedLogLevelTag, Mode=TwoWay}">
+                                        <ComboBoxItem
+                                            Tag="debug"
+                                            Content="{Binding [SettingsMixinLogLevelDebug], Source={StaticResource L}}" />
+                                        <ComboBoxItem
+                                            Tag="info"
+                                            Content="{Binding [SettingsMixinLogLevelInfo], Source={StaticResource L}}" />
+                                        <ComboBoxItem
+                                            Tag="warning"
+                                            Content="{Binding [SettingsMixinLogLevelWarning], Source={StaticResource L}}" />
+                                        <ComboBoxItem
+                                            Tag="error"
+                                            Content="{Binding [SettingsMixinLogLevelError], Source={StaticResource L}}" />
+                                    </ComboBox>
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel
+                                Orientation="Horizontal"
+                                Spacing="8">
+                                <Button
+                                    Command="{Binding OpenMixinFolderCommand}"
+                                    Content="{Binding [SettingsMixinOpenFolderButton], Source={StaticResource L}}" />
+                                <Button
+                                    Command="{Binding ApplyMixinCommand}"
+                                    Content="{Binding [SettingsMixinApplyButton], Source={StaticResource L}}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </controls:SettingsCard>
+
                 <TextBlock
                     Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
                     Text="About" />

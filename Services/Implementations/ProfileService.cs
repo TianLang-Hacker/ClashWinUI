@@ -18,12 +18,14 @@ namespace ClashWinUI.Services.Implementations
         private const string IndexFileName = "profiles.json";
         private static readonly HttpClient HttpClient = new();
 
+        private readonly IConfigService _configService;
         private readonly IAppLogService _logService;
         private readonly string _indexFilePath;
         private ProfileStoreState _store;
 
-        public ProfileService(IAppLogService logService)
+        public ProfileService(IConfigService configService, IAppLogService logService)
         {
+            _configService = configService;
             _logService = logService;
 
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -38,6 +40,7 @@ namespace ClashWinUI.Services.Implementations
 
         public IReadOnlyList<ProfileItem> GetProfiles()
         {
+            EnsureWorkspaceLayouts();
             RefreshNodeCountsIfChanged();
             return _store.Profiles
                 .OrderByDescending(item => item.UpdatedAt)
@@ -46,6 +49,7 @@ namespace ClashWinUI.Services.Implementations
 
         public ProfileItem? GetActiveProfile()
         {
+            EnsureWorkspaceLayouts();
             RefreshNodeCountsIfChanged();
             if (string.IsNullOrWhiteSpace(_store.ActiveProfileId))
             {
@@ -101,13 +105,6 @@ namespace ClashWinUI.Services.Implementations
                 string.Equals(item.SourceType, "subscription", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(item.Source, subscriptionUrl, StringComparison.OrdinalIgnoreCase));
 
-            string fileName = existing is null
-                ? BuildFileName(uri.Host, ".yaml")
-                : Path.GetFileName(existing.FilePath);
-            string filePath = Path.Combine(ProfilesDirectory, fileName);
-            await File.WriteAllBytesAsync(filePath, normalizedContent, cancellationToken).ConfigureAwait(false);
-
-            int nodeCount = ProxyConfigParser.ParseFromFile(filePath).Count;
             ProfileItem profile = existing ?? new ProfileItem
             {
                 Id = Guid.NewGuid().ToString("N"),
@@ -117,9 +114,16 @@ namespace ClashWinUI.Services.Implementations
             profile.DisplayName = existing?.DisplayName ?? BuildDisplayName(uri.Host);
             profile.SourceType = "subscription";
             profile.Source = subscriptionUrl;
-            profile.FilePath = filePath;
             profile.UpdatedAt = DateTimeOffset.Now;
-            profile.NodeCount = nodeCount;
+
+            var workspace = _configService.GetWorkspace(profile);
+            Directory.CreateDirectory(workspace.DirectoryPath);
+            string sourcePath = workspace.SourcePath;
+            await File.WriteAllBytesAsync(sourcePath, normalizedContent, cancellationToken).ConfigureAwait(false);
+
+            profile.WorkspaceDirectory = workspace.DirectoryPath;
+            profile.FilePath = sourcePath;
+            profile.NodeCount = ProxyConfigParser.ParseFromFile(sourcePath).Count;
 
             if (existing is null)
             {
@@ -131,6 +135,8 @@ namespace ClashWinUI.Services.Implementations
                 _store.ActiveProfileId = profile.Id;
             }
 
+            _configService.EnsureWorkspace(profile);
+            _configService.BuildRuntime(profile);
             SaveStore();
             _logService.Add($"Subscription saved: {MaskSensitiveQuery(uri)}");
             return profile;
@@ -146,9 +152,6 @@ namespace ClashWinUI.Services.Implementations
 
             string sourceExtension = Path.GetExtension(localFilePath);
             string extension = string.IsNullOrWhiteSpace(sourceExtension) ? ".yaml" : sourceExtension;
-            string fileName = BuildFileName(Path.GetFileNameWithoutExtension(localFilePath), extension);
-            string destinationPath = Path.Combine(ProfilesDirectory, fileName);
-
             byte[] importedContent = await File.ReadAllBytesAsync(localFilePath, cancellationToken).ConfigureAwait(false);
             SubscriptionContentNormalizationResult normalization = SubscriptionContentNormalizer.Normalize(importedContent);
             byte[] normalizedContent = normalization.Content;
@@ -160,20 +163,24 @@ namespace ClashWinUI.Services.Implementations
                 _logService.Add($"Local share links converted to Mihomo YAML. Nodes={convertedCount}.");
             }
 
-            await File.WriteAllBytesAsync(destinationPath, normalizedContent, cancellationToken).ConfigureAwait(false);
-
-            int nodeCount = ProxyConfigParser.ParseFromFile(destinationPath).Count;
             var profile = new ProfileItem
             {
                 Id = Guid.NewGuid().ToString("N"),
                 DisplayName = Path.GetFileNameWithoutExtension(localFilePath),
                 SourceType = "local",
                 Source = localFilePath,
-                FilePath = destinationPath,
                 CreatedAt = DateTimeOffset.Now,
                 UpdatedAt = DateTimeOffset.Now,
-                NodeCount = nodeCount,
             };
+
+            var workspace = _configService.GetWorkspace(profile);
+            Directory.CreateDirectory(workspace.DirectoryPath);
+            string destinationPath = workspace.SourcePath;
+            await File.WriteAllBytesAsync(destinationPath, normalizedContent, cancellationToken).ConfigureAwait(false);
+
+            profile.WorkspaceDirectory = workspace.DirectoryPath;
+            profile.FilePath = destinationPath;
+            profile.NodeCount = ProxyConfigParser.ParseFromFile(destinationPath).Count;
 
             _store.Profiles.Add(profile);
             if (string.IsNullOrWhiteSpace(_store.ActiveProfileId))
@@ -181,6 +188,8 @@ namespace ClashWinUI.Services.Implementations
                 _store.ActiveProfileId = profile.Id;
             }
 
+            _configService.EnsureWorkspace(profile);
+            _configService.BuildRuntime(profile);
             SaveStore();
             _logService.Add($"Local profile imported: {localFilePath}");
             return profile;
@@ -200,6 +209,8 @@ namespace ClashWinUI.Services.Implementations
             }
 
             _store.ActiveProfileId = profileId;
+            _configService.EnsureWorkspace(profile);
+            _configService.BuildRuntime(profile);
             SaveStore();
             _logService.Add($"Active profile switched: {profile.DisplayName}");
             return true;
@@ -219,7 +230,18 @@ namespace ClashWinUI.Services.Implementations
             }
 
             _store.Profiles.Remove(profile);
-            if (File.Exists(profile.FilePath))
+            if (!string.IsNullOrWhiteSpace(profile.WorkspaceDirectory) && Directory.Exists(profile.WorkspaceDirectory))
+            {
+                try
+                {
+                    Directory.Delete(profile.WorkspaceDirectory, recursive: true);
+                }
+                catch
+                {
+                    // Keep metadata deletion successful even if workspace cannot be deleted.
+                }
+            }
+            else if (File.Exists(profile.FilePath))
             {
                 try
                 {
@@ -294,6 +316,29 @@ namespace ClashWinUI.Services.Implementations
                 {
                     profile.NodeCount = parsedCount;
                     profile.UpdatedAt = DateTimeOffset.Now;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                SaveStore();
+            }
+        }
+
+        private void EnsureWorkspaceLayouts()
+        {
+            bool changed = false;
+            foreach (ProfileItem profile in _store.Profiles)
+            {
+                string originalPath = profile.FilePath;
+                string originalWorkspace = profile.WorkspaceDirectory;
+
+                _configService.EnsureWorkspace(profile);
+
+                if (!string.Equals(originalPath, profile.FilePath, StringComparison.OrdinalIgnoreCase)
+                    || !string.Equals(originalWorkspace, profile.WorkspaceDirectory, StringComparison.OrdinalIgnoreCase))
+                {
                     changed = true;
                 }
             }

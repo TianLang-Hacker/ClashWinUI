@@ -1,3 +1,4 @@
+using ClashWinUI.Common;
 using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
@@ -15,7 +16,12 @@ namespace ClashWinUI.ViewModels
     {
         private readonly LocalizedStrings _localizedStrings;
         private readonly IProfileService _profileService;
+        private readonly IConfigService _configService;
         private readonly IMihomoService _mihomoService;
+        private readonly IProcessService _processService;
+        private readonly ISystemProxyService _systemProxyService;
+        private bool _suppressSelectionActivation;
+        private string? _pendingSelectedProfileId;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -40,11 +46,17 @@ namespace ClashWinUI.ViewModels
         public ProfilesViewModel(
             LocalizedStrings localizedStrings,
             IProfileService profileService,
-            IMihomoService mihomoService)
+            IConfigService configService,
+            IMihomoService mihomoService,
+            IProcessService processService,
+            ISystemProxyService systemProxyService)
         {
             _localizedStrings = localizedStrings;
             _profileService = profileService;
+            _configService = configService;
             _mihomoService = mihomoService;
+            _processService = processService;
+            _systemProxyService = systemProxyService;
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
 
             Title = _localizedStrings["PageProfiles"];
@@ -78,9 +90,8 @@ namespace ClashWinUI.ViewModels
             try
             {
                 ProfileItem profile = await _profileService.AddOrUpdateFromSubscriptionAsync(SubscriptionUrl);
-                bool switched = _profileService.SetActiveProfile(profile.Id);
                 ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(profile.FilePath);
-                bool applied = switched && await _mihomoService.ApplyConfigAsync(profile.FilePath);
+                bool applied = await ActivateProfileAsync(profile);
 
                 ReloadProfiles();
                 StatusMessage = compatibility == ProfileCompatibilityStatus.Base64NotYaml
@@ -110,9 +121,8 @@ namespace ClashWinUI.ViewModels
             try
             {
                 ProfileItem profile = await _profileService.ImportLocalFileAsync(filePath);
-                bool switched = _profileService.SetActiveProfile(profile.Id);
                 ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(profile.FilePath);
-                bool applied = switched && await _mihomoService.ApplyConfigAsync(profile.FilePath);
+                bool applied = await ActivateProfileAsync(profile);
 
                 ReloadProfiles();
                 StatusMessage = compatibility == ProfileCompatibilityStatus.Base64NotYaml
@@ -131,34 +141,7 @@ namespace ClashWinUI.ViewModels
             }
         }
 
-        [RelayCommand(CanExecute = nameof(CanActivateOrDelete))]
-        private async Task ActivateSelectedAsync()
-        {
-            if (SelectedProfile is null || IsBusy)
-            {
-                return;
-            }
-
-            IsBusy = true;
-            try
-            {
-                bool switched = _profileService.SetActiveProfile(SelectedProfile.Id);
-                ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(SelectedProfile.FilePath);
-                bool applied = switched && await _mihomoService.ApplyConfigAsync(SelectedProfile.FilePath);
-                ReloadProfiles();
-                StatusMessage = compatibility == ProfileCompatibilityStatus.Base64NotYaml
-                    ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
-                    : (applied
-                        ? _localizedStrings["ProfilesStatusActivated"]
-                        : _localizedStrings["ProfilesStatusActivatedNotApplied"]);
-            }
-            finally
-            {
-                IsBusy = false;
-            }
-        }
-
-        [RelayCommand(CanExecute = nameof(CanActivateOrDelete))]
+        [RelayCommand(CanExecute = nameof(CanDeleteSelected))]
         private Task DeleteSelectedAsync()
         {
             if (SelectedProfile is null || IsBusy)
@@ -174,18 +157,116 @@ namespace ClashWinUI.ViewModels
 
         partial void OnSelectedProfileChanged(ProfileItem? value)
         {
-            ActivateSelectedCommand.NotifyCanExecuteChanged();
+            DeleteSelectedCommand.NotifyCanExecuteChanged();
+
+            if (value is null || _suppressSelectionActivation)
+            {
+                return;
+            }
+
+            if (IsBusy)
+            {
+                _pendingSelectedProfileId = value.Id;
+                return;
+            }
+
+            if (IsActiveProfile(value.Id))
+            {
+                return;
+            }
+
+            _ = ActivateSelectedProfileAsync(value);
+        }
+
+        partial void OnIsBusyChanged(bool value)
+        {
             DeleteSelectedCommand.NotifyCanExecuteChanged();
         }
 
-        private bool CanActivateOrDelete()
+        private bool CanDeleteSelected()
         {
             return SelectedProfile is not null && !IsBusy;
         }
 
+        private async Task<bool> ApplyRuntimeAndSyncProxyAsync(ProfileItem profile)
+        {
+            string runtimePath = _configService.GetRuntimePath(profile);
+            bool applied = await _mihomoService.ApplyConfigAsync(runtimePath);
+            if (!applied)
+            {
+                return false;
+            }
+
+            int proxyPort = _processService.ResolveProxyPort(runtimePath);
+            await _systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+            return true;
+        }
+
+        private async Task<bool> ActivateProfileAsync(ProfileItem profile)
+        {
+            return _profileService.SetActiveProfile(profile.Id)
+                && await ApplyRuntimeAndSyncProxyAsync(profile);
+        }
+
+        private async Task ActivateSelectedProfileAsync(ProfileItem profile)
+        {
+            if (IsBusy || IsActiveProfile(profile.Id))
+            {
+                return;
+            }
+
+            IsBusy = true;
+            _pendingSelectedProfileId = null;
+            try
+            {
+                ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(profile.FilePath);
+                bool applied = await ActivateProfileAsync(profile);
+                ReloadProfiles();
+                StatusMessage = compatibility == ProfileCompatibilityStatus.Base64NotYaml
+                    ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
+                    : (applied
+                        ? _localizedStrings["ProfilesStatusActivated"]
+                        : _localizedStrings["ProfilesStatusActivatedNotApplied"]);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = $"{_localizedStrings["ProfilesStatusFailed"]}: {ex.Message}";
+            }
+            finally
+            {
+                IsBusy = false;
+                await ProcessPendingSelectionAsync();
+            }
+        }
+
+        private async Task ProcessPendingSelectionAsync()
+        {
+            string? pendingId = _pendingSelectedProfileId;
+            _pendingSelectedProfileId = null;
+
+            if (string.IsNullOrWhiteSpace(pendingId)
+                || SelectedProfile is null
+                || !string.Equals(SelectedProfile.Id, pendingId, StringComparison.OrdinalIgnoreCase)
+                || IsActiveProfile(pendingId))
+            {
+                return;
+            }
+
+            await ActivateSelectedProfileAsync(SelectedProfile);
+        }
+
+        private bool IsActiveProfile(string? profileId)
+        {
+            return !string.IsNullOrWhiteSpace(profileId)
+                && string.Equals(
+                    _profileService.GetActiveProfile()?.Id,
+                    profileId,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
         private void ReloadProfiles()
         {
-            ProfileItem? previouslySelected = SelectedProfile;
+            string? previouslySelectedId = SelectedProfile?.Id;
 
             Profiles.Clear();
             foreach (ProfileItem profile in _profileService.GetProfiles())
@@ -197,14 +278,30 @@ namespace ClashWinUI.ViewModels
             string activeName = active?.DisplayName ?? _localizedStrings["ProfilesNoActive"];
             ActiveProfileText = $"{_localizedStrings["ProfilesActiveLabel"]}: {activeName}";
 
-            if (previouslySelected is not null)
+            ProfileItem? nextSelected = null;
+            if (!string.IsNullOrWhiteSpace(previouslySelectedId))
             {
-                SelectedProfile = Profiles.FirstOrDefault(item => item.Id == previouslySelected.Id);
+                nextSelected = Profiles.FirstOrDefault(item => item.Id == previouslySelectedId);
             }
 
-            if (SelectedProfile is null && active is not null)
+            if (nextSelected is null && active is not null)
             {
-                SelectedProfile = Profiles.FirstOrDefault(item => item.Id == active.Id);
+                nextSelected = Profiles.FirstOrDefault(item => item.Id == active.Id);
+            }
+
+            SetSelectedProfileSilently(nextSelected);
+        }
+
+        private void SetSelectedProfileSilently(ProfileItem? profile)
+        {
+            _suppressSelectionActivation = true;
+            try
+            {
+                SelectedProfile = profile;
+            }
+            finally
+            {
+                _suppressSelectionActivation = false;
             }
         }
 

@@ -18,8 +18,8 @@ namespace ClashWinUI.Services.Implementations
         private const string DefaultStartupFileName = "default-startup.yaml";
         private const int DefaultProxyPort = 7890;
 
-        private static readonly Regex MixedPortRegex = new(@"^\s*mixed-port\s*:\s*(?<value>\d+)\s*(#.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-        private static readonly Regex PortRegex = new(@"^\s*port\s*:\s*(?<value>\d+)\s*(#.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex MixedPortRegex = new(@"^\uFEFF?mixed-port\s*:\s*(?<value>\d+)\s*(#.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        private static readonly Regex PortRegex = new(@"^\uFEFF?port\s*:\s*(?<value>\d+)\s*(#.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly IKernelPathService _kernelPathService;
         private readonly IAppLogService _logService;

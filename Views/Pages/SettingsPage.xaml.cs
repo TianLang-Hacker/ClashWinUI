@@ -21,6 +21,7 @@ namespace ClashWinUI.Views.Pages
             if (e.Parameter is SettingsViewModel viewModel)
             {
                 DataContext = viewModel;
+                viewModel.RefreshActiveProfileState();
             }
 
             base.OnNavigatedTo(e);

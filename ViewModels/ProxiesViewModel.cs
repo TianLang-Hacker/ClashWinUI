@@ -3,6 +3,7 @@ using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Dispatching;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -33,7 +34,10 @@ namespace ClashWinUI.ViewModels
 
         private readonly LocalizedStrings _localizedStrings;
         private readonly IProfileService _profileService;
+        private readonly IConfigService _configService;
         private readonly IMihomoService _mihomoService;
+        private readonly DispatcherQueue? _dispatcherQueue;
+        private bool _isWatchingRuntimeChanges;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -58,11 +62,14 @@ namespace ClashWinUI.ViewModels
         public ProxiesViewModel(
             LocalizedStrings localizedStrings,
             IProfileService profileService,
+            IConfigService configService,
             IMihomoService mihomoService)
         {
             _localizedStrings = localizedStrings;
             _profileService = profileService;
+            _configService = configService;
             _mihomoService = mihomoService;
+            _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
 
             Title = _localizedStrings["PageProxies"];
@@ -72,13 +79,35 @@ namespace ClashWinUI.ViewModels
 
         public Task InitializeAsync()
         {
-            return RefreshNodesAsync();
+            return RefreshNodesAsync(reapplyRuntime: true);
+        }
+
+        public void StartWatchingRuntimeChanges()
+        {
+            if (_isWatchingRuntimeChanges)
+            {
+                return;
+            }
+
+            _mihomoService.ConfigApplied += OnMihomoConfigApplied;
+            _isWatchingRuntimeChanges = true;
+        }
+
+        public void StopWatchingRuntimeChanges()
+        {
+            if (!_isWatchingRuntimeChanges)
+            {
+                return;
+            }
+
+            _mihomoService.ConfigApplied -= OnMihomoConfigApplied;
+            _isWatchingRuntimeChanges = false;
         }
 
         [RelayCommand]
         private Task RefreshAsync()
         {
-            return RefreshNodesAsync();
+            return RefreshNodesAsync(reapplyRuntime: true);
         }
 
         [RelayCommand(CanExecute = nameof(CanTestSelected))]
@@ -195,7 +224,25 @@ namespace ClashWinUI.ViewModels
                 && !NonTestableNodeTypes.Contains(node.Type);
         }
 
-        private async Task RefreshNodesAsync()
+        private void OnMihomoConfigApplied(object? sender, string configPath)
+        {
+            if (_dispatcherQueue is null)
+            {
+                return;
+            }
+
+            _dispatcherQueue.TryEnqueue(async () =>
+            {
+                if (IsBusy)
+                {
+                    return;
+                }
+
+                await RefreshNodesAsync(reapplyRuntime: false);
+            });
+        }
+
+        private async Task RefreshNodesAsync(bool reapplyRuntime)
         {
             IsBusy = true;
             try
@@ -212,7 +259,21 @@ namespace ClashWinUI.ViewModels
                 ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(ActiveProfile.FilePath);
                 bool isIncompatibleProfile = compatibility == ProfileCompatibilityStatus.Base64NotYaml;
 
-                bool applied = await _mihomoService.ApplyConfigAsync(ActiveProfile.FilePath);
+                string runtimePath = ActiveProfile.FilePath;
+                bool applied = false;
+                try
+                {
+                    runtimePath = _configService.GetRuntimePath(ActiveProfile);
+                    if (reapplyRuntime)
+                    {
+                        applied = await _mihomoService.ApplyConfigAsync(runtimePath);
+                    }
+                }
+                catch
+                {
+                    applied = false;
+                }
+
                 IReadOnlyList<ProxyNode> mihomoNodes = await _mihomoService.GetProxiesAsync();
                 if (mihomoNodes.Count > 0)
                 {
@@ -227,7 +288,7 @@ namespace ClashWinUI.ViewModels
                     }
                     else
                     {
-                        StatusMessage = applied
+                        StatusMessage = reapplyRuntime && applied
                             ? string.Format(_localizedStrings["ProxiesStatusLoaded"], Nodes.Count)
                             : string.Format(_localizedStrings["ProxiesStatusLoadedNoApply"], Nodes.Count);
                     }
@@ -235,7 +296,7 @@ namespace ClashWinUI.ViewModels
                     return;
                 }
 
-                IReadOnlyList<ProxyNode> fallbackNodes = ProxyConfigParser.ParseFromFile(ActiveProfile.FilePath);
+                IReadOnlyList<ProxyNode> fallbackNodes = ProxyConfigParser.ParseFromFile(runtimePath);
                 foreach (ProxyNode node in fallbackNodes)
                 {
                     Nodes.Add(node);
@@ -244,6 +305,10 @@ namespace ClashWinUI.ViewModels
                 StatusMessage = isIncompatibleProfile
                     ? string.Format(_localizedStrings["ProxiesStatusFallbackLoadedIncompatibleProfile"], Nodes.Count)
                     : string.Format(_localizedStrings["ProxiesStatusFallbackLoaded"], Nodes.Count);
+            }
+            catch (Exception ex)
+            {
+                StatusMessage = ex.Message;
             }
             finally
             {

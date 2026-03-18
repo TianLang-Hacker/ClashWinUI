@@ -20,9 +20,16 @@ namespace ClashWinUI.Views.Pages
                 _viewModel = viewModel;
                 DataContext = viewModel;
                 await viewModel.InitializeAsync();
+                viewModel.StartWatchingRuntimeChanges();
             }
 
             base.OnNavigatedTo(e);
+        }
+
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            _viewModel?.StopWatchingRuntimeChanges();
+            base.OnNavigatedFrom(e);
         }
     }
 }

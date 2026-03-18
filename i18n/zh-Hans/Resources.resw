@@ -210,6 +210,87 @@
   <data name="KernelPathSaveButton" xml:space="preserve">
     <value>保存</value>
   </data>
+  <data name="SettingsMixinHeader" xml:space="preserve">
+    <value>运行配置</value>
+  </data>
+  <data name="SettingsMixinDescription" xml:space="preserve">
+    <value>编辑当前激活配置的 mixin.yaml，并重建 runtime.yaml。</value>
+  </data>
+  <data name="SettingsMixinCurrentProfileLabel" xml:space="preserve">
+    <value>当前配置</value>
+  </data>
+  <data name="SettingsMixinWorkspaceLabel" xml:space="preserve">
+    <value>工作区</value>
+  </data>
+  <data name="SettingsMixinNoActiveProfile" xml:space="preserve">
+    <value>请先激活一个配置。</value>
+  </data>
+  <data name="SettingsMixinMixedPortLabel" xml:space="preserve">
+    <value>Mixed 端口</value>
+  </data>
+  <data name="SettingsMixinHttpPortLabel" xml:space="preserve">
+    <value>HTTP 端口</value>
+  </data>
+  <data name="SettingsMixinSocksPortLabel" xml:space="preserve">
+    <value>Socks 端口</value>
+  </data>
+  <data name="SettingsMixinRedirPortLabel" xml:space="preserve">
+    <value>Redir 端口</value>
+  </data>
+  <data name="SettingsMixinTProxyPortLabel" xml:space="preserve">
+    <value>TProxy 端口</value>
+  </data>
+  <data name="SettingsMixinTunEnabledLabel" xml:space="preserve">
+    <value>Tun 模式</value>
+  </data>
+  <data name="SettingsMixinAllowLanLabel" xml:space="preserve">
+    <value>允许局域网</value>
+  </data>
+  <data name="SettingsMixinIpv6Label" xml:space="preserve">
+    <value>IPv6</value>
+  </data>
+  <data name="SettingsMixinModeLabel" xml:space="preserve">
+    <value>模式</value>
+  </data>
+  <data name="SettingsMixinLogLevelLabel" xml:space="preserve">
+    <value>日志级别</value>
+  </data>
+  <data name="SettingsMixinModeRule" xml:space="preserve">
+    <value>规则</value>
+  </data>
+  <data name="SettingsMixinModeGlobal" xml:space="preserve">
+    <value>全局</value>
+  </data>
+  <data name="SettingsMixinModeDirect" xml:space="preserve">
+    <value>直连</value>
+  </data>
+  <data name="SettingsMixinLogLevelDebug" xml:space="preserve">
+    <value>调试</value>
+  </data>
+  <data name="SettingsMixinLogLevelInfo" xml:space="preserve">
+    <value>信息</value>
+  </data>
+  <data name="SettingsMixinLogLevelWarning" xml:space="preserve">
+    <value>警告</value>
+  </data>
+  <data name="SettingsMixinLogLevelError" xml:space="preserve">
+    <value>错误</value>
+  </data>
+  <data name="SettingsMixinOpenFolderButton" xml:space="preserve">
+    <value>打开文件夹</value>
+  </data>
+  <data name="SettingsMixinApplyButton" xml:space="preserve">
+    <value>立即生效</value>
+  </data>
+  <data name="SettingsMixinStatusApplied" xml:space="preserve">
+    <value>Mixin 已保存，runtime 已生效。</value>
+  </data>
+  <data name="SettingsMixinStatusApplyFailed" xml:space="preserve">
+    <value>runtime 已生成，但应用到 Mihomo 失败。</value>
+  </data>
+  <data name="SettingsMixinStatusLoadFailed" xml:space="preserve">
+    <value>加载 mixin 设置失败：{0}</value>
+  </data>
   <data name="ThemeHeader" xml:space="preserve">
     <value>主题</value>
   </data>
@@ -281,9 +362,6 @@
   </data>
   <data name="ProfilesImportLocalButton" xml:space="preserve">
     <value>导入本地</value>
-  </data>
-  <data name="ProfilesActivateButton" xml:space="preserve">
-    <value>激活</value>
   </data>
   <data name="ProfilesDeleteButton" xml:space="preserve">
     <value>删除</value>

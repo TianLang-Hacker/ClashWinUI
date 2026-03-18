@@ -34,9 +34,6 @@
                     Click="ImportLocalFileButton_Click"
                     Content="{Binding [ProfilesImportLocalButton], Source={StaticResource L}}" />
                 <Button
-                    Command="{Binding ActivateSelectedCommand}"
-                    Content="{Binding [ProfilesActivateButton], Source={StaticResource L}}" />
-                <Button
                     Command="{Binding DeleteSelectedCommand}"
                     Content="{Binding [ProfilesDeleteButton], Source={StaticResource L}}" />
             </StackPanel>

@@ -9,6 +9,7 @@ namespace ClashWinUI.Models
         public string SourceType { get; set; } = "subscription";
         public string Source { get; set; } = string.Empty;
         public string FilePath { get; set; } = string.Empty;
+        public string WorkspaceDirectory { get; set; } = string.Empty;
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.Now;
         public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
         public int NodeCount { get; set; }

@@ -39,6 +39,8 @@ namespace ClashWinUI.Services.Implementations
 
         private static readonly TimeSpan ApplyFailureLogDedupeWindow = TimeSpan.FromSeconds(20);
 
+        public event EventHandler<string>? ConfigApplied;
+
         public MihomoService(IAppLogService logService)
         {
             _logService = logService;
@@ -81,6 +83,7 @@ namespace ClashWinUI.Services.Implementations
                 {
                     ClearApplyFailureHistory(configPath);
                     _logService.Add($"Mihomo config applied: {configPath}");
+                    ConfigApplied?.Invoke(this, configPath);
                     return true;
                 }
 
@@ -96,6 +99,7 @@ namespace ClashWinUI.Services.Implementations
                     {
                         ClearApplyFailureHistory(configPath);
                         _logService.Add($"Mihomo config applied: {configPath}");
+                        ConfigApplied?.Invoke(this, configPath);
                         return true;
                     }
 

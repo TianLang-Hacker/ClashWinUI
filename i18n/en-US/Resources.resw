@@ -234,6 +234,87 @@
   <data name="KernelPathSaveButton" xml:space="preserve">
     <value>Save</value>
   </data>
+  <data name="SettingsMixinHeader" xml:space="preserve">
+    <value>Runtime Config</value>
+  </data>
+  <data name="SettingsMixinDescription" xml:space="preserve">
+    <value>Edit the active profile mixin.yaml and rebuild runtime.yaml.</value>
+  </data>
+  <data name="SettingsMixinCurrentProfileLabel" xml:space="preserve">
+    <value>Current profile</value>
+  </data>
+  <data name="SettingsMixinWorkspaceLabel" xml:space="preserve">
+    <value>Workspace</value>
+  </data>
+  <data name="SettingsMixinNoActiveProfile" xml:space="preserve">
+    <value>Please activate a profile first.</value>
+  </data>
+  <data name="SettingsMixinMixedPortLabel" xml:space="preserve">
+    <value>Mixed Port</value>
+  </data>
+  <data name="SettingsMixinHttpPortLabel" xml:space="preserve">
+    <value>HTTP Port</value>
+  </data>
+  <data name="SettingsMixinSocksPortLabel" xml:space="preserve">
+    <value>Socks Port</value>
+  </data>
+  <data name="SettingsMixinRedirPortLabel" xml:space="preserve">
+    <value>Redir Port</value>
+  </data>
+  <data name="SettingsMixinTProxyPortLabel" xml:space="preserve">
+    <value>TProxy Port</value>
+  </data>
+  <data name="SettingsMixinTunEnabledLabel" xml:space="preserve">
+    <value>Tun Mode</value>
+  </data>
+  <data name="SettingsMixinAllowLanLabel" xml:space="preserve">
+    <value>Allow LAN</value>
+  </data>
+  <data name="SettingsMixinIpv6Label" xml:space="preserve">
+    <value>IPv6</value>
+  </data>
+  <data name="SettingsMixinModeLabel" xml:space="preserve">
+    <value>Mode</value>
+  </data>
+  <data name="SettingsMixinLogLevelLabel" xml:space="preserve">
+    <value>Log Level</value>
+  </data>
+  <data name="SettingsMixinModeRule" xml:space="preserve">
+    <value>Rule</value>
+  </data>
+  <data name="SettingsMixinModeGlobal" xml:space="preserve">
+    <value>Global</value>
+  </data>
+  <data name="SettingsMixinModeDirect" xml:space="preserve">
+    <value>Direct</value>
+  </data>
+  <data name="SettingsMixinLogLevelDebug" xml:space="preserve">
+    <value>Debug</value>
+  </data>
+  <data name="SettingsMixinLogLevelInfo" xml:space="preserve">
+    <value>Info</value>
+  </data>
+  <data name="SettingsMixinLogLevelWarning" xml:space="preserve">
+    <value>Warning</value>
+  </data>
+  <data name="SettingsMixinLogLevelError" xml:space="preserve">
+    <value>Error</value>
+  </data>
+  <data name="SettingsMixinOpenFolderButton" xml:space="preserve">
+    <value>Open Folder</value>
+  </data>
+  <data name="SettingsMixinApplyButton" xml:space="preserve">
+    <value>Apply Now</value>
+  </data>
+  <data name="SettingsMixinStatusApplied" xml:space="preserve">
+    <value>Mixin saved and runtime applied.</value>
+  </data>
+  <data name="SettingsMixinStatusApplyFailed" xml:space="preserve">
+    <value>Runtime generated, but Mihomo apply failed.</value>
+  </data>
+  <data name="SettingsMixinStatusLoadFailed" xml:space="preserve">
+    <value>Failed to load mixin settings: {0}</value>
+  </data>
   <data name="ThemeHeader" xml:space="preserve">
     <value>Theme</value>
   </data>
@@ -281,9 +362,6 @@
   </data>
   <data name="ProfilesImportLocalButton" xml:space="preserve">
     <value>Import Local</value>
-  </data>
-  <data name="ProfilesActivateButton" xml:space="preserve">
-    <value>Activate</value>
   </data>
   <data name="ProfilesDeleteButton" xml:space="preserve">
     <value>Delete</value>
