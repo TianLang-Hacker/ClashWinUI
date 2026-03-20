@@ -1,15 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="ClashWinUI.Views.Pages.ProxiesPage"
+    x:Name="RootPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     xmlns:converters="using:ClashWinUI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:ClashWinUI.Models"
+    xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     mc:Ignorable="d">
     <Page.Resources>
+        <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <converters:BooleanToCardBackgroundBrushConverter x:Key="BooleanToCardBackgroundBrushConverter" />
+        <converters:BooleanToCardBorderBrushConverter x:Key="BooleanToCardBorderBrushConverter" />
         <converters:ProxyDelayLevelToBrushConverter x:Key="ProxyDelayLevelToBrushConverter" />
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+
+        <x:Double x:Key="ProxyCardWidth">320</x:Double>
+        <x:Double x:Key="ProxyCardPanelWidth">336</x:Double>
+        <x:Double x:Key="ProxyCardHeight">184</x:Double>
+        <x:Double x:Key="ProxyCardPanelHeight">196</x:Double>
+
+        <Style
+            x:Key="ProxyTagButtonStyle"
+            TargetType="Button">
+            <Setter Property="Padding" Value="12,4" />
+            <Setter Property="MinHeight" Value="32" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+        </Style>
+
+        <Style
+            x:Key="ProxyCardActionButtonStyle"
+            TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="MinWidth" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="CornerRadius" Value="16" />
+            <Setter Property="UseSystemFocusVisuals" Value="False" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid>
+                            <Border
+                                x:Name="OverlayBorder"
+                                Background="Transparent"
+                                CornerRadius="{TemplateBinding CornerRadius}" />
+                            <ContentPresenter
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Grid>
+
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal" />
+                                <VisualState x:Name="PointerOver">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames
+                                            Storyboard.TargetName="OverlayBorder"
+                                            Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame
+                                                KeyTime="0"
+                                                Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Pressed">
+                                    <Storyboard>
+                                        <ObjectAnimationUsingKeyFrames
+                                            Storyboard.TargetName="OverlayBorder"
+                                            Storyboard.TargetProperty="Background">
+                                            <DiscreteObjectKeyFrame
+                                                KeyTime="0"
+                                                Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                        </ObjectAnimationUsingKeyFrames>
+                                    </Storyboard>
+                                </VisualState>
+                                <VisualState x:Name="Disabled">
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="OverlayBorder"
+                                            Storyboard.TargetProperty="Opacity"
+                                            To="0.0"
+                                            Duration="0" />
+                                    </Storyboard>
+                                </VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Page.Resources>
 
     <Grid Background="Transparent">
@@ -34,9 +122,6 @@
                     Command="{Binding RefreshCommand}"
                     Content="{Binding [ProxiesRefreshButton], Source={StaticResource L}}" />
                 <Button
-                    Command="{Binding TestSelectedCommand}"
-                    Content="{Binding [ProxiesTestSelectedButton], Source={StaticResource L}}" />
-                <Button
                     Command="{Binding TestAllCommand}"
                     Content="{Binding [ProxiesTestAllButton], Source={StaticResource L}}" />
             </StackPanel>
@@ -55,40 +140,181 @@
                 TextWrapping="WrapWholeWords" />
         </StackPanel>
 
-        <Border
+        <ScrollViewer
             Grid.Row="2"
             Margin="24,0,24,24"
-            Padding="4"
-            CornerRadius="8"
-            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <ListView
-                ItemsSource="{Binding Nodes}"
-                SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
-                BorderThickness="0"
-                HorizontalContentAlignment="Stretch"
-                Background="Transparent">
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="models:ProxyNode">
-                        <Grid Margin="4,2">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="100" />
-                            </Grid.ColumnDefinitions>
+            HorizontalScrollBarVisibility="Disabled">
+            <ItemsControl ItemsSource="{Binding ProxyGroups}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Spacing="12">
+                            <StackPanel.ChildrenTransitions>
+                                <EntranceThemeTransition FromVerticalOffset="32" />
+                                <RepositionThemeTransition IsStaggeringEnabled="False" />
+                            </StackPanel.ChildrenTransitions>
+                        </StackPanel>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
 
-                            <TextBlock Text="{Binding Name}" />
-                            <TextBlock
-                                Grid.Column="1"
-                                Text="{Binding Type}" />
-                            <TextBlock
-                                Grid.Column="2"
-                                Text="{Binding DelayText}"
-                                Foreground="{Binding DelayLevel, Converter={StaticResource ProxyDelayLevelToBrushConverter}}"
-                                HorizontalAlignment="Right" />
-                        </Grid>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="models:ProxyGroup">
+                        <controls:SettingsExpander
+                            Margin="0,0,0,8"
+                            IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                            <controls:SettingsExpander.Header>
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock
+                                            FontSize="16"
+                                            FontWeight="SemiBold"
+                                            Text="{Binding Name}" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <TextBlock
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{Binding [ProxiesCurrentProxyLabel], Source={StaticResource L}}" />
+                                            <TextBlock
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{Binding CurrentProxyDisplayText}" />
+                                        </StackPanel>
+                                    </StackPanel>
+
+                                    <Button
+                                        Grid.Column="1"
+                                        Command="{Binding DataContext.TestGroupCommand, ElementName=RootPage}"
+                                        CommandParameter="{Binding}"
+                                        VerticalAlignment="Center"
+                                        Content="{Binding [ProxiesTestGroupButton], Source={StaticResource L}}" />
+                                </Grid>
+                            </controls:SettingsExpander.Header>
+
+                            <controls:SettingsExpander.Items>
+                                <controls:SettingsCard
+                                    HorizontalContentAlignment="Stretch"
+                                    ContentAlignment="Left">
+                                    <ItemsControl ItemsSource="{Binding Members}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <WrapGrid
+                                                    ItemHeight="{StaticResource ProxyCardPanelHeight}"
+                                                    ItemWidth="{StaticResource ProxyCardPanelWidth}"
+                                                    Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="models:ProxyGroupMember">
+                                                <Border
+                                                    Width="{StaticResource ProxyCardWidth}"
+                                                    Height="{StaticResource ProxyCardHeight}"
+                                                    Margin="0,0,12,12"
+                                                    CornerRadius="16"
+                                                    Background="{Binding IsCurrent, Converter={StaticResource BooleanToCardBackgroundBrushConverter}}"
+                                                    BorderBrush="{Binding IsCurrent, Converter={StaticResource BooleanToCardBorderBrushConverter}}"
+                                                    BorderThickness="1">
+                                                    <Grid>
+                                                        <Button
+                                                            Command="{Binding DataContext.SelectProxyCommand, ElementName=RootPage}"
+                                                            CommandParameter="{Binding}"
+                                                            Style="{StaticResource ProxyCardActionButtonStyle}" />
+
+                                                        <Grid
+                                                            Padding="16"
+                                                            IsHitTestVisible="False"
+                                                            RowSpacing="12">
+                                                            <Grid.RowDefinitions>
+                                                                <RowDefinition Height="Auto" />
+                                                                <RowDefinition Height="Auto" />
+                                                                <RowDefinition Height="*" />
+                                                            </Grid.RowDefinitions>
+
+                                                            <Grid ColumnSpacing="12">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+
+                                                                <Border
+                                                                    Width="36"
+                                                                    Height="36"
+                                                                    CornerRadius="10"
+                                                                    Background="{ThemeResource AccentFillColorTertiaryBrush}">
+                                                                    <TextBlock
+                                                                        HorizontalAlignment="Center"
+                                                                        VerticalAlignment="Center"
+                                                                        FontWeight="SemiBold"
+                                                                        Text="{Binding Node.ProtocolMonogram}" />
+                                                                </Border>
+
+                                                                <StackPanel
+                                                                    Grid.Column="1"
+                                                                    Spacing="2">
+                                                                    <TextBlock
+                                                                        FontSize="15"
+                                                                        FontWeight="SemiBold"
+                                                                        Text="{Binding Node.Name}"
+                                                                        TextWrapping="WrapWholeWords" />
+                                                                    <TextBlock
+                                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                        Text="{Binding Node.ProtocolDisplayText}" />
+                                                                </StackPanel>
+
+                                                                <StackPanel
+                                                                    Grid.Column="2"
+                                                                    HorizontalAlignment="Right"
+                                                                    Spacing="4">
+                                                                    <ProgressRing
+                                                                        Width="16"
+                                                                        Height="16"
+                                                                        IsActive="{Binding Node.IsTesting}"
+                                                                        Visibility="{Binding Node.IsTesting, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                                    <TextBlock
+                                                                        HorizontalAlignment="Right"
+                                                                        Foreground="{Binding Node.DelayLevel, Converter={StaticResource ProxyDelayLevelToBrushConverter}}"
+                                                                        Text="{Binding Node.DelayText}" />
+                                                                </StackPanel>
+                                                            </Grid>
+
+                                                            <StackPanel
+                                                                Grid.Row="1"
+                                                                Orientation="Horizontal"
+                                                                Spacing="8">
+                                                                <Button
+                                                                    Style="{StaticResource ProxyTagButtonStyle}"
+                                                                    Content="{Binding Node.ProtocolDisplayText}" />
+                                                                <Button
+                                                                    Style="{StaticResource ProxyTagButtonStyle}"
+                                                                    Visibility="{Binding Node.TransportBadgeText, Converter={StaticResource StringToVisibilityConverter}}"
+                                                                    Content="{Binding Node.TransportBadgeText}" />
+                                                                <Button
+                                                                    Style="{StaticResource ProxyTagButtonStyle}"
+                                                                    Content="{Binding Node.ConnectivityBadgeText}" />
+                                                            </StackPanel>
+                                                        </Grid>
+
+                                                        <Button
+                                                            HorizontalAlignment="Right"
+                                                            VerticalAlignment="Bottom"
+                                                            Margin="16"
+                                                            Command="{Binding DataContext.TestNodeCommand, ElementName=RootPage}"
+                                                            CommandParameter="{Binding}"
+                                                            Content="{Binding [ProxiesTestNodeButton], Source={StaticResource L}}" />
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </controls:SettingsCard>
+                            </controls:SettingsExpander.Items>
+                        </controls:SettingsExpander>
                     </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </Border>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
     </Grid>
 </Page>

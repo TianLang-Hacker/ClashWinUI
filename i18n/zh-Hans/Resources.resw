@@ -195,6 +195,15 @@
   <data name="CloseBehaviorExit" xml:space="preserve">
     <value>直接退出</value>
   </data>
+  <data name="ProxyGroupsExpandedByDefaultHeader" xml:space="preserve">
+    <value>代理组展开状态</value>
+  </data>
+  <data name="ProxyGroupsExpandedByDefaultDescription" xml:space="preserve">
+    <value>控制进入代理页面或重新加载代理组时，代理组下拉菜单默认展开还是收起。</value>
+  </data>
+  <data name="ProxyGroupsExpandedByDefaultToggleLabel" xml:space="preserve">
+    <value>默认展开代理组</value>
+  </data>
   <data name="KernelPathHeader" xml:space="preserve">
     <value>内核路径</value>
   </data>
@@ -209,6 +218,30 @@
   </data>
   <data name="KernelPathSaveButton" xml:space="preserve">
     <value>保存</value>
+  </data>
+  <data name="GeoDataCardHeader" xml:space="preserve">
+    <value>更新 GeoData</value>
+  </data>
+  <data name="GeoDataCardDescription" xml:space="preserve">
+    <value>下载并刷新 Mihomo 使用的 GeoData（geoip.metadb、geoip.dat、geosite.dat）。</value>
+  </data>
+  <data name="GeoDataUpdatingLabel" xml:space="preserve">
+    <value>更新中</value>
+  </data>
+  <data name="GeoDataStatusUpdated" xml:space="preserve">
+    <value>GeoData 更新完成。</value>
+  </data>
+  <data name="GeoDataStatusEnsureFailedFormat" xml:space="preserve">
+    <value>GeoData 准备失败：{0}</value>
+  </data>
+  <data name="GeoDataStatusUpdateFailedFormat" xml:space="preserve">
+    <value>GeoData 更新失败：{0}</value>
+  </data>
+  <data name="GeoDataStatusControllerFailureFormat" xml:space="preserve">
+    <value>GeoData 准备失败，当前配置依赖 GeoData，Mihomo 无法启动控制器：{0}</value>
+  </data>
+  <data name="GeoDataStatusUnknownReason" xml:space="preserve">
+    <value>未知原因</value>
   </data>
   <data name="SettingsMixinHeader" xml:space="preserve">
     <value>运行配置</value>
@@ -279,8 +312,20 @@
   <data name="SettingsMixinOpenFolderButton" xml:space="preserve">
     <value>打开文件夹</value>
   </data>
-  <data name="SettingsMixinApplyButton" xml:space="preserve">
-    <value>立即生效</value>
+  <data name="SettingsMixinPortSettingsButton" xml:space="preserve">
+    <value>端口设置</value>
+  </data>
+  <data name="PortSettingsWindowTitle" xml:space="preserve">
+    <value>端口设置</value>
+  </data>
+  <data name="PortSettingsWindowDescription" xml:space="preserve">
+    <value>编辑端口配置后点击确认立即生效；点击取消则放弃这次修改。</value>
+  </data>
+  <data name="PortSettingsWindowCancelButton" xml:space="preserve">
+    <value>取消</value>
+  </data>
+  <data name="PortSettingsWindowConfirmButton" xml:space="preserve">
+    <value>确认</value>
   </data>
   <data name="SettingsMixinStatusApplied" xml:space="preserve">
     <value>Mixin 已保存，runtime 已生效。</value>
@@ -409,16 +454,22 @@
     <value>配置已保存，但当前格式不可直接应用到 Mihomo。</value>
   </data>
   <data name="ProxiesRefreshButton" xml:space="preserve">
-    <value>刷新节点</value>
-  </data>
-  <data name="ProxiesTestSelectedButton" xml:space="preserve">
-    <value>测速选中</value>
+      <value>刷新节点</value>
   </data>
   <data name="ProxiesTestAllButton" xml:space="preserve">
-    <value>测速全部</value>
+      <value>测速全部</value>
+  </data>
+  <data name="ProxiesTestGroupButton" xml:space="preserve">
+      <value>测速本组</value>
+  </data>
+  <data name="ProxiesTestNodeButton" xml:space="preserve">
+      <value>测速节点</value>
+  </data>
+  <data name="ProxiesCurrentProxyLabel" xml:space="preserve">
+    <value>当前节点</value>
   </data>
   <data name="ProxiesTestUrlPlaceholder" xml:space="preserve">
-    <value>测速 URL</value>
+      <value>测速 URL</value>
   </data>
   <data name="ProxiesStatusNoActiveProfile" xml:space="preserve">
     <value>当前没有激活配置，请先到订阅页设置。</value>
@@ -451,6 +502,24 @@
     <value>全部节点测速完成。</value>
   </data>
   <data name="ProxiesStatusDelayAllFinishedWithSkipped" xml:space="preserve">
-    <value>测速完成，已跳过 {0} 个不可测速节点。</value>
+      <value>测速完成，已跳过 {0} 个不可测速节点。</value>
+  </data>
+  <data name="ProxiesStatusDelayGroupFinished" xml:space="preserve">
+      <value>代理组 {0} 测速完成。</value>
+  </data>
+  <data name="ProxiesStatusDelayGroupFinishedWithSkipped" xml:space="preserve">
+      <value>代理组 {0} 测速完成，已跳过 {1} 个不可测速节点。</value>
+  </data>
+  <data name="ProxiesStatusProxySelected" xml:space="preserve">
+      <value>已切换代理组 {0} 到节点 {1}。</value>
+  </data>
+  <data name="ProxiesStatusProxySelectFailed" xml:space="preserve">
+      <value>切换代理组 {0} 到节点 {1} 失败。</value>
+  </data>
+  <data name="ProxiesStatusProxyAlreadySelected" xml:space="preserve">
+      <value>代理组 {0} 当前已使用节点 {1}。</value>
+  </data>
+  <data name="ProxiesStatusNoProxyGroups" xml:space="preserve">
+      <value>当前配置未找到可展示的代理组。</value>
   </data>
 </root>

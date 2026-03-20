@@ -7,6 +7,8 @@ namespace ClashWinUI.Serialization
     internal sealed class AppSettingsState
     {
         public CloseBehavior CloseBehavior { get; set; } = CloseBehavior.MinimizeToTray;
+
+        public bool ProxyGroupsExpandedByDefault { get; set; } = false;
     }
 
     internal sealed class KernelPathSettingsState
@@ -29,6 +31,12 @@ namespace ClashWinUI.Serialization
         public bool Force { get; set; } = true;
     }
 
+    internal sealed class MihomoProxySelectionPayload
+    {
+        [JsonPropertyName("name")]
+        public string Name { get; set; } = string.Empty;
+    }
+
     [JsonSourceGenerationOptions(
         DefaultIgnoreCondition = JsonIgnoreCondition.Never,
         PropertyNamingPolicy = JsonKnownNamingPolicy.Unspecified)]
@@ -36,6 +44,7 @@ namespace ClashWinUI.Serialization
     [JsonSerializable(typeof(KernelPathSettingsState))]
     [JsonSerializable(typeof(ProfileStoreState))]
     [JsonSerializable(typeof(MihomoApplyConfigPayload))]
+    [JsonSerializable(typeof(MihomoProxySelectionPayload))]
     internal partial class ClashJsonContext : JsonSerializerContext
     {
     }

@@ -41,6 +41,7 @@ namespace ClashWinUI
                     services.AddSingleton<IConfigService, ConfigService>();
                     services.AddSingleton<IKernelPathService, KernelPathService>();
                     services.AddSingleton<IKernelBootstrapService, KernelBootstrapService>();
+                    services.AddSingleton<IGeoDataService, GeoDataService>();
                     services.AddSingleton<IAppSettingsService, AppSettingsService>();
                     services.AddSingleton<IProcessService, ProcessService>();
                     services.AddSingleton<ISystemProxyService, SystemProxyService>();
@@ -150,6 +151,7 @@ namespace ClashWinUI
         {
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             IKernelBootstrapService kernelBootstrapService = _host.Services.GetRequiredService<IKernelBootstrapService>();
+            IGeoDataService geoDataService = _host.Services.GetRequiredService<IGeoDataService>();
             IConfigService configService = _host.Services.GetRequiredService<IConfigService>();
             IProfileService profileService = _host.Services.GetRequiredService<IProfileService>();
             IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
@@ -163,6 +165,12 @@ namespace ClashWinUI
                     logService.Add("Kernel bootstrap failed. Skip Mihomo startup.", LogLevel.Error);
                     InitializeTray();
                     return;
+                }
+
+                GeoDataOperationResult geoDataEnsureResult = await geoDataService.EnsureGeoDataReadyAsync();
+                if (!geoDataEnsureResult.Success)
+                {
+                    logService.Add($"GeoData ensure failed before startup: {geoDataEnsureResult.Details}", LogLevel.Warning);
                 }
 
                 string startupConfigPath = processService.EnsureStartupConfigPath();
@@ -186,6 +194,14 @@ namespace ClashWinUI
                 bool controllerReady = await StartAndWaitControllerReadyAsync(processService, startupConfigPath);
                 if (!controllerReady)
                 {
+                    controllerReady = await TryRecoverFromGeoDataFailureAsync(
+                        processService,
+                        geoDataService,
+                        startupConfigPath);
+                }
+
+                if (!controllerReady)
+                {
                     string fallbackConfigPath = processService.EnsureStartupConfigPath();
                     if (!string.Equals(fallbackConfigPath, startupConfigPath, StringComparison.OrdinalIgnoreCase))
                     {
@@ -199,6 +215,7 @@ namespace ClashWinUI
                                 TimeSpan.FromSeconds(20));
                             if (controllerReady)
                             {
+                                processService.ResetFailureDiagnostic();
                                 startupConfigPath = fallbackConfigPath;
                             }
                         }
@@ -214,6 +231,7 @@ namespace ClashWinUI
 
                 int proxyPort = processService.ResolveProxyPort(startupConfigPath);
                 await systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+                processService.ResetFailureDiagnostic();
 
                 logService.Add($"Startup completed. Controller={processService.ControllerHost}:{processService.ControllerPort}, ProxyPort={proxyPort}");
             }
@@ -353,6 +371,49 @@ namespace ClashWinUI
                 processService.ControllerHost,
                 processService.ControllerPort,
                 TimeSpan.FromSeconds(20));
+        }
+
+        private async Task<bool> TryRecoverFromGeoDataFailureAsync(
+            IProcessService processService,
+            IGeoDataService geoDataService,
+            string configPath)
+        {
+            MihomoFailureDiagnostic diagnostic = processService.LastFailureDiagnostic;
+            if (diagnostic.Kind != MihomoFailureKind.GeoData)
+            {
+                return false;
+            }
+
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+            logService.Add(
+                $"GeoData issue detected during Mihomo startup. Force refresh GeoData and retry config: {configPath}. Detail={diagnostic.Message}",
+                LogLevel.Warning);
+
+            GeoDataOperationResult updateResult = await geoDataService.UpdateGeoDataAsync();
+            if (!updateResult.Success)
+            {
+                logService.Add($"GeoData refresh failed during startup recovery: {updateResult.Details}", LogLevel.Warning);
+                return false;
+            }
+
+            bool restarted = await processService.RestartAsync(configPath);
+            if (!restarted)
+            {
+                logService.Add($"Mihomo restart failed after GeoData refresh: {configPath}", LogLevel.Warning);
+                return false;
+            }
+
+            bool controllerReady = await WaitForControllerReadyAsync(
+                processService.ControllerHost,
+                processService.ControllerPort,
+                TimeSpan.FromSeconds(20));
+
+            if (controllerReady)
+            {
+                processService.ResetFailureDiagnostic();
+            }
+
+            return controllerReady;
         }
 
         private void OnProcessExit(object? sender, EventArgs e)

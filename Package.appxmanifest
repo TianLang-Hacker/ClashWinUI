@@ -11,7 +11,7 @@
   <Identity
     Name="90153c5c-1b27-482a-a69d-f24fd7ef3beb"
     Publisher="CN=TianLang Hacker"
-    Version="0.0.3.0" />
+    Version="0.0.7.0" />
 
   <mp:PhoneIdentity PhoneProductId="90153c5c-1b27-482a-a69d-f24fd7ef3beb" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

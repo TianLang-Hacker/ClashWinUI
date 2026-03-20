@@ -18,6 +18,7 @@ namespace ClashWinUI.ViewModels
         private readonly IProfileService _profileService;
         private readonly IConfigService _configService;
         private readonly IMihomoService _mihomoService;
+        private readonly IGeoDataService _geoDataService;
         private readonly IProcessService _processService;
         private readonly ISystemProxyService _systemProxyService;
         private bool _suppressSelectionActivation;
@@ -48,6 +49,7 @@ namespace ClashWinUI.ViewModels
             IProfileService profileService,
             IConfigService configService,
             IMihomoService mihomoService,
+            IGeoDataService geoDataService,
             IProcessService processService,
             ISystemProxyService systemProxyService)
         {
@@ -55,6 +57,7 @@ namespace ClashWinUI.ViewModels
             _profileService = profileService;
             _configService = configService;
             _mihomoService = mihomoService;
+            _geoDataService = geoDataService;
             _processService = processService;
             _systemProxyService = systemProxyService;
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
@@ -98,7 +101,7 @@ namespace ClashWinUI.ViewModels
                     ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
                     : (applied
                         ? _localizedStrings["ProfilesStatusFetchedAndApplied"]
-                        : _localizedStrings["ProfilesStatusFetchedOnly"]);
+                        : GetApplyFailureStatus("ProfilesStatusFetchedOnly"));
             }
             catch (Exception ex)
             {
@@ -129,7 +132,7 @@ namespace ClashWinUI.ViewModels
                     ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
                     : (applied
                         ? _localizedStrings["ProfilesStatusImportedAndApplied"]
-                        : _localizedStrings["ProfilesStatusImportedOnly"]);
+                        : GetApplyFailureStatus("ProfilesStatusImportedOnly"));
             }
             catch (Exception ex)
             {
@@ -226,7 +229,7 @@ namespace ClashWinUI.ViewModels
                     ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
                     : (applied
                         ? _localizedStrings["ProfilesStatusActivated"]
-                        : _localizedStrings["ProfilesStatusActivatedNotApplied"]);
+                        : GetApplyFailureStatus("ProfilesStatusActivatedNotApplied"));
             }
             catch (Exception ex)
             {
@@ -314,6 +317,17 @@ namespace ClashWinUI.ViewModels
 
             Title = _localizedStrings["PageProfiles"];
             ReloadProfiles();
+        }
+
+        private string GetApplyFailureStatus(string fallbackResourceKey)
+        {
+            return GeoDataStatusTextHelper.TryBuildControllerFailureMessage(
+                _localizedStrings,
+                _processService,
+                _geoDataService,
+                out string geoDataMessage)
+                ? geoDataMessage
+                : _localizedStrings[fallbackResourceKey];
         }
     }
 }

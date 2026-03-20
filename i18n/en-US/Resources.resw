@@ -219,6 +219,15 @@
   <data name="CloseBehaviorExit" xml:space="preserve">
     <value>Exit directly</value>
   </data>
+  <data name="ProxyGroupsExpandedByDefaultHeader" xml:space="preserve">
+    <value>Proxy group expansion</value>
+  </data>
+  <data name="ProxyGroupsExpandedByDefaultDescription" xml:space="preserve">
+    <value>Choose whether proxy groups start expanded or collapsed when the Proxies page loads or reloads.</value>
+  </data>
+  <data name="ProxyGroupsExpandedByDefaultToggleLabel" xml:space="preserve">
+    <value>Expand proxy groups by default</value>
+  </data>
   <data name="KernelPathHeader" xml:space="preserve">
     <value>Kernel Path</value>
   </data>
@@ -233,6 +242,30 @@
   </data>
   <data name="KernelPathSaveButton" xml:space="preserve">
     <value>Save</value>
+  </data>
+  <data name="GeoDataCardHeader" xml:space="preserve">
+    <value>Update GeoData</value>
+  </data>
+  <data name="GeoDataCardDescription" xml:space="preserve">
+    <value>Download and refresh the GeoData files Mihomo uses (geoip.metadb, geoip.dat, geosite.dat).</value>
+  </data>
+  <data name="GeoDataUpdatingLabel" xml:space="preserve">
+    <value>Updating</value>
+  </data>
+  <data name="GeoDataStatusUpdated" xml:space="preserve">
+    <value>GeoData update completed.</value>
+  </data>
+  <data name="GeoDataStatusEnsureFailedFormat" xml:space="preserve">
+    <value>GeoData prepare failed: {0}</value>
+  </data>
+  <data name="GeoDataStatusUpdateFailedFormat" xml:space="preserve">
+    <value>GeoData update failed: {0}</value>
+  </data>
+  <data name="GeoDataStatusControllerFailureFormat" xml:space="preserve">
+    <value>GeoData prepare failed. The current config depends on GeoData, so Mihomo could not start the controller: {0}</value>
+  </data>
+  <data name="GeoDataStatusUnknownReason" xml:space="preserve">
+    <value>Unknown reason</value>
   </data>
   <data name="SettingsMixinHeader" xml:space="preserve">
     <value>Runtime Config</value>
@@ -303,8 +336,20 @@
   <data name="SettingsMixinOpenFolderButton" xml:space="preserve">
     <value>Open Folder</value>
   </data>
-  <data name="SettingsMixinApplyButton" xml:space="preserve">
-    <value>Apply Now</value>
+  <data name="SettingsMixinPortSettingsButton" xml:space="preserve">
+    <value>Port Settings</value>
+  </data>
+  <data name="PortSettingsWindowTitle" xml:space="preserve">
+    <value>Port Settings</value>
+  </data>
+  <data name="PortSettingsWindowDescription" xml:space="preserve">
+    <value>Edit ports here. Confirm applies immediately; cancel discards the current draft.</value>
+  </data>
+  <data name="PortSettingsWindowCancelButton" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="PortSettingsWindowConfirmButton" xml:space="preserve">
+    <value>Confirm</value>
   </data>
   <data name="SettingsMixinStatusApplied" xml:space="preserve">
     <value>Mixin saved and runtime applied.</value>
@@ -409,16 +454,22 @@
     <value>Profile saved, but this format cannot be applied directly to Mihomo.</value>
   </data>
   <data name="ProxiesRefreshButton" xml:space="preserve">
-    <value>Refresh Nodes</value>
-  </data>
-  <data name="ProxiesTestSelectedButton" xml:space="preserve">
-    <value>Test Selected</value>
+      <value>Refresh Nodes</value>
   </data>
   <data name="ProxiesTestAllButton" xml:space="preserve">
-    <value>Test All</value>
+      <value>Test All</value>
+  </data>
+  <data name="ProxiesTestGroupButton" xml:space="preserve">
+      <value>Test Group</value>
+  </data>
+  <data name="ProxiesTestNodeButton" xml:space="preserve">
+      <value>Test Node</value>
+  </data>
+  <data name="ProxiesCurrentProxyLabel" xml:space="preserve">
+    <value>Current</value>
   </data>
   <data name="ProxiesTestUrlPlaceholder" xml:space="preserve">
-    <value>Latency test URL</value>
+      <value>Latency test URL</value>
   </data>
   <data name="ProxiesStatusNoActiveProfile" xml:space="preserve">
     <value>No active profile. Go to Profiles page first.</value>
@@ -451,6 +502,24 @@
     <value>All node delay tests finished.</value>
   </data>
   <data name="ProxiesStatusDelayAllFinishedWithSkipped" xml:space="preserve">
-    <value>All delay tests finished. Skipped {0} non-testable node(s).</value>
+      <value>All delay tests finished. Skipped {0} non-testable node(s).</value>
+  </data>
+  <data name="ProxiesStatusDelayGroupFinished" xml:space="preserve">
+      <value>Delay test finished for group {0}.</value>
+  </data>
+  <data name="ProxiesStatusDelayGroupFinishedWithSkipped" xml:space="preserve">
+      <value>Delay test finished for group {0}. Skipped {1} non-testable node(s).</value>
+  </data>
+  <data name="ProxiesStatusProxySelected" xml:space="preserve">
+      <value>Proxy group {0} switched to {1}.</value>
+  </data>
+  <data name="ProxiesStatusProxySelectFailed" xml:space="preserve">
+      <value>Failed to switch proxy group {0} to {1}.</value>
+  </data>
+  <data name="ProxiesStatusProxyAlreadySelected" xml:space="preserve">
+      <value>Proxy group {0} is already using {1}.</value>
+  </data>
+  <data name="ProxiesStatusNoProxyGroups" xml:space="preserve">
+      <value>No proxy groups were found in the current config.</value>
   </data>
 </root>

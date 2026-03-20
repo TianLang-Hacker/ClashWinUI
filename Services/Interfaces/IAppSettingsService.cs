@@ -8,5 +8,7 @@ namespace ClashWinUI.Services.Interfaces
         event EventHandler? SettingsChanged;
 
         CloseBehavior CloseBehavior { get; set; }
+
+        bool ProxyGroupsExpandedByDefault { get; set; }
     }
 }

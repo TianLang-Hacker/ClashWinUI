@@ -4,6 +4,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
+    xmlns:converters="using:ClashWinUI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:ui="using:CommunityToolkit.WinUI"
@@ -11,6 +12,8 @@
     mc:Ignorable="d">
     <Page.Resources>
         <x:Double x:Key="SettingsCardSpacing">4</x:Double>
+        <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
 
         <Style
             x:Key="SettingsSectionHeaderTextBlockStyle"
@@ -110,6 +113,16 @@
                 </controls:SettingsCard>
 
                 <controls:SettingsCard
+                    Description="{Binding [ProxyGroupsExpandedByDefaultDescription], Source={StaticResource L}}"
+                    Header="{Binding [ProxyGroupsExpandedByDefaultHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE70D;}">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding [ProxyGroupsExpandedByDefaultToggleLabel], Source={StaticResource L}}" />
+                        <ToggleSwitch IsOn="{Binding ProxyGroupsExpandedByDefault, Mode=TwoWay}" />
+                    </StackPanel>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard
                     Description="{Binding [KernelPathDescription], Source={StaticResource L}}"
                     Header="{Binding [KernelPathHeader], Source={StaticResource L}}"
                     HeaderIcon="{ui:FontIcon Glyph=&#xE838;}">
@@ -130,6 +143,34 @@
                         </StackPanel>
                     </StackPanel>
                 </controls:SettingsCard>
+
+                <controls:SettingsCard
+                    Description="{Binding [GeoDataCardDescription], Source={StaticResource L}}"
+                    Header="{Binding [GeoDataCardHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE745;}"
+                    IsClickEnabled="True"
+                    Tapped="UpdateGeoDataCard_Tapped">
+                    <StackPanel
+                        Orientation="Horizontal"
+                        Spacing="8"
+                        VerticalAlignment="Center">
+                        <ProgressRing
+                            Width="20"
+                            Height="20"
+                            IsActive="{Binding IsUpdatingGeoData}"
+                            Visibility="{Binding IsUpdatingGeoData, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                        <TextBlock
+                            Text="{Binding [GeoDataUpdatingLabel], Source={StaticResource L}}"
+                            Visibility="{Binding IsUpdatingGeoData, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                    </StackPanel>
+                </controls:SettingsCard>
+
+                <TextBlock
+                    Margin="14,0,0,8"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{Binding GeoDataStatusMessage}"
+                    TextWrapping="WrapWholeWords"
+                    Visibility="{Binding GeoDataStatusMessage, Converter={StaticResource StringToVisibilityConverter}}" />
 
                 <controls:SettingsCard
                     Description="{Binding [SettingsMixinDescription], Source={StaticResource L}}"
@@ -158,57 +199,6 @@
                             TextWrapping="WrapWholeWords" />
 
                         <StackPanel Spacing="12">
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel
-                                    Grid.Column="0"
-                                    Spacing="8">
-                                    <TextBlock Text="{Binding [SettingsMixinMixedPortLabel], Source={StaticResource L}}" />
-                                    <TextBox Text="{Binding MixedPortInput, Mode=TwoWay}" />
-                                </StackPanel>
-
-                                <StackPanel
-                                    Grid.Column="1"
-                                    Spacing="8">
-                                    <TextBlock Text="{Binding [SettingsMixinHttpPortLabel], Source={StaticResource L}}" />
-                                    <TextBox Text="{Binding HttpPortInput, Mode=TwoWay}" />
-                                </StackPanel>
-
-                                <StackPanel
-                                    Grid.Column="2"
-                                    Spacing="8">
-                                    <TextBlock Text="{Binding [SettingsMixinSocksPortLabel], Source={StaticResource L}}" />
-                                    <TextBox Text="{Binding SocksPortInput, Mode=TwoWay}" />
-                                </StackPanel>
-                            </Grid>
-
-                            <Grid ColumnSpacing="12">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="*" />
-                                </Grid.ColumnDefinitions>
-
-                                <StackPanel
-                                    Grid.Column="0"
-                                    Spacing="8">
-                                    <TextBlock Text="{Binding [SettingsMixinRedirPortLabel], Source={StaticResource L}}" />
-                                    <TextBox Text="{Binding RedirPortInput, Mode=TwoWay}" />
-                                </StackPanel>
-
-                                <StackPanel
-                                    Grid.Column="1"
-                                    Spacing="8">
-                                    <TextBlock Text="{Binding [SettingsMixinTProxyPortLabel], Source={StaticResource L}}" />
-                                    <TextBox Text="{Binding TProxyPortInput, Mode=TwoWay}" />
-                                </StackPanel>
-                            </Grid>
-
                             <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -293,8 +283,8 @@
                                     Command="{Binding OpenMixinFolderCommand}"
                                     Content="{Binding [SettingsMixinOpenFolderButton], Source={StaticResource L}}" />
                                 <Button
-                                    Command="{Binding ApplyMixinCommand}"
-                                    Content="{Binding [SettingsMixinApplyButton], Source={StaticResource L}}" />
+                                    Click="OpenPortSettingsButton_Click"
+                                    Content="{Binding [SettingsMixinPortSettingsButton], Source={StaticResource L}}" />
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>

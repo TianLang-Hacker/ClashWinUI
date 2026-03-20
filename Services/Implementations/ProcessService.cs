@@ -27,6 +27,7 @@ namespace ClashWinUI.Services.Implementations
         private readonly SemaphoreSlim _sync = new(1, 1);
 
         private Process? _mihomoProcess;
+        private MihomoFailureDiagnostic _lastFailureDiagnostic = MihomoFailureDiagnostic.None;
 
         public ProcessService(IKernelPathService kernelPathService, IAppLogService logService)
         {
@@ -39,6 +40,8 @@ namespace ClashWinUI.Services.Implementations
         public int ControllerPort => 9090;
 
         public string ControllerHost => "127.0.0.1";
+
+        public MihomoFailureDiagnostic LastFailureDiagnostic => _lastFailureDiagnostic;
 
         public string EnsureStartupConfigPath(string? preferredConfigPath = null)
         {
@@ -114,6 +117,7 @@ namespace ClashWinUI.Services.Implementations
 
                 if (IsRunning)
                 {
+                    ResetFailureDiagnostic();
                     _logService.Add("Mihomo process already running. Reuse existing instance.");
                     return true;
                 }
@@ -126,6 +130,7 @@ namespace ClashWinUI.Services.Implementations
                     {
                         Process keepProcess = SelectProcessToKeep(existingOwnedProcesses);
                         _mihomoProcess = keepProcess;
+                        ResetFailureDiagnostic();
                         _logService.Add($"Detected existing Mihomo process (PID={keepProcess.Id}). Reuse existing instance.");
 
                         if (existingOwnedProcesses.Count > 1)
@@ -155,6 +160,7 @@ namespace ClashWinUI.Services.Implementations
                 string arguments = $"-f \"{effectiveConfigPath}\" -ext-ctl {controller}";
                 string workingDirectory = Path.GetDirectoryName(kernelPath) ?? AppContext.BaseDirectory;
                 int bindConflictDetected = 0;
+                ResetFailureDiagnostic();
 
                 var process = new Process
                 {
@@ -181,6 +187,11 @@ namespace ClashWinUI.Services.Implementations
                         if (LooksLikePortBindConflict(e.Data))
                         {
                             Interlocked.Exchange(ref bindConflictDetected, 1);
+                            UpdateFailureDiagnostic(MihomoFailureKind.PortBindConflict, e.Data);
+                        }
+                        else if (LooksLikeGeoDataIssue(e.Data))
+                        {
+                            UpdateFailureDiagnostic(MihomoFailureKind.GeoData, e.Data);
                         }
                     }
                 };
@@ -193,6 +204,11 @@ namespace ClashWinUI.Services.Implementations
                         if (LooksLikePortBindConflict(e.Data))
                         {
                             Interlocked.Exchange(ref bindConflictDetected, 1);
+                            UpdateFailureDiagnostic(MihomoFailureKind.PortBindConflict, e.Data);
+                        }
+                        else if (LooksLikeGeoDataIssue(e.Data))
+                        {
+                            UpdateFailureDiagnostic(MihomoFailureKind.GeoData, e.Data);
                         }
                     }
                 };
@@ -319,6 +335,11 @@ namespace ClashWinUI.Services.Implementations
             {
                 _sync.Release();
             }
+        }
+
+        public void ResetFailureDiagnostic()
+        {
+            _lastFailureDiagnostic = MihomoFailureDiagnostic.None;
         }
 
         private List<Process> FindOwnedMihomoProcesses(string kernelPath)
@@ -461,6 +482,32 @@ namespace ClashWinUI.Services.Implementations
             return line.Contains("Only one usage of each socket address", StringComparison.OrdinalIgnoreCase)
                 || (line.Contains("listen tcp", StringComparison.OrdinalIgnoreCase)
                     && line.Contains("bind:", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool LooksLikeGeoDataIssue(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return false;
+            }
+
+            return line.Contains("MMDB invalid", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("can't initial GeoIP", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("can't download MMDB", StringComparison.OrdinalIgnoreCase)
+                || (line.Contains("Parse config error", StringComparison.OrdinalIgnoreCase)
+                    && (line.Contains("GEOIP", StringComparison.OrdinalIgnoreCase)
+                        || line.Contains("GEOSITE", StringComparison.OrdinalIgnoreCase)
+                        || line.Contains("MMDB", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private void UpdateFailureDiagnostic(MihomoFailureKind kind, string message)
+        {
+            _lastFailureDiagnostic = new MihomoFailureDiagnostic
+            {
+                Kind = kind,
+                Message = message,
+                OccurredAt = DateTimeOffset.UtcNow,
+            };
         }
 
         private static string BuildDefaultStartupConfig()

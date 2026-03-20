@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 
 namespace ClashWinUI.Services.Implementations
 {
@@ -19,16 +20,38 @@ namespace ClashWinUI.Services.Implementations
     {
         private static readonly HashSet<string> GroupTypes = new(StringComparer.OrdinalIgnoreCase)
         {
-            "Selector",
-            "URLTest",
-            "Fallback",
-            "LoadBalance",
-            "Direct",
-            "Reject",
-            "Compatible",
+            "selector",
+            "urltest",
+            "fallback",
+            "loadbalance",
+            "direct",
+            "reject",
+            "compatible",
+        };
+        private static readonly HashSet<string> AnchorGroupTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "selector",
+            "urltest",
+            "fallback",
+            "loadbalance",
+        };
+        private static readonly HashSet<string> NonLeafProxyTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "selector",
+            "urltest",
+            "fallback",
+            "loadbalance",
+            "relay",
+            "group",
+            "direct",
+            "reject",
+            "pass",
+            "compatible",
         };
 
         private readonly IAppLogService _logService;
+        private readonly IGeoDataService _geoDataService;
+        private readonly IProcessService _processService;
         private readonly HttpClient _httpClient;
         private readonly string _controllerBaseUrl;
         private readonly string? _controllerSecret;
@@ -36,14 +59,31 @@ namespace ClashWinUI.Services.Implementations
         private readonly object _warnSync = new();
         private readonly Dictionary<string, DateTimeOffset> _applyFailureLoggedAt = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _applyFailureSync = new();
+        private readonly object _groupCacheSync = new();
+        private List<ProxyGroup> _lastRuntimeGroups = new();
 
         private static readonly TimeSpan ApplyFailureLogDedupeWindow = TimeSpan.FromSeconds(20);
+        private static readonly TimeSpan ConfigConvergencePollDelay = TimeSpan.FromMilliseconds(250);
+        private const int HotApplyConvergenceAttempts = 8;
+        private const int RestartConvergenceAttempts = 24;
+        private const int AnchorGroupCandidateCount = 4;
+        private const double MinimumStableRuntimeCoverage = 0.80;
+        private const double MinimumStableControllerCoverage = 0.35;
+        private const double MinimumHotApplyAliasGroupCoverage = 0.90;
+        private const double MinimumHotApplyAliasMemberCoverage = 0.90;
+        private const double MinimumRestartAliasGroupCoverage = 0.95;
+        private const double MinimumRestartAliasMemberCoverage = 0.98;
+        private const double MinimumHotApplyAnchorStableCoverage = 0.50;
+        private const double MinimumAnchorLeafRatio = 0.60;
+        private const int MinimumAnchorLeafMembers = 2;
 
         public event EventHandler<string>? ConfigApplied;
 
-        public MihomoService(IAppLogService logService)
+        public MihomoService(IAppLogService logService, IGeoDataService geoDataService, IProcessService processService)
         {
             _logService = logService;
+            _geoDataService = geoDataService;
+            _processService = processService;
             _httpClient = new HttpClient();
             _controllerBaseUrl = Environment.GetEnvironmentVariable("MIHOMO_CONTROLLER")?.TrimEnd('/')
                 ?? "http://127.0.0.1:9090";
@@ -69,6 +109,29 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
+            GeoDataOperationResult geoDataEnsureResult = await _geoDataService.EnsureGeoDataReadyAsync(cancellationToken).ConfigureAwait(false);
+            if (!geoDataEnsureResult.Success)
+            {
+                _logService.Add($"GeoData ensure failed before apply: {geoDataEnsureResult.Details}", LogLevel.Warning);
+            }
+
+            DateTimeOffset operationStartedAt = DateTimeOffset.UtcNow;
+            bool applied = await ApplyConfigCoreAsync(configPath, cancellationToken).ConfigureAwait(false);
+            if (applied)
+            {
+                return true;
+            }
+
+            if (ShouldAttemptGeoDataRecovery(operationStartedAt))
+            {
+                return await RecoverFromGeoDataFailureAsync(configPath, cancellationToken).ConfigureAwait(false);
+            }
+
+            return false;
+        }
+
+        private async Task<bool> ApplyConfigCoreAsync(string configPath, CancellationToken cancellationToken)
+        {
             try
             {
                 var payload = new MihomoApplyConfigPayload
@@ -81,10 +144,7 @@ namespace ClashWinUI.Services.Implementations
                 ApplyConfigRequestResult patchResult = await SendApplyConfigRequestAsync(HttpMethod.Patch, payloadJson, cancellationToken).ConfigureAwait(false);
                 if (patchResult.Success)
                 {
-                    ClearApplyFailureHistory(configPath);
-                    _logService.Add($"Mihomo config applied: {configPath}");
-                    ConfigApplied?.Invoke(this, configPath);
-                    return true;
+                    return await CompleteConfigApplyAsync(configPath, "hot-apply", cancellationToken).ConfigureAwait(false);
                 }
 
                 if (ShouldFallbackToPut(patchResult))
@@ -97,10 +157,7 @@ namespace ClashWinUI.Services.Implementations
                     ApplyConfigRequestResult putResult = await SendApplyConfigRequestAsync(HttpMethod.Put, payloadJson, cancellationToken).ConfigureAwait(false);
                     if (putResult.Success)
                     {
-                        ClearApplyFailureHistory(configPath);
-                        _logService.Add($"Mihomo config applied: {configPath}");
-                        ConfigApplied?.Invoke(this, configPath);
-                        return true;
+                        return await CompleteConfigApplyAsync(configPath, "hot-apply", cancellationToken).ConfigureAwait(false);
                     }
 
                     LogApplyFailure(configPath, putResult);
@@ -120,6 +177,55 @@ namespace ClashWinUI.Services.Implementations
 
                 return false;
             }
+        }
+
+        private bool ShouldAttemptGeoDataRecovery(DateTimeOffset operationStartedAt)
+        {
+            MihomoFailureDiagnostic diagnostic = _processService.LastFailureDiagnostic;
+            return diagnostic.Kind == MihomoFailureKind.GeoData
+                && diagnostic.OccurredAt >= operationStartedAt;
+        }
+
+        private async Task<bool> RecoverFromGeoDataFailureAsync(string configPath, CancellationToken cancellationToken)
+        {
+            MihomoFailureDiagnostic diagnostic = _processService.LastFailureDiagnostic;
+            _logService.Add(
+                $"GeoData issue detected during Mihomo apply. Force refresh GeoData and retry config: {configPath}. Detail={diagnostic.Message}",
+                LogLevel.Warning);
+
+            GeoDataOperationResult updateResult = await _geoDataService.UpdateGeoDataAsync(cancellationToken).ConfigureAwait(false);
+            if (!updateResult.Success)
+            {
+                _logService.Add($"GeoData refresh failed during Mihomo apply recovery: {updateResult.Details}", LogLevel.Warning);
+                return false;
+            }
+
+            bool restarted = await _processService.RestartAsync(configPath, cancellationToken).ConfigureAwait(false);
+            if (!restarted)
+            {
+                _logService.Add($"Mihomo restart failed after GeoData refresh: {configPath}", LogLevel.Warning);
+                return false;
+            }
+
+            ControllerConvergenceResult convergence = await WaitForControllerConvergenceAsync(
+                configPath,
+                "geo-data-retry",
+                RestartConvergenceAttempts,
+                cancellationToken).ConfigureAwait(false);
+            if (!convergence.IsConverged)
+            {
+                _logService.Add(
+                    $"Mihomo controller still not converged after GeoData refresh: {configPath}. {BuildConvergenceSummary(convergence)}",
+                    LogLevel.Warning);
+                return false;
+            }
+
+            CacheRuntimeGroups(convergence.ControllerBackedGroups);
+            ClearApplyFailureHistory(configPath);
+            _processService.ResetFailureDiagnostic();
+            _logService.Add($"Mihomo config applied after GeoData refresh: {configPath}");
+            ConfigApplied?.Invoke(this, configPath);
+            return true;
         }
 
         private bool TryMarkIncompatibleWarned(string configPath)
@@ -300,6 +406,259 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
+        private async Task<bool> CompleteConfigApplyAsync(string configPath, string stage, CancellationToken cancellationToken)
+        {
+            ControllerConvergenceResult convergence = await WaitForControllerConvergenceAsync(
+                configPath,
+                stage,
+                HotApplyConvergenceAttempts,
+                cancellationToken).ConfigureAwait(false);
+            if (convergence.IsConverged)
+            {
+                CacheRuntimeGroups(convergence.ControllerBackedGroups);
+                ClearApplyFailureHistory(configPath);
+                _processService.ResetFailureDiagnostic();
+                _logService.Add($"Mihomo config applied: {configPath}");
+                ConfigApplied?.Invoke(this, configPath);
+                return true;
+            }
+
+            _logService.Add(
+                $"Mihomo hot apply not converged. Restart Mihomo with target runtime: {configPath}. {BuildConvergenceSummary(convergence)}",
+                LogLevel.Warning);
+
+            bool restarted = await _processService.RestartAsync(configPath, cancellationToken).ConfigureAwait(false);
+            if (!restarted)
+            {
+                _logService.Add($"Mihomo restart fallback failed for config: {configPath}", LogLevel.Warning);
+                return false;
+            }
+
+            ControllerConvergenceResult restartedConvergence = await WaitForControllerConvergenceAsync(
+                configPath,
+                "restart",
+                RestartConvergenceAttempts,
+                cancellationToken).ConfigureAwait(false);
+            if (!restartedConvergence.IsConverged)
+            {
+                _logService.Add(
+                    $"Mihomo controller still not converged after restart: {configPath}. {BuildConvergenceSummary(restartedConvergence)}",
+                    LogLevel.Warning);
+                return false;
+            }
+
+            CacheRuntimeGroups(restartedConvergence.ControllerBackedGroups);
+            ClearApplyFailureHistory(configPath);
+            _processService.ResetFailureDiagnostic();
+            _logService.Add($"Mihomo config applied after restart fallback: {configPath}");
+            ConfigApplied?.Invoke(this, configPath);
+            return true;
+        }
+
+        private async Task<ControllerConvergenceResult> WaitForControllerConvergenceAsync(
+            string configPath,
+            string stage,
+            int attempts,
+            CancellationToken cancellationToken)
+        {
+            List<ProxyGroup> runtimeGroups = ProxyGroupParser.ParseFromFile(configPath)
+                .Select(CloneProxyGroup)
+                .ToList();
+            CacheRuntimeGroups(runtimeGroups);
+
+            ControllerConvergenceResult? lastResult = null;
+
+            for (int attempt = 1; attempt <= attempts; attempt++)
+            {
+                using JsonDocument? document = await GetProxiesDocumentAsync(cancellationToken, suppressErrors: true).ConfigureAwait(false);
+                if (document is not null
+                    && document.RootElement.TryGetProperty("proxies", out JsonElement proxiesElement)
+                    && proxiesElement.ValueKind == JsonValueKind.Object)
+                {
+                    ControllerConvergenceResult currentResult = EvaluateControllerConvergence(runtimeGroups, proxiesElement, stage);
+                    lastResult = currentResult;
+
+                    if (currentResult.IsConverged)
+                    {
+                        _logService.Add(
+                            $"Mihomo controller converged after {stage}. attempt={attempt}/{attempts}. {BuildConvergenceSummary(currentResult)}",
+                            LogLevel.Info);
+                        return currentResult;
+                    }
+                }
+
+                if (attempt < attempts)
+                {
+                    await Task.Delay(ConfigConvergencePollDelay, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            lastResult ??= ControllerConvergenceResult.Empty(runtimeGroups.Count);
+            _logService.Add(
+                $"Mihomo controller not converged after {stage}. {BuildConvergenceSummary(lastResult)}",
+                LogLevel.Info);
+            return lastResult;
+        }
+
+        private ControllerConvergenceResult EvaluateControllerConvergence(List<ProxyGroup> runtimeGroups, JsonElement proxiesElement, string stage)
+        {
+            bool isRestartStage = string.Equals(stage, "restart", StringComparison.OrdinalIgnoreCase);
+            List<ProxyGroup> comparableGroups = runtimeGroups
+                .Where(group => group.Members.Count > 0)
+                .Select(CloneProxyGroup)
+                .ToList();
+
+            if (comparableGroups.Count == 0)
+            {
+                bool hasControllerGroups = EnumerateControllerGroups(proxiesElement).Any();
+                return new ControllerConvergenceResult
+                {
+                    IsConverged = hasControllerGroups,
+                    RuntimeGroupCount = 0,
+                    ControllerGroupCount = EnumerateControllerGroups(proxiesElement).Count(),
+                    AliasMatchedGroupCount = 0,
+                    AliasMatchedMemberCount = 0,
+                    TotalMemberCount = 0,
+                    AnchorGroupCount = 0,
+                    StableAnchorGroupCount = 0,
+                    IgnoredGroupCount = 0,
+                    AliasCoverageSatisfied = hasControllerGroups,
+                    AnchorCoverageSatisfied = true,
+                    Decision = hasControllerGroups ? ConvergenceDecision.HardConverged : ConvergenceDecision.NotConverged,
+                    ControllerBackedGroups = runtimeGroups.Select(CloneProxyGroup).ToList(),
+                    AnchorGroupPreview = "<none>",
+                };
+            }
+
+            List<ProxyGroup> mergedGroups = MergeProxyGroups(
+                comparableGroups.Select(CloneProxyGroup).ToList(),
+                proxiesElement);
+
+            int controllerGroupCount = EnumerateControllerGroups(proxiesElement).Count();
+            int totalMembers = comparableGroups.Sum(group => group.Members.Count);
+            int aliasMatchedGroupCount = mergedGroups.Count(group =>
+                !string.IsNullOrWhiteSpace(group.ControllerName));
+            int aliasMatchedMemberCount = mergedGroups.Sum(group =>
+                group.Members.Count(member => !string.IsNullOrWhiteSpace(member.Node.ControllerName)));
+
+            List<ProxyGroup> anchorGroups = GetAnchorGroups(comparableGroups)
+                .Take(Math.Min(AnchorGroupCandidateCount, comparableGroups.Count))
+                .ToList();
+
+            var anchorGroupSummaries = new List<string>();
+            int stableAnchorGroupCount = 0;
+
+            foreach (ProxyGroup anchorGroup in anchorGroups)
+            {
+                GroupStructureMatch? best = GetBestGroupStructureMatch(anchorGroup, proxiesElement, out _);
+                bool isStable = best is not null
+                    && (best.ExactSetMatch
+                        || (best.RuntimeCoverage >= MinimumStableRuntimeCoverage
+                            && best.ControllerCoverage >= MinimumStableControllerCoverage));
+                if (isStable)
+                {
+                    stableAnchorGroupCount++;
+                }
+
+                anchorGroupSummaries.Add(best is null
+                    ? $"{anchorGroup.Name}:<none>"
+                    : $"{anchorGroup.Name}->{best.ControllerGroupName}<{best.ControllerGroupType}>:runtime={best.RuntimeCoverage:F2},controller={best.ControllerCoverage:F2},exact={best.ExactSetMatch},current={best.CurrentMatches}");
+            }
+
+            double aliasGroupCoverage = comparableGroups.Count == 0
+                ? 1
+                : aliasMatchedGroupCount / (double)comparableGroups.Count;
+            double aliasMemberCoverage = totalMembers == 0
+                ? 1
+                : aliasMatchedMemberCount / (double)totalMembers;
+            double anchorStableCoverage = anchorGroups.Count == 0
+                ? 1
+                : stableAnchorGroupCount / (double)anchorGroups.Count;
+
+            bool aliasCoverageSatisfied = aliasGroupCoverage >= (isRestartStage
+                    ? MinimumRestartAliasGroupCoverage
+                    : MinimumHotApplyAliasGroupCoverage)
+                && aliasMemberCoverage >= (isRestartStage
+                    ? MinimumRestartAliasMemberCoverage
+                    : MinimumHotApplyAliasMemberCoverage);
+            bool anchorCoverageSatisfied = anchorGroups.Count == 0
+                || (stableAnchorGroupCount > 0 && (!isRestartStage || anchorStableCoverage >= 0)
+                    && (isRestartStage || anchorStableCoverage >= MinimumHotApplyAnchorStableCoverage));
+
+            ConvergenceDecision decision = ConvergenceDecision.NotConverged;
+            if (aliasCoverageSatisfied && anchorCoverageSatisfied)
+            {
+                decision = isRestartStage
+                    ? ConvergenceDecision.SoftConvergedAfterRestart
+                    : ConvergenceDecision.HardConverged;
+            }
+
+            bool isConverged = decision != ConvergenceDecision.NotConverged;
+
+            return new ControllerConvergenceResult
+            {
+                IsConverged = isConverged,
+                RuntimeGroupCount = comparableGroups.Count,
+                ControllerGroupCount = controllerGroupCount,
+                AliasMatchedGroupCount = aliasMatchedGroupCount,
+                AliasMatchedMemberCount = aliasMatchedMemberCount,
+                TotalMemberCount = totalMembers,
+                AnchorGroupCount = anchorGroups.Count,
+                StableAnchorGroupCount = stableAnchorGroupCount,
+                IgnoredGroupCount = Math.Max(0, comparableGroups.Count - anchorGroups.Count),
+                AliasCoverageSatisfied = aliasCoverageSatisfied,
+                AnchorCoverageSatisfied = anchorCoverageSatisfied,
+                Decision = decision,
+                ControllerBackedGroups = mergedGroups,
+                AnchorGroupPreview = anchorGroupSummaries.Count == 0 ? "<none>" : string.Join(" | ", anchorGroupSummaries),
+            };
+        }
+
+        private static string BuildConvergenceSummary(ControllerConvergenceResult result)
+        {
+            double aliasGroupCoverage = result.RuntimeGroupCount == 0
+                ? 1
+                : result.AliasMatchedGroupCount / (double)result.RuntimeGroupCount;
+            double aliasMemberCoverage = result.TotalMemberCount == 0
+                ? 1
+                : result.AliasMatchedMemberCount / (double)result.TotalMemberCount;
+
+            return
+                $"runtimeGroups={result.RuntimeGroupCount}, controllerGroups={result.ControllerGroupCount}, " +
+                $"decision={result.DecisionLabel}, " +
+                $"aliasCoverageSatisfied={result.AliasCoverageSatisfied}, anchorGroupsStable={result.AnchorCoverageSatisfied}, " +
+                $"aliasGroups={result.AliasMatchedGroupCount}/{result.RuntimeGroupCount}({aliasGroupCoverage:F2}), " +
+                $"aliasMembers={result.AliasMatchedMemberCount}/{result.TotalMemberCount}({aliasMemberCoverage:F2}), " +
+                $"stableAnchorGroups={result.StableAnchorGroupCount}/{result.AnchorGroupCount}, ignoredProviderLikeGroups={result.IgnoredGroupCount}, " +
+                $"anchorGroups={result.AnchorGroupPreview}";
+        }
+
+        private static IEnumerable<ProxyGroup> GetAnchorGroups(IEnumerable<ProxyGroup> groups)
+        {
+            return groups
+                .Where(group => AnchorGroupTypes.Contains(NormalizeGroupType(group.Type)))
+                .Select(group => new
+                {
+                    Group = group,
+                    LeafCount = group.Members.Count(member => IsLeafProxyNode(member.Node)),
+                    LeafRatio = group.Members.Count == 0
+                        ? 0
+                        : group.Members.Count(member => IsLeafProxyNode(member.Node)) / (double)group.Members.Count,
+                })
+                .Where(candidate => candidate.LeafCount >= MinimumAnchorLeafMembers
+                    && candidate.LeafRatio >= MinimumAnchorLeafRatio)
+                .OrderByDescending(candidate => candidate.LeafCount)
+                .ThenByDescending(candidate => candidate.LeafRatio)
+                .ThenByDescending(candidate => candidate.Group.Members.Count)
+                .Select(candidate => candidate.Group);
+        }
+
+        private static bool IsLeafProxyNode(ProxyNode node)
+        {
+            string type = NormalizeProxyType(node.Type);
+            return !NonLeafProxyTypes.Contains(type);
+        }
+
         private static async Task<string> SafeReadResponseBodyAsync(HttpResponseMessage response, CancellationToken cancellationToken)
         {
             try
@@ -332,22 +691,50 @@ namespace ClashWinUI.Services.Implementations
             return normalized;
         }
 
+        public async Task<ProxyGroupLoadResult> GetProxyGroupsAsync(string runtimePath, CancellationToken cancellationToken = default)
+        {
+            List<ProxyGroup> runtimeGroups = ProxyGroupParser.ParseFromFile(runtimePath).ToList();
+            CacheRuntimeGroups(runtimeGroups);
+
+            try
+            {
+                using JsonDocument? document = await GetProxiesDocumentAsync(cancellationToken).ConfigureAwait(false);
+                if (document is null
+                    || !document.RootElement.TryGetProperty("proxies", out JsonElement proxiesElement)
+                    || proxiesElement.ValueKind != JsonValueKind.Object)
+                {
+                    return new ProxyGroupLoadResult
+                    {
+                        Groups = runtimeGroups,
+                        Source = ProxyGroupLoadSource.RuntimeFile,
+                    };
+                }
+
+                List<ProxyGroup> mergedGroups = MergeProxyGroups(runtimeGroups, proxiesElement);
+                return new ProxyGroupLoadResult
+                {
+                    Groups = mergedGroups,
+                    Source = ProxyGroupLoadSource.MihomoController,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Mihomo proxy groups request error: {ex.Message}", LogLevel.Warning);
+                return new ProxyGroupLoadResult
+                {
+                    Groups = runtimeGroups,
+                    Source = ProxyGroupLoadSource.RuntimeFile,
+                };
+            }
+        }
+
         public async Task<IReadOnlyList<ProxyNode>> GetProxiesAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                using var request = CreateRequest(HttpMethod.Get, "/proxies");
-                using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                {
-                    _logService.Add($"Mihomo proxies request failed: {(int)response.StatusCode} {response.ReasonPhrase}", LogLevel.Warning);
-                    return Array.Empty<ProxyNode>();
-                }
-
-                await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                using JsonDocument doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-
-                if (!doc.RootElement.TryGetProperty("proxies", out JsonElement proxiesElement)
+                using JsonDocument? document = await GetProxiesDocumentAsync(cancellationToken).ConfigureAwait(false);
+                if (document is null
+                    || !document.RootElement.TryGetProperty("proxies", out JsonElement proxiesElement)
                     || proxiesElement.ValueKind != JsonValueKind.Object)
                 {
                     return Array.Empty<ProxyNode>();
@@ -365,7 +752,7 @@ namespace ClashWinUI.Services.Implementations
                         ? typeElement.GetString() ?? "unknown"
                         : "unknown";
 
-                    if (GroupTypes.Contains(type))
+                    if (IsGroupType(type))
                     {
                         continue;
                     }
@@ -383,6 +770,55 @@ namespace ClashWinUI.Services.Implementations
             {
                 _logService.Add($"Mihomo proxies request error: {ex.Message}", LogLevel.Warning);
                 return Array.Empty<ProxyNode>();
+            }
+        }
+
+        public async Task<bool> SelectProxyAsync(string groupName, string proxyName, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(groupName) || string.IsNullOrWhiteSpace(proxyName))
+            {
+                return false;
+            }
+
+            try
+            {
+                ProxySelectionAttemptResult initialAttempt = await SendSelectProxyRequestAsync(groupName, proxyName, cancellationToken).ConfigureAwait(false);
+                if (initialAttempt.Success)
+                {
+                    _logService.Add($"Mihomo proxy selected: {groupName} -> {proxyName}");
+                    return true;
+                }
+
+                if (initialAttempt.StatusCode == HttpStatusCode.NotFound)
+                {
+                    ProxySelectionResolution? resolution = await ResolveSelectionByStructureAsync(groupName, proxyName, cancellationToken).ConfigureAwait(false);
+                    if (resolution is not null
+                        && (!string.Equals(resolution.GroupName, groupName, StringComparison.OrdinalIgnoreCase)
+                            || !string.Equals(resolution.ProxyName, proxyName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        ProxySelectionAttemptResult retriedAttempt = await SendSelectProxyRequestAsync(resolution.GroupName, resolution.ProxyName, cancellationToken).ConfigureAwait(false);
+                        if (retriedAttempt.Success)
+                        {
+                            _logService.Add(
+                                $"Mihomo proxy selected after controller alias resolution: {groupName} -> {proxyName} => {resolution.GroupName} -> {resolution.ProxyName}");
+                            return true;
+                        }
+
+                        initialAttempt = retriedAttempt;
+                        groupName = resolution.GroupName;
+                        proxyName = resolution.ProxyName;
+                    }
+                }
+
+                _logService.Add(
+                    $"Mihomo proxy select failed: group={groupName}, proxy={proxyName}, status={(int?)initialAttempt.StatusCode} {initialAttempt.ReasonPhrase}, body={NormalizeResponseBody(initialAttempt.Body)}",
+                    LogLevel.Warning);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Mihomo proxy select error: {ex.Message}", LogLevel.Warning);
+                return false;
             }
         }
 
@@ -436,6 +872,898 @@ namespace ClashWinUI.Services.Implementations
             return request;
         }
 
+        private List<ProxyGroup> MergeProxyGroups(List<ProxyGroup> runtimeGroups, JsonElement proxiesElement)
+        {
+            Dictionary<string, ProxyNode> nodeLookup = BuildSharedNodeLookup(runtimeGroups);
+            UpdateNodesFromApi(nodeLookup, proxiesElement);
+
+            if (runtimeGroups.Count == 0)
+            {
+                runtimeGroups = BuildGroupsFromApi(proxiesElement, nodeLookup);
+            }
+
+            foreach (ProxyGroup group in runtimeGroups)
+            {
+                if (TryResolveApiGroup(group, proxiesElement, out string controllerGroupName, out JsonElement groupElement))
+                {
+                    group.ControllerName = controllerGroupName;
+
+                    string currentProxy = TryGetString(groupElement, "now");
+                    if (!string.IsNullOrWhiteSpace(currentProxy))
+                    {
+                        group.SetCurrentProxy(ResolveDisplayNodeName(group, currentProxy));
+                    }
+
+                    string apiType = NormalizeGroupType(TryGetString(groupElement, "type"));
+                    if (!string.IsNullOrWhiteSpace(apiType))
+                    {
+                        group.Type = apiType;
+                    }
+
+                    if (group.Members.Count == 0)
+                    {
+                        PopulateMembersFromApi(group, groupElement, nodeLookup);
+                    }
+                    else
+                    {
+                        BindMemberControllerNames(group, groupElement, nodeLookup);
+                    }
+                }
+                else if (group.Members.Count > 0)
+                {
+                    group.SetCurrentProxy(group.CurrentProxyName);
+                }
+            }
+
+            return runtimeGroups;
+        }
+
+        private static Dictionary<string, ProxyNode> BuildSharedNodeLookup(IEnumerable<ProxyGroup> groups)
+        {
+            var lookup = new Dictionary<string, ProxyNode>(StringComparer.OrdinalIgnoreCase);
+            foreach (ProxyNode node in groups
+                .SelectMany(group => group.Members)
+                .Select(member => member.Node))
+            {
+                lookup[node.Name] = node;
+            }
+
+            return lookup;
+        }
+
+        private void UpdateNodesFromApi(Dictionary<string, ProxyNode> nodeLookup, JsonElement proxiesElement)
+        {
+            foreach (JsonProperty proxy in proxiesElement.EnumerateObject())
+            {
+                if (proxy.Value.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                ProxyNode? node = FindMatchingNode(nodeLookup, proxy.Name);
+                if (node is null)
+                {
+                    continue;
+                }
+
+                node.ControllerName = proxy.Name;
+
+                string type = NormalizeProxyType(TryGetString(proxy.Value, "type"));
+                if (!string.IsNullOrWhiteSpace(type) && !IsGroupType(type))
+                {
+                    node.Type = type;
+                }
+
+                if (proxy.Value.TryGetProperty("udp", out JsonElement udpElement)
+                    && udpElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                {
+                    node.SupportsUdp = udpElement.GetBoolean();
+                }
+
+                string network = TryGetString(proxy.Value, "network");
+                if (!string.IsNullOrWhiteSpace(network))
+                {
+                    node.Network = network;
+                    node.TransportText = GetTransportText(network);
+                }
+            }
+        }
+
+        private List<ProxyGroup> BuildGroupsFromApi(JsonElement proxiesElement, Dictionary<string, ProxyNode> nodeLookup)
+        {
+            var groups = new List<ProxyGroup>();
+
+            foreach (JsonProperty proxy in proxiesElement.EnumerateObject())
+            {
+                if (proxy.Value.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                string type = NormalizeGroupType(TryGetString(proxy.Value, "type"));
+                if (!IsGroupType(type))
+                {
+                    continue;
+                }
+
+                var group = new ProxyGroup
+                {
+                    Name = NormalizeDisplayName(proxy.Name),
+                    ControllerName = proxy.Name,
+                    Type = type,
+                };
+
+                PopulateMembersFromApi(group, proxy.Value, nodeLookup);
+                group.SetCurrentProxy(ResolveDisplayNodeName(group, TryGetString(proxy.Value, "now")));
+                groups.Add(group);
+            }
+
+            return groups;
+        }
+
+        private void PopulateMembersFromApi(ProxyGroup group, JsonElement groupElement, Dictionary<string, ProxyNode> nodeLookup)
+        {
+            if (!groupElement.TryGetProperty("all", out JsonElement allElement)
+                || allElement.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            group.Members.Clear();
+            foreach (JsonElement item in allElement.EnumerateArray())
+            {
+                string memberName = item.GetString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(memberName))
+                {
+                    continue;
+                }
+
+                ProxyNode? node = FindMatchingNode(nodeLookup, memberName);
+                if (node is null)
+                {
+                    node = new ProxyNode
+                    {
+                        Name = NormalizeDisplayName(memberName),
+                        ControllerName = memberName,
+                        Type = NormalizeProxyType(memberName),
+                        TransportText = string.Empty,
+                    };
+                    nodeLookup[node.Name] = node;
+                }
+                else if (string.IsNullOrWhiteSpace(node.ControllerName))
+                {
+                    node.ControllerName = memberName;
+                }
+
+                group.Members.Add(new ProxyGroupMember
+                {
+                    GroupName = group.Name,
+                    Node = node,
+                });
+            }
+        }
+
+        private void BindMemberControllerNames(ProxyGroup group, JsonElement groupElement, Dictionary<string, ProxyNode> nodeLookup)
+        {
+            if (!groupElement.TryGetProperty("all", out JsonElement allElement)
+                || allElement.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (JsonElement item in allElement.EnumerateArray())
+            {
+                string memberName = item.GetString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(memberName))
+                {
+                    continue;
+                }
+
+                ProxyGroupMember? member = group.Members.FirstOrDefault(current =>
+                    NamesMatch(current.Node.Name, memberName)
+                    || (!string.IsNullOrWhiteSpace(current.Node.ControllerName)
+                        && NamesMatch(current.Node.ControllerName, memberName)));
+                if (member is null)
+                {
+                    continue;
+                }
+
+                member.Node.ControllerName = memberName;
+                nodeLookup[member.Node.Name] = member.Node;
+            }
+        }
+
+        private bool TryResolveApiGroup(ProxyGroup runtimeGroup, JsonElement proxiesElement, out string controllerGroupName, out JsonElement proxyElement)
+        {
+            foreach (JsonProperty proxy in EnumerateControllerGroups(proxiesElement))
+            {
+                if (!string.IsNullOrWhiteSpace(runtimeGroup.ControllerName)
+                    && string.Equals(proxy.Name, runtimeGroup.ControllerName, StringComparison.OrdinalIgnoreCase))
+                {
+                    controllerGroupName = proxy.Name;
+                    proxyElement = proxy.Value;
+                    return true;
+                }
+            }
+
+            foreach (JsonProperty proxy in EnumerateControllerGroups(proxiesElement))
+            {
+                if (string.Equals(proxy.Name, runtimeGroup.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    controllerGroupName = proxy.Name;
+                    proxyElement = proxy.Value;
+                    return true;
+                }
+            }
+
+            foreach (JsonProperty proxy in EnumerateControllerGroups(proxiesElement))
+            {
+                if (NamesMatch(proxy.Name, runtimeGroup.Name))
+                {
+                    controllerGroupName = proxy.Name;
+                    proxyElement = proxy.Value;
+                    return true;
+                }
+            }
+
+            if (TryResolveApiGroupByStructure(runtimeGroup, proxiesElement, out controllerGroupName, out proxyElement))
+            {
+                return true;
+            }
+
+            controllerGroupName = string.Empty;
+            proxyElement = default;
+            return false;
+        }
+
+        private static string TryGetString(JsonElement element, string propertyName)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return property.Value.GetString() ?? string.Empty;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string GetTransportText(string network)
+        {
+            return string.IsNullOrWhiteSpace(network)
+                ? string.Empty
+                : network.Trim();
+        }
+
+        private static ProxyNode? FindMatchingNode(Dictionary<string, ProxyNode> nodeLookup, string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            if (nodeLookup.TryGetValue(name, out ProxyNode? exact))
+            {
+                return exact;
+            }
+
+            return nodeLookup.Values.FirstOrDefault(node =>
+                NamesMatch(node.Name, name)
+                || (!string.IsNullOrWhiteSpace(node.ControllerName) && NamesMatch(node.ControllerName, name)));
+        }
+
+        private static string ResolveDisplayNodeName(ProxyGroup group, string? controllerNodeName)
+        {
+            if (string.IsNullOrWhiteSpace(controllerNodeName))
+            {
+                return string.Empty;
+            }
+
+            ProxyGroupMember? matchedMember = group.Members.FirstOrDefault(member =>
+                NamesMatch(member.Node.Name, controllerNodeName)
+                || (!string.IsNullOrWhiteSpace(member.Node.ControllerName)
+                    && NamesMatch(member.Node.ControllerName, controllerNodeName)));
+
+            return matchedMember?.Node.Name ?? NormalizeDisplayName(controllerNodeName);
+        }
+
+        private static string NormalizeDisplayName(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            string trimmed = value.Trim();
+            string repaired = TryDecodeUtf8Latin1Mojibake(trimmed);
+            return string.IsNullOrWhiteSpace(repaired) ? trimmed : repaired;
+        }
+
+        private static bool NamesMatch(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            {
+                return false;
+            }
+
+            HashSet<string> rightCandidates = GetNameCandidates(right);
+            return GetNameCandidates(left).Any(rightCandidates.Contains);
+        }
+
+        private static HashSet<string> GetNameCandidates(string value)
+        {
+            string trimmed = value.Trim();
+            var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                trimmed,
+            };
+
+            string repaired = TryDecodeUtf8Latin1Mojibake(trimmed);
+            if (!string.IsNullOrWhiteSpace(repaired))
+            {
+                candidates.Add(repaired.Trim());
+            }
+
+            return candidates;
+        }
+
+        private static string TryDecodeUtf8Latin1Mojibake(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+
+            if (value.Any(ch => ch > byte.MaxValue))
+            {
+                return value;
+            }
+
+            byte[] bytes = value.Select(ch => (byte)ch).ToArray();
+            string decoded = Encoding.UTF8.GetString(bytes);
+            return decoded.Contains('\uFFFD') ? value : decoded;
+        }
+
+        private static bool IsGroupType(string? type)
+        {
+            return !string.IsNullOrWhiteSpace(type)
+                && GroupTypes.Contains(type);
+        }
+
+        private static string NormalizeProxyType(string? raw)
+        {
+            return string.IsNullOrWhiteSpace(raw)
+                ? "unknown"
+                : raw.Trim().ToLowerInvariant();
+        }
+
+        private static string NormalizeGroupType(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return string.Empty;
+            }
+
+            string normalized = raw.Trim()
+                .Replace("-", string.Empty, StringComparison.Ordinal)
+                .Replace("_", string.Empty, StringComparison.Ordinal)
+                .Replace(" ", string.Empty, StringComparison.Ordinal)
+                .ToLowerInvariant();
+
+            return normalized switch
+            {
+                "select" => "selector",
+                "selector" => "selector",
+                "urltest" => "urltest",
+                "fallback" => "fallback",
+                "loadbalance" => "loadbalance",
+                "direct" => "direct",
+                "reject" => "reject",
+                "compatible" => "compatible",
+                _ => normalized,
+            };
+        }
+
+        private void CacheRuntimeGroups(IEnumerable<ProxyGroup> runtimeGroups)
+        {
+            lock (_groupCacheSync)
+            {
+                _lastRuntimeGroups = runtimeGroups
+                    .Select(CloneProxyGroup)
+                    .ToList();
+            }
+        }
+
+        private ProxyGroup? FindCachedRuntimeGroup(string groupName, string proxyName)
+        {
+            lock (_groupCacheSync)
+            {
+                ProxyGroup? matched = _lastRuntimeGroups.FirstOrDefault(group =>
+                    string.Equals(group.Name, groupName, StringComparison.OrdinalIgnoreCase)
+                    || (!string.IsNullOrWhiteSpace(group.ControllerName)
+                        && string.Equals(group.ControllerName, groupName, StringComparison.OrdinalIgnoreCase)));
+                if (matched is not null)
+                {
+                    return CloneProxyGroup(matched);
+                }
+
+                matched = _lastRuntimeGroups.FirstOrDefault(group =>
+                    group.Members.Any(member =>
+                        string.Equals(member.Node.Name, proxyName, StringComparison.OrdinalIgnoreCase)
+                        || (!string.IsNullOrWhiteSpace(member.Node.ControllerName)
+                            && string.Equals(member.Node.ControllerName, proxyName, StringComparison.OrdinalIgnoreCase))));
+                return matched is null ? null : CloneProxyGroup(matched);
+            }
+        }
+
+        private static ProxyGroup CloneProxyGroup(ProxyGroup source)
+        {
+            var clone = new ProxyGroup
+            {
+                Name = source.Name,
+                Type = source.Type,
+                ControllerName = source.ControllerName,
+                CurrentProxyName = source.CurrentProxyName,
+                IsExpanded = source.IsExpanded,
+            };
+
+            foreach (ProxyGroupMember member in source.Members)
+            {
+                clone.Members.Add(new ProxyGroupMember
+                {
+                    GroupName = member.GroupName,
+                    IsCurrent = member.IsCurrent,
+                    Node = new ProxyNode
+                    {
+                        Name = member.Node.Name,
+                        Type = member.Node.Type,
+                        ControllerName = member.Node.ControllerName,
+                        TransportText = member.Node.TransportText,
+                        SupportsUdp = member.Node.SupportsUdp,
+                        Network = member.Node.Network,
+                    }
+                });
+            }
+
+            return clone;
+        }
+
+        private static IEnumerable<JsonProperty> EnumerateControllerGroups(JsonElement proxiesElement)
+        {
+            foreach (JsonProperty proxy in proxiesElement.EnumerateObject())
+            {
+                if (proxy.Value.ValueKind == JsonValueKind.Object
+                    && IsGroupType(NormalizeGroupType(TryGetString(proxy.Value, "type"))))
+                {
+                    yield return proxy;
+                }
+            }
+        }
+
+        private static bool TryResolveApiGroupByStructure(ProxyGroup runtimeGroup, JsonElement proxiesElement, out string controllerGroupName, out JsonElement proxyElement)
+        {
+            GroupStructureMatch? best = GetBestGroupStructureMatch(runtimeGroup, proxiesElement, out _);
+            if (best is null)
+            {
+                controllerGroupName = string.Empty;
+                proxyElement = default;
+                return false;
+            }
+
+            controllerGroupName = best.ControllerGroupName;
+            proxyElement = best.ControllerGroupElement;
+            return true;
+        }
+
+        private static GroupStructureMatch? GetBestGroupStructureMatch(ProxyGroup runtimeGroup, JsonElement proxiesElement, out GroupStructureMatch? runnerUp)
+        {
+            runnerUp = null;
+
+            List<GroupStructureMatch> candidates = GetGroupStructureCandidates(runtimeGroup, proxiesElement);
+
+            if (candidates.Count == 0)
+            {
+                return null;
+            }
+
+            GroupStructureMatch best = candidates[0];
+            if (!best.ExactSetMatch && best.RuntimeCoverage < 0.8)
+            {
+                return null;
+            }
+
+            runnerUp = candidates
+                .Skip(1)
+                .FirstOrDefault(candidate => !string.Equals(candidate.ControllerGroupName, best.ControllerGroupName, StringComparison.OrdinalIgnoreCase));
+
+            if (runnerUp is not null
+                && best.ExactSetMatch == runnerUp.ExactSetMatch
+                && Math.Abs(best.RuntimeCoverage - runnerUp.RuntimeCoverage) < 0.0001
+                && Math.Abs(best.ControllerCoverage - runnerUp.ControllerCoverage) < 0.0001
+                && best.CurrentMatches == runnerUp.CurrentMatches
+                && best.OverlapCount == runnerUp.OverlapCount)
+            {
+                return null;
+            }
+
+            return best;
+        }
+
+        private static List<GroupStructureMatch> GetGroupStructureCandidates(ProxyGroup runtimeGroup, JsonElement proxiesElement)
+        {
+            string runtimeType = NormalizeGroupType(runtimeGroup.Type);
+            List<GroupStructureMatch> candidates = new();
+
+            foreach (JsonProperty proxy in EnumerateControllerGroups(proxiesElement))
+            {
+                string controllerType = NormalizeGroupType(TryGetString(proxy.Value, "type"));
+                if (!string.Equals(controllerType, runtimeType, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!TryBuildGroupStructureMatch(runtimeGroup, proxy, out GroupStructureMatch? match) || match is null)
+                {
+                    continue;
+                }
+
+                candidates.Add(match);
+            }
+
+            return candidates
+                .OrderByDescending(candidate => candidate.ExactSetMatch)
+                .ThenByDescending(candidate => candidate.RuntimeCoverage)
+                .ThenByDescending(candidate => candidate.ControllerCoverage)
+                .ThenByDescending(candidate => candidate.CurrentMatches)
+                .ThenByDescending(candidate => candidate.OverlapCount)
+                .ToList();
+        }
+
+        private static bool TryBuildGroupStructureMatch(ProxyGroup runtimeGroup, JsonProperty controllerGroup, out GroupStructureMatch? match)
+        {
+            match = null;
+            string controllerGroupType = NormalizeGroupType(TryGetString(controllerGroup.Value, "type"));
+
+            if (!controllerGroup.Value.TryGetProperty("all", out JsonElement allElement)
+                || allElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            List<string> runtimeMembers = runtimeGroup.Members
+                .Select(member => member.Node.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (runtimeMembers.Count == 0)
+            {
+                return false;
+            }
+
+            List<string> controllerMembers = allElement.EnumerateArray()
+                .Select(item => item.GetString() ?? string.Empty)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (controllerMembers.Count == 0)
+            {
+                return false;
+            }
+
+            int overlapCount = runtimeMembers.Count(runtimeMember =>
+                controllerMembers.Any(controllerMember => NamesMatch(runtimeMember, controllerMember)));
+            if (overlapCount == 0)
+            {
+                return false;
+            }
+
+            double runtimeCoverage = overlapCount / (double)runtimeMembers.Count;
+            double controllerCoverage = overlapCount / (double)controllerMembers.Count;
+            bool exactSetMatch = overlapCount == runtimeMembers.Count && overlapCount == controllerMembers.Count;
+            bool currentMatches = false;
+
+            string runtimeCurrent = runtimeGroup.CurrentProxyName;
+            string controllerCurrent = TryGetString(controllerGroup.Value, "now");
+            if (!string.IsNullOrWhiteSpace(runtimeCurrent)
+                && !string.IsNullOrWhiteSpace(controllerCurrent)
+                && NamesMatch(runtimeCurrent, controllerCurrent))
+            {
+                currentMatches = true;
+            }
+
+            match = new GroupStructureMatch
+            {
+                ControllerGroupName = controllerGroup.Name,
+                ControllerGroupType = controllerGroupType,
+                ControllerGroupElement = controllerGroup.Value,
+                OverlapCount = overlapCount,
+                RuntimeCoverage = runtimeCoverage,
+                ControllerCoverage = controllerCoverage,
+                ExactSetMatch = exactSetMatch,
+                CurrentMatches = currentMatches,
+            };
+            return true;
+        }
+
+        private async Task<ProxySelectionResolution?> ResolveSelectionByStructureAsync(string groupName, string proxyName, CancellationToken cancellationToken)
+        {
+            ProxyGroup? runtimeGroup = FindCachedRuntimeGroup(groupName, proxyName);
+
+            using JsonDocument? document = await GetProxiesDocumentAsync(cancellationToken).ConfigureAwait(false);
+            if (document is null
+                || !document.RootElement.TryGetProperty("proxies", out JsonElement proxiesElement)
+                || proxiesElement.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            if (runtimeGroup is not null)
+            {
+                List<GroupStructureMatch> structureCandidates = GetGroupStructureCandidates(runtimeGroup, proxiesElement);
+                GroupStructureMatch? bestStructureMatch = GetBestGroupStructureMatch(runtimeGroup, proxiesElement, out GroupStructureMatch? runnerUpStructureMatch);
+                if (bestStructureMatch is not null)
+                {
+                    string runtimeTypeNormalized = NormalizeGroupType(runtimeGroup.Type);
+                    string runnerUpSummary = runnerUpStructureMatch is null
+                        ? "runnerUp=<none>"
+                        : $"runnerUp={runnerUpStructureMatch.ControllerGroupName}, runnerUpType={runnerUpStructureMatch.ControllerGroupType}, overlap={runnerUpStructureMatch.OverlapCount}, runtimeCoverage={runnerUpStructureMatch.RuntimeCoverage:F2}, controllerCoverage={runnerUpStructureMatch.ControllerCoverage:F2}, exactSet={runnerUpStructureMatch.ExactSetMatch}, currentMatches={runnerUpStructureMatch.CurrentMatches}";
+
+                    _logService.Add(
+                        $"Mihomo structure match for selection retry: requestedGroup={groupName}, cachedGroup={runtimeGroup.Name}, " +
+                        $"runtimeTypeNormalized={runtimeTypeNormalized}, best={bestStructureMatch.ControllerGroupName}, bestType={bestStructureMatch.ControllerGroupType}, overlap={bestStructureMatch.OverlapCount}, " +
+                        $"runtimeCoverage={bestStructureMatch.RuntimeCoverage:F2}, controllerCoverage={bestStructureMatch.ControllerCoverage:F2}, " +
+                        $"exactSet={bestStructureMatch.ExactSetMatch}, currentMatches={bestStructureMatch.CurrentMatches}, {runnerUpSummary}",
+                        LogLevel.Info);
+                }
+                else
+                {
+                    string runtimeTypeNormalized = NormalizeGroupType(runtimeGroup.Type);
+                    string candidateSummary = structureCandidates.Count == 0
+                        ? "<none>"
+                        : string.Join(" | ", structureCandidates.Take(5).Select(candidate =>
+                            $"{candidate.ControllerGroupName}<{candidate.ControllerGroupType}>:overlap={candidate.OverlapCount},runtime={candidate.RuntimeCoverage:F2},controller={candidate.ControllerCoverage:F2},exactSet={candidate.ExactSetMatch},current={candidate.CurrentMatches}"));
+
+                    _logService.Add(
+                        $"Mihomo structure match for selection retry found no candidate: requestedGroup={groupName}, cachedGroup={runtimeGroup.Name}, runtimeTypeNormalized={runtimeTypeNormalized}, sameTypeCandidateCount={structureCandidates.Count}, requestedProxy={proxyName}, topCandidates={candidateSummary}, availableGroups={BuildControllerGroupPreview(proxiesElement)}",
+                        LogLevel.Info);
+                }
+            }
+
+            if (runtimeGroup is not null
+                && TryResolveApiGroup(runtimeGroup, proxiesElement, out string controllerGroupName, out JsonElement controllerGroupElement)
+                && TryResolveControllerProxyName(runtimeGroup, proxyName, controllerGroupElement, out string controllerProxyName, out string matchedBy))
+            {
+                _logService.Add(
+                    $"Mihomo controller alias resolved for selection: requestedGroup={groupName}, controllerGroup={controllerGroupName}, requestedProxy={proxyName}, controllerProxy={controllerProxyName}, matchedBy={matchedBy}",
+                    LogLevel.Info);
+
+                return new ProxySelectionResolution
+                {
+                    GroupName = controllerGroupName,
+                    ProxyName = controllerProxyName,
+                };
+            }
+
+            if (runtimeGroup is not null
+                && TryResolveApiGroup(runtimeGroup, proxiesElement, out string unresolvedControllerGroupName, out JsonElement unresolvedControllerGroupElement))
+            {
+                _logService.Add(
+                    $"Mihomo controller proxy resolution failed after group match: requestedGroup={groupName}, controllerGroup={unresolvedControllerGroupName}, requestedProxy={proxyName}, controllerMembers={BuildControllerMembersPreview(unresolvedControllerGroupElement)}",
+                    LogLevel.Info);
+            }
+
+            foreach (JsonProperty group in EnumerateControllerGroups(proxiesElement))
+            {
+                if (!TryResolveControllerProxyName(proxyName, group.Value, out string matchedControllerProxyName))
+                {
+                    continue;
+                }
+
+                if (string.Equals(group.Name, groupName, StringComparison.OrdinalIgnoreCase)
+                    || NamesMatch(group.Name, groupName))
+                {
+                    return new ProxySelectionResolution
+                    {
+                        GroupName = group.Name,
+                        ProxyName = matchedControllerProxyName,
+                    };
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryResolveControllerProxyName(ProxyGroup runtimeGroup, string proxyName, JsonElement controllerGroupElement, out string controllerProxyName, out string matchedBy)
+        {
+            controllerProxyName = string.Empty;
+            matchedBy = string.Empty;
+            if (!controllerGroupElement.TryGetProperty("all", out JsonElement allElement)
+                || allElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            ProxyGroupMember? matchedMember = runtimeGroup.Members.FirstOrDefault(member =>
+                string.Equals(member.Node.Name, proxyName, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(member.Node.ControllerName)
+                    && string.Equals(member.Node.ControllerName, proxyName, StringComparison.OrdinalIgnoreCase)));
+
+            List<string> lookupNames = new();
+            if (matchedMember is not null)
+            {
+                lookupNames.Add(matchedMember.Node.Name);
+                if (!string.IsNullOrWhiteSpace(matchedMember.Node.ControllerName))
+                {
+                    lookupNames.Add(matchedMember.Node.ControllerName);
+                }
+            }
+
+            lookupNames.Add(proxyName);
+
+            List<string> uniqueLookupNames = lookupNames
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (JsonElement item in allElement.EnumerateArray())
+            {
+                string candidate = item.GetString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(candidate))
+                {
+                    continue;
+                }
+
+                string? matchedLookup = uniqueLookupNames.FirstOrDefault(name => NamesMatch(name, candidate));
+                if (matchedLookup is not null)
+                {
+                    controllerProxyName = candidate;
+                    matchedBy = matchedLookup;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveControllerProxyName(string proxyName, JsonElement controllerGroupElement, out string controllerProxyName)
+        {
+            controllerProxyName = string.Empty;
+            if (!controllerGroupElement.TryGetProperty("all", out JsonElement allElement)
+                || allElement.ValueKind != JsonValueKind.Array)
+            {
+                return false;
+            }
+
+            foreach (JsonElement item in allElement.EnumerateArray())
+            {
+                string candidate = item.GetString() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(candidate))
+                {
+                    continue;
+                }
+
+                if (string.Equals(candidate, proxyName, StringComparison.OrdinalIgnoreCase)
+                    || NamesMatch(candidate, proxyName))
+                {
+                    controllerProxyName = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string BuildControllerMembersPreview(JsonElement controllerGroupElement, int maxItems = 8)
+        {
+            if (!controllerGroupElement.TryGetProperty("all", out JsonElement allElement)
+                || allElement.ValueKind != JsonValueKind.Array)
+            {
+                return "<no-members>";
+            }
+
+            List<string> members = allElement.EnumerateArray()
+                .Select(item => item.GetString() ?? string.Empty)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Take(maxItems)
+                .ToList();
+
+            int totalCount = allElement.GetArrayLength();
+            return members.Count == 0
+                ? $"count={totalCount}"
+                : $"{string.Join(", ", members)}{(totalCount > members.Count ? $" ... (count={totalCount})" : string.Empty)}";
+        }
+
+        private static string BuildControllerGroupPreview(JsonElement proxiesElement, int maxItems = 10)
+        {
+            List<string> groups = EnumerateControllerGroups(proxiesElement)
+                .Take(maxItems)
+                .Select(group =>
+                {
+                    string type = NormalizeGroupType(TryGetString(group.Value, "type"));
+                    int memberCount = group.Value.TryGetProperty("all", out JsonElement allElement) && allElement.ValueKind == JsonValueKind.Array
+                        ? allElement.GetArrayLength()
+                        : 0;
+                    return $"{group.Name}<{type}>[{memberCount}]";
+                })
+                .ToList();
+
+            return groups.Count == 0 ? "<none>" : string.Join(", ", groups);
+        }
+
+        private async Task<ProxySelectionAttemptResult> SendSelectProxyRequestAsync(string groupName, string proxyName, CancellationToken cancellationToken)
+        {
+            try
+            {
+                string payloadJson = JsonSerializer.Serialize(
+                    new MihomoProxySelectionPayload { Name = proxyName },
+                    ClashJsonContext.Default.MihomoProxySelectionPayload);
+
+                using var request = CreateRequest(
+                    HttpMethod.Put,
+                    $"/proxies/{Uri.EscapeDataString(groupName)}");
+                request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
+
+                using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return new ProxySelectionAttemptResult
+                    {
+                        Success = true,
+                        StatusCode = response.StatusCode,
+                        ReasonPhrase = response.ReasonPhrase,
+                        Body = string.Empty,
+                    };
+                }
+
+                string body = await SafeReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
+                return new ProxySelectionAttemptResult
+                {
+                    Success = false,
+                    StatusCode = response.StatusCode,
+                    ReasonPhrase = response.ReasonPhrase,
+                    Body = body,
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ProxySelectionAttemptResult
+                {
+                    Success = false,
+                    ReasonPhrase = ex.Message,
+                    Body = string.Empty,
+                };
+            }
+        }
+
+        private async Task<JsonDocument?> GetProxiesDocumentAsync(CancellationToken cancellationToken, bool suppressErrors = false)
+        {
+            try
+            {
+                using var request = CreateRequest(HttpMethod.Get, "/proxies");
+                using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    if (!suppressErrors)
+                    {
+                        _logService.Add($"Mihomo proxies request failed: {(int)response.StatusCode} {response.ReasonPhrase}", LogLevel.Warning);
+                    }
+                    return null;
+                }
+
+                await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                return await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (!suppressErrors)
+                {
+                    _logService.Add($"Mihomo proxy groups request error: {ex.Message}", LogLevel.Warning);
+                }
+                return null;
+            }
+        }
+
         private sealed class ApplyConfigRequestResult
         {
             public required HttpMethod Method { get; init; }
@@ -444,6 +1772,85 @@ namespace ClashWinUI.Services.Implementations
             public string? ReasonPhrase { get; init; }
             public string? Body { get; init; }
             public Exception? Exception { get; init; }
+        }
+
+        private sealed class ProxySelectionAttemptResult
+        {
+            public required bool Success { get; init; }
+            public HttpStatusCode? StatusCode { get; init; }
+            public string? ReasonPhrase { get; init; }
+            public string? Body { get; init; }
+        }
+
+        private sealed class ProxySelectionResolution
+        {
+            public required string GroupName { get; init; }
+            public required string ProxyName { get; init; }
+        }
+
+        private sealed class GroupStructureMatch
+        {
+            public required string ControllerGroupName { get; init; }
+            public required string ControllerGroupType { get; init; }
+            public required JsonElement ControllerGroupElement { get; init; }
+            public required int OverlapCount { get; init; }
+            public required double RuntimeCoverage { get; init; }
+            public required double ControllerCoverage { get; init; }
+            public required bool ExactSetMatch { get; init; }
+            public required bool CurrentMatches { get; init; }
+        }
+
+        private sealed class ControllerConvergenceResult
+        {
+            public required bool IsConverged { get; init; }
+            public required int RuntimeGroupCount { get; init; }
+            public required int ControllerGroupCount { get; init; }
+            public required int AliasMatchedGroupCount { get; init; }
+            public required int AliasMatchedMemberCount { get; init; }
+            public required int TotalMemberCount { get; init; }
+            public required int AnchorGroupCount { get; init; }
+            public required int StableAnchorGroupCount { get; init; }
+            public required int IgnoredGroupCount { get; init; }
+            public required bool AliasCoverageSatisfied { get; init; }
+            public required bool AnchorCoverageSatisfied { get; init; }
+            public required ConvergenceDecision Decision { get; init; }
+            public required IReadOnlyList<ProxyGroup> ControllerBackedGroups { get; init; }
+            public required string AnchorGroupPreview { get; init; }
+
+            public string DecisionLabel => Decision switch
+            {
+                ConvergenceDecision.HardConverged => "hard",
+                ConvergenceDecision.SoftConvergedAfterRestart => "soft",
+                _ => "failed",
+            };
+
+            public static ControllerConvergenceResult Empty(int runtimeGroupCount)
+            {
+                return new ControllerConvergenceResult
+                {
+                    IsConverged = false,
+                    RuntimeGroupCount = runtimeGroupCount,
+                    ControllerGroupCount = 0,
+                    AliasMatchedGroupCount = 0,
+                    AliasMatchedMemberCount = 0,
+                    TotalMemberCount = 0,
+                    AnchorGroupCount = 0,
+                    StableAnchorGroupCount = 0,
+                    IgnoredGroupCount = 0,
+                    AliasCoverageSatisfied = false,
+                    AnchorCoverageSatisfied = false,
+                    Decision = ConvergenceDecision.NotConverged,
+                    ControllerBackedGroups = Array.Empty<ProxyGroup>(),
+                    AnchorGroupPreview = "<none>",
+                };
+            }
+        }
+
+        private enum ConvergenceDecision
+        {
+            NotConverged = 0,
+            HardConverged = 1,
+            SoftConvergedAfterRestart = 2,
         }
     }
 }

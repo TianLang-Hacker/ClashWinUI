@@ -18,6 +18,7 @@ namespace ClashWinUI.Services.Implementations.Config
         private const string RuntimeFileName = "runtime.yaml";
 
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+        private static readonly Encoding Utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
 
         private readonly IAppLogService _logService;
         private readonly string _profilesRoot;
@@ -184,7 +185,7 @@ namespace ClashWinUI.Services.Implementations.Config
                 YamlMappingNode source = LoadYamlMapping(workspace.SourcePath);
                 YamlMappingNode mixin = LoadYamlMapping(workspace.MixinPath);
                 YamlMappingNode merged = MergeMappings(source, mixin);
-                SaveYamlMapping(workspace.RuntimePath, merged);
+                SaveYamlMapping(workspace.RuntimePath, merged, useBom: true);
             }
             catch (Exception ex)
             {
@@ -314,7 +315,7 @@ namespace ClashWinUI.Services.Implementations.Config
             return mapping;
         }
 
-        private static void SaveYamlMapping(string path, YamlMappingNode root)
+        private static void SaveYamlMapping(string path, YamlMappingNode root, bool useBom = false)
         {
             string? directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrWhiteSpace(directory))
@@ -325,7 +326,7 @@ namespace ClashWinUI.Services.Implementations.Config
             var stream = new YamlStream(new YamlDocument(root));
             using var writer = new StringWriter(CultureInfo.InvariantCulture);
             stream.Save(writer, false);
-            File.WriteAllText(path, writer.ToString(), Utf8NoBom);
+            File.WriteAllText(path, writer.ToString(), useBom ? Utf8Bom : Utf8NoBom);
         }
 
         private static YamlMappingNode MergeMappings(YamlMappingNode source, YamlMappingNode mixin)

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Text;
+using YamlDotNet.RepresentationModel;
 
 namespace ClashWinUI.Helpers
 {
@@ -51,6 +52,66 @@ namespace ClashWinUI.Helpers
         }
 
         private static IReadOnlyList<ProxyNode> ParseYamlContent(string content)
+        {
+            IReadOnlyList<ProxyNode> structuredNodes = ParseStructuredYamlContent(content);
+            if (structuredNodes.Count > 0)
+            {
+                return structuredNodes;
+            }
+
+            return ParseRegexYamlContent(content);
+        }
+
+        private static IReadOnlyList<ProxyNode> ParseStructuredYamlContent(string content)
+        {
+            try
+            {
+                using var reader = new StringReader(content);
+                var yaml = new YamlStream();
+                yaml.Load(reader);
+                if (yaml.Documents.Count == 0
+                    || yaml.Documents[0].RootNode is not YamlMappingNode root)
+                {
+                    return Array.Empty<ProxyNode>();
+                }
+
+                if (!TryGetChild(root, "proxies", out YamlNode? proxiesNode)
+                    || proxiesNode is not YamlSequenceNode proxiesSequence)
+                {
+                    return Array.Empty<ProxyNode>();
+                }
+
+                var nodes = new List<ProxyNode>();
+                foreach (YamlNode item in proxiesSequence.Children)
+                {
+                    if (item is not YamlMappingNode proxyMapping)
+                    {
+                        continue;
+                    }
+
+                    string name = GetScalarValue(proxyMapping, "name");
+                    if (string.IsNullOrWhiteSpace(name))
+                    {
+                        continue;
+                    }
+
+                    string type = GetScalarValue(proxyMapping, "type");
+                    nodes.Add(new ProxyNode
+                    {
+                        Name = name,
+                        Type = string.IsNullOrWhiteSpace(type) ? "unknown" : type,
+                    });
+                }
+
+                return nodes;
+            }
+            catch
+            {
+                return Array.Empty<ProxyNode>();
+            }
+        }
+
+        private static IReadOnlyList<ProxyNode> ParseRegexYamlContent(string content)
         {
             var nodes = new List<ProxyNode>();
             var lines = content.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
@@ -117,6 +178,33 @@ namespace ClashWinUI.Helpers
             }
 
             return nodes;
+        }
+
+        private static bool TryGetChild(YamlMappingNode node, string key, out YamlNode? value)
+        {
+            foreach ((YamlNode childKey, YamlNode childValue) in node.Children)
+            {
+                if (childKey is YamlScalarNode scalar
+                    && string.Equals(scalar.Value, key, StringComparison.OrdinalIgnoreCase))
+                {
+                    value = childValue;
+                    return true;
+                }
+            }
+
+            value = null;
+            return false;
+        }
+
+        private static string GetScalarValue(YamlMappingNode node, string key)
+        {
+            if (!TryGetChild(node, key, out YamlNode? value)
+                || value is not YamlScalarNode scalar)
+            {
+                return string.Empty;
+            }
+
+            return scalar.Value?.Trim() ?? string.Empty;
         }
 
         private static string NormalizeYamlScalar(string value)

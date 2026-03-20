@@ -57,6 +57,37 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
+        public bool ProxyGroupsExpandedByDefault
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _settings.ProxyGroupsExpandedByDefault;
+                }
+            }
+            set
+            {
+                bool changed;
+                lock (_gate)
+                {
+                    if (_settings.ProxyGroupsExpandedByDefault == value)
+                    {
+                        return;
+                    }
+
+                    _settings.ProxyGroupsExpandedByDefault = value;
+                    SaveSettingsUnsafe();
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    SettingsChanged?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
         private AppSettingsState LoadSettings()
         {
             try

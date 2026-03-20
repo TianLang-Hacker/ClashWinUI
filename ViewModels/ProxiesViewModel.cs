@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -31,11 +32,16 @@ namespace ClashWinUI.ViewModels
         };
 
         private const int TestAllConcurrencyLimit = 8;
+        private const int ControllerWarmupAttempts = 6;
+        private static readonly TimeSpan ControllerWarmupDelay = TimeSpan.FromMilliseconds(250);
 
         private readonly LocalizedStrings _localizedStrings;
         private readonly IProfileService _profileService;
         private readonly IConfigService _configService;
         private readonly IMihomoService _mihomoService;
+        private readonly IGeoDataService _geoDataService;
+        private readonly IProcessService _processService;
+        private readonly IAppSettingsService _appSettingsService;
         private readonly DispatcherQueue? _dispatcherQueue;
         private bool _isWatchingRuntimeChanges;
 
@@ -52,23 +58,26 @@ namespace ClashWinUI.ViewModels
         public partial ProfileItem? ActiveProfile { get; set; }
 
         [ObservableProperty]
-        public partial ProxyNode? SelectedNode { get; set; }
-
-        [ObservableProperty]
         public partial bool IsBusy { get; set; }
 
-        public ObservableCollection<ProxyNode> Nodes { get; } = new();
+        public ObservableCollection<ProxyGroup> ProxyGroups { get; } = new();
 
         public ProxiesViewModel(
             LocalizedStrings localizedStrings,
             IProfileService profileService,
             IConfigService configService,
-            IMihomoService mihomoService)
+            IMihomoService mihomoService,
+            IGeoDataService geoDataService,
+            IProcessService processService,
+            IAppSettingsService appSettingsService)
         {
             _localizedStrings = localizedStrings;
             _profileService = profileService;
             _configService = configService;
             _mihomoService = mihomoService;
+            _geoDataService = geoDataService;
+            _processService = processService;
+            _appSettingsService = appSettingsService;
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
 
@@ -79,7 +88,7 @@ namespace ClashWinUI.ViewModels
 
         public Task InitializeAsync()
         {
-            return RefreshNodesAsync(reapplyRuntime: true);
+            return RefreshGroupsAsync(reapplyRuntime: true);
         }
 
         public void StartWatchingRuntimeChanges()
@@ -107,40 +116,40 @@ namespace ClashWinUI.ViewModels
         [RelayCommand]
         private Task RefreshAsync()
         {
-            return RefreshNodesAsync(reapplyRuntime: true);
+            return RefreshGroupsAsync(reapplyRuntime: true);
         }
 
-        [RelayCommand(CanExecute = nameof(CanTestSelected))]
-        private async Task TestSelectedAsync()
+        [RelayCommand]
+        private async Task TestNodeAsync(ProxyGroupMember? member)
         {
-            if (SelectedNode is null || IsBusy)
+            if (member?.Node is null || IsBusy)
             {
                 return;
             }
 
-            if (!IsDelayTestable(SelectedNode))
+            if (!IsDelayTestable(member.Node))
             {
-                StatusMessage = string.Format(_localizedStrings["ProxiesStatusDelaySkippedNonTestable"], SelectedNode.Name);
+                StatusMessage = string.Format(_localizedStrings["ProxiesStatusDelaySkippedNonTestable"], member.Node.Name);
                 return;
             }
 
             IsBusy = true;
             try
             {
-                SelectedNode.IsTesting = true;
-                int? delay = await _mihomoService.TestProxyDelayAsync(SelectedNode.Name, TestUrl);
+                member.Node.IsTesting = true;
+                int? delay = await _mihomoService.TestProxyDelayAsync(member.Node.Name, TestUrl);
                 if (delay is null)
                 {
                     StatusMessage = _localizedStrings["ProxiesStatusDelayFailed"];
                     return;
                 }
 
-                SelectedNode.DelayMs = delay;
-                StatusMessage = string.Format(_localizedStrings["ProxiesStatusDelaySuccess"], SelectedNode.Name, delay.Value);
+                member.Node.DelayMs = delay;
+                StatusMessage = string.Format(_localizedStrings["ProxiesStatusDelaySuccess"], member.Node.Name, delay.Value);
             }
             finally
             {
-                SelectedNode.IsTesting = false;
+                member.Node.IsTesting = false;
                 IsBusy = false;
             }
         }
@@ -148,7 +157,8 @@ namespace ClashWinUI.ViewModels
         [RelayCommand]
         private async Task TestAllAsync()
         {
-            if (Nodes.Count == 0 || IsBusy)
+            IReadOnlyList<ProxyNode> nodes = GetUniqueNodes();
+            if (nodes.Count == 0 || IsBusy)
             {
                 return;
             }
@@ -156,28 +166,7 @@ namespace ClashWinUI.ViewModels
             IsBusy = true;
             try
             {
-                int skippedCount = 0;
-                var semaphore = new SemaphoreSlim(TestAllConcurrencyLimit, TestAllConcurrencyLimit);
-                var tasks = new List<Task>(Nodes.Count);
-
-                foreach (ProxyNode node in Nodes)
-                {
-                    if (!IsDelayTestable(node))
-                    {
-                        skippedCount++;
-                        node.DelayMs = null;
-                        node.IsTesting = false;
-                        continue;
-                    }
-
-                    tasks.Add(TestNodeDelayWithLimitAsync(node, semaphore));
-                }
-
-                if (tasks.Count > 0)
-                {
-                    await Task.WhenAll(tasks);
-                }
-
+                int skippedCount = await TestNodesAsync(nodes);
                 StatusMessage = skippedCount > 0
                     ? string.Format(_localizedStrings["ProxiesStatusDelayAllFinishedWithSkipped"], skippedCount)
                     : _localizedStrings["ProxiesStatusDelayAllFinished"];
@@ -188,34 +177,82 @@ namespace ClashWinUI.ViewModels
             }
         }
 
-        private async Task TestNodeDelayWithLimitAsync(ProxyNode node, SemaphoreSlim semaphore)
+        [RelayCommand]
+        private async Task TestGroupAsync(ProxyGroup? group)
         {
-            await semaphore.WaitAsync();
+            if (group is null || IsBusy)
+            {
+                return;
+            }
+
+            IReadOnlyList<ProxyNode> nodes = group.Members
+                .Select(member => member.Node)
+                .DistinctBy(node => node.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (nodes.Count == 0)
+            {
+                return;
+            }
+
+            IsBusy = true;
             try
             {
-                node.IsTesting = true;
-                int? delay = await _mihomoService.TestProxyDelayAsync(node.Name, TestUrl);
-                node.DelayMs = delay;
-            }
-            catch
-            {
-                node.DelayMs = null;
+                int skippedCount = await TestNodesAsync(nodes);
+                StatusMessage = skippedCount > 0
+                    ? string.Format(_localizedStrings["ProxiesStatusDelayGroupFinishedWithSkipped"], group.Name, skippedCount)
+                    : string.Format(_localizedStrings["ProxiesStatusDelayGroupFinished"], group.Name);
             }
             finally
             {
-                node.IsTesting = false;
-                semaphore.Release();
+                IsBusy = false;
             }
         }
 
-        partial void OnSelectedNodeChanged(ProxyNode? value)
+        [RelayCommand]
+        private async Task SelectProxyAsync(ProxyGroupMember? member)
         {
-            TestSelectedCommand.NotifyCanExecuteChanged();
-        }
+            if (member?.Node is null || IsBusy)
+            {
+                return;
+            }
 
-        private bool CanTestSelected()
-        {
-            return SelectedNode is not null && !IsBusy;
+            ProxyGroup? group = ProxyGroups.FirstOrDefault(item =>
+                string.Equals(item.Name, member.GroupName, StringComparison.OrdinalIgnoreCase));
+            if (group is null)
+            {
+                return;
+            }
+
+            if (string.Equals(group.CurrentProxyName, member.Node.Name, StringComparison.OrdinalIgnoreCase))
+            {
+                StatusMessage = string.Format(_localizedStrings["ProxiesStatusProxyAlreadySelected"], group.Name, member.Node.Name);
+                return;
+            }
+
+            IsBusy = true;
+            try
+            {
+                string groupName = string.IsNullOrWhiteSpace(group.ControllerName)
+                    ? group.Name
+                    : group.ControllerName;
+                string proxyName = string.IsNullOrWhiteSpace(member.Node.ControllerName)
+                    ? member.Node.Name
+                    : member.Node.ControllerName;
+
+                bool selected = await _mihomoService.SelectProxyAsync(groupName, proxyName);
+                if (!selected)
+                {
+                    StatusMessage = string.Format(_localizedStrings["ProxiesStatusProxySelectFailed"], group.Name, member.Node.Name);
+                    return;
+                }
+
+                group.SetCurrentProxy(member.Node.Name);
+                StatusMessage = string.Format(_localizedStrings["ProxiesStatusProxySelected"], group.Name, member.Node.Name);
+            }
+            finally
+            {
+                IsBusy = false;
+            }
         }
 
         private static bool IsDelayTestable(ProxyNode node)
@@ -238,17 +275,73 @@ namespace ClashWinUI.ViewModels
                     return;
                 }
 
-                await RefreshNodesAsync(reapplyRuntime: false);
+                await RefreshGroupsAsync(reapplyRuntime: false);
             });
         }
 
-        private async Task RefreshNodesAsync(bool reapplyRuntime)
+        private async Task<int> TestNodesAsync(IReadOnlyList<ProxyNode> nodes)
+        {
+            int skippedCount = 0;
+            var semaphore = new SemaphoreSlim(TestAllConcurrencyLimit, TestAllConcurrencyLimit);
+            var tasks = new List<Task>(nodes.Count);
+
+            foreach (ProxyNode node in nodes)
+            {
+                if (!IsDelayTestable(node))
+                {
+                    skippedCount++;
+                    node.DelayMs = null;
+                    node.IsTesting = false;
+                    continue;
+                }
+
+                tasks.Add(TestNodeDelayWithLimitAsync(node, semaphore));
+            }
+
+            if (tasks.Count > 0)
+            {
+                await Task.WhenAll(tasks);
+            }
+
+            return skippedCount;
+        }
+
+        private async Task TestNodeDelayWithLimitAsync(ProxyNode node, SemaphoreSlim semaphore)
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                node.IsTesting = true;
+                int? delay = await _mihomoService.TestProxyDelayAsync(node.Name, TestUrl);
+                node.DelayMs = delay;
+            }
+            catch
+            {
+                node.DelayMs = null;
+            }
+            finally
+            {
+                node.IsTesting = false;
+                semaphore.Release();
+            }
+        }
+
+        private IReadOnlyList<ProxyNode> GetUniqueNodes()
+        {
+            return ProxyGroups
+                .SelectMany(group => group.Members)
+                .Select(member => member.Node)
+                .DistinctBy(node => node.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private async Task RefreshGroupsAsync(bool reapplyRuntime)
         {
             IsBusy = true;
             try
             {
                 ActiveProfile = _profileService.GetActiveProfile();
-                Nodes.Clear();
+                ProxyGroups.Clear();
 
                 if (ActiveProfile is null)
                 {
@@ -274,37 +367,43 @@ namespace ClashWinUI.ViewModels
                     applied = false;
                 }
 
-                IReadOnlyList<ProxyNode> mihomoNodes = await _mihomoService.GetProxiesAsync();
-                if (mihomoNodes.Count > 0)
+                ProxyGroupLoadResult loadResult = await LoadProxyGroupsWithWarmupAsync(runtimePath);
+                if (loadResult.Groups.Count > 0)
                 {
-                    foreach (ProxyNode node in mihomoNodes)
+                    bool expandByDefault = _appSettingsService.ProxyGroupsExpandedByDefault;
+                    foreach (ProxyGroup group in loadResult.Groups)
                     {
-                        Nodes.Add(node);
+                        group.IsExpanded = expandByDefault;
+                        ProxyGroups.Add(group);
                     }
 
+                    int nodeCount = GetUniqueNodes().Count;
+                    bool hasGeoDataFailure = TryGetGeoDataFailureStatus(out string geoDataFailureMessage);
                     if (isIncompatibleProfile)
                     {
-                        StatusMessage = string.Format(_localizedStrings["ProxiesStatusLoadedIncompatibleProfile"], Nodes.Count);
+                        StatusMessage = loadResult.Source == ProxyGroupLoadSource.MihomoController
+                            ? string.Format(_localizedStrings["ProxiesStatusLoadedIncompatibleProfile"], nodeCount)
+                            : string.Format(_localizedStrings["ProxiesStatusFallbackLoadedIncompatibleProfile"], nodeCount);
+                    }
+                    else if (reapplyRuntime && !applied && hasGeoDataFailure)
+                    {
+                        StatusMessage = geoDataFailureMessage;
                     }
                     else
                     {
-                        StatusMessage = reapplyRuntime && applied
-                            ? string.Format(_localizedStrings["ProxiesStatusLoaded"], Nodes.Count)
-                            : string.Format(_localizedStrings["ProxiesStatusLoadedNoApply"], Nodes.Count);
+                        StatusMessage = loadResult.Source == ProxyGroupLoadSource.RuntimeFile
+                            ? string.Format(_localizedStrings["ProxiesStatusFallbackLoaded"], nodeCount)
+                            : (reapplyRuntime && applied
+                                ? string.Format(_localizedStrings["ProxiesStatusLoaded"], nodeCount)
+                                : string.Format(_localizedStrings["ProxiesStatusLoadedNoApply"], nodeCount));
                     }
 
                     return;
                 }
 
-                IReadOnlyList<ProxyNode> fallbackNodes = ProxyConfigParser.ParseFromFile(runtimePath);
-                foreach (ProxyNode node in fallbackNodes)
-                {
-                    Nodes.Add(node);
-                }
-
-                StatusMessage = isIncompatibleProfile
-                    ? string.Format(_localizedStrings["ProxiesStatusFallbackLoadedIncompatibleProfile"], Nodes.Count)
-                    : string.Format(_localizedStrings["ProxiesStatusFallbackLoaded"], Nodes.Count);
+                StatusMessage = TryGetGeoDataFailureStatus(out string noGroupGeoDataFailureMessage)
+                    ? noGroupGeoDataFailureMessage
+                    : _localizedStrings["ProxiesStatusNoProxyGroups"];
             }
             catch (Exception ex)
             {
@@ -322,6 +421,70 @@ namespace ClashWinUI.ViewModels
             {
                 Title = _localizedStrings["PageProxies"];
             }
+        }
+
+        private async Task<ProxyGroupLoadResult> LoadProxyGroupsWithWarmupAsync(string runtimePath)
+        {
+            ProxyGroupLoadResult bestResult = await _mihomoService.GetProxyGroupsAsync(runtimePath);
+            if (IsControllerReady(bestResult))
+            {
+                return bestResult;
+            }
+
+            for (int attempt = 1; attempt < ControllerWarmupAttempts; attempt++)
+            {
+                await Task.Delay(ControllerWarmupDelay);
+
+                ProxyGroupLoadResult currentResult = await _mihomoService.GetProxyGroupsAsync(runtimePath);
+                if (currentResult.Groups.Count > 0)
+                {
+                    bestResult = currentResult;
+                }
+
+                if (IsControllerReady(currentResult))
+                {
+                    return currentResult;
+                }
+            }
+
+            return bestResult;
+        }
+
+        private static bool IsControllerReady(ProxyGroupLoadResult result)
+        {
+            if (result.Source != ProxyGroupLoadSource.MihomoController)
+            {
+                return false;
+            }
+
+            foreach (ProxyGroup group in result.Groups)
+            {
+                if (group.Members.Count == 0)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(group.ControllerName))
+                {
+                    return false;
+                }
+
+                if (group.Members.Any(member => string.IsNullOrWhiteSpace(member.Node.ControllerName)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool TryGetGeoDataFailureStatus(out string message)
+        {
+            return GeoDataStatusTextHelper.TryBuildControllerFailureMessage(
+                _localizedStrings,
+                _processService,
+                _geoDataService,
+                out message);
         }
     }
 }
