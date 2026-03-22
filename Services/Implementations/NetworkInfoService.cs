@@ -73,6 +73,7 @@ namespace ClashWinUI.Services.Implementations
                 var info = new PublicNetworkInfo
                 {
                     Ip = GetString(root, "query"),
+                    CountryCode = GetString(root, "countryCode"),
                     Location = BuildLocation(root),
                     AsNumber = BuildAsNumber(root),
                     ServiceProvider = GetString(root, "isp"),

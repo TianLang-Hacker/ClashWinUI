@@ -44,6 +44,7 @@ namespace ClashWinUI.ViewModels
         private readonly IGeoDataService _geoDataService;
         private readonly IProcessService _processService;
         private readonly ISystemProxyService _systemProxyService;
+        private readonly IUpdateService _updateService;
         private readonly SemaphoreSlim _mixinApplySemaphore = new(1, 1);
 
         private bool _isUpdatingFromLocalization;
@@ -123,6 +124,30 @@ namespace ClashWinUI.ViewModels
         [ObservableProperty]
         public partial string SelectedLogLevelTag { get; set; }
 
+        [ObservableProperty]
+        public partial string UpdateStatusHeader { get; set; }
+
+        [ObservableProperty]
+        public partial bool IsUpdatingApp { get; set; }
+
+        [ObservableProperty]
+        public partial string CurrentAppVersionText { get; set; }
+
+        [ObservableProperty]
+        public partial bool IsCheckingForUpdates { get; set; }
+
+        [ObservableProperty]
+        public partial bool ShowUpdateDownloadProgress { get; set; }
+
+        [ObservableProperty]
+        public partial bool IsUpdateDownloadProgressIndeterminate { get; set; }
+
+        [ObservableProperty]
+        public partial double UpdateDownloadProgressValue { get; set; }
+
+        [ObservableProperty]
+        public partial string UpdateDownloadProgressText { get; set; }
+
         public IThemeService ThemeService => _themeService;
 
         public SettingsViewModel(
@@ -135,7 +160,8 @@ namespace ClashWinUI.ViewModels
             IMihomoService mihomoService,
             IGeoDataService geoDataService,
             IProcessService processService,
-            ISystemProxyService systemProxyService)
+            ISystemProxyService systemProxyService,
+            IUpdateService updateService)
         {
             _localizedStrings = localizedStrings;
             _themeService = themeService;
@@ -147,9 +173,11 @@ namespace ClashWinUI.ViewModels
             _geoDataService = geoDataService;
             _processService = processService;
             _systemProxyService = systemProxyService;
+            _updateService = updateService;
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
             _appSettingsService.SettingsChanged += OnAppSettingsChanged;
+            _updateService.StateChanged += OnUpdateServiceStateChanged;
 
             Title = _localizedStrings["PageSettings"];
             SelectedLanguageTag = _localizedStrings.CurrentLanguage;
@@ -171,8 +199,17 @@ namespace ClashWinUI.ViewModels
             TProxyPortInput = "0";
             SelectedModeTag = ModeRule;
             SelectedLogLevelTag = LogInfo;
+            UpdateStatusHeader = string.Empty;
+            IsUpdatingApp = false;
+            CurrentAppVersionText = string.Empty;
+            IsCheckingForUpdates = false;
+            ShowUpdateDownloadProgress = false;
+            IsUpdateDownloadProgressIndeterminate = false;
+            UpdateDownloadProgressValue = 0;
+            UpdateDownloadProgressText = string.Empty;
 
             RefreshActiveProfileState();
+            RefreshUpdateState();
         }
 
         [RelayCommand]
@@ -252,6 +289,21 @@ namespace ClashWinUI.ViewModels
             finally
             {
                 IsUpdatingGeoData = false;
+            }
+        }
+
+        [RelayCommand(CanExecute = nameof(CanCheckForUpdates))]
+        private async Task CheckForUpdatesAsync()
+        {
+            if (IsUpdatingApp)
+            {
+                return;
+            }
+
+            await _updateService.CheckForUpdatesAsync(forceRefresh: true);
+            if (_updateService.CurrentState.Status == UpdateStatus.UpdateAvailable)
+            {
+                await _updateService.DownloadAndInstallLatestAsync();
             }
         }
 
@@ -366,6 +418,11 @@ namespace ClashWinUI.ViewModels
             UpdateGeoDataCommand.NotifyCanExecuteChanged();
         }
 
+        partial void OnIsUpdatingAppChanged(bool value)
+        {
+            CheckForUpdatesCommand.NotifyCanExecuteChanged();
+        }
+
         private bool CanModifyMixin()
         {
             return HasActiveMixinProfile;
@@ -374,6 +431,11 @@ namespace ClashWinUI.ViewModels
         private bool CanUpdateGeoData()
         {
             return !IsUpdatingGeoData;
+        }
+
+        private bool CanCheckForUpdates()
+        {
+            return !IsUpdatingApp;
         }
 
         private void ApplyMixinSettings(MixinSettings settings)
@@ -661,6 +723,7 @@ namespace ClashWinUI.ViewModels
             }
 
             GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
+            RefreshUpdateState();
         }
 
         private void OnAppSettingsChanged(object? sender, EventArgs e)
@@ -681,6 +744,49 @@ namespace ClashWinUI.ViewModels
             SelectedCloseBehaviorTag = behaviorTag;
             ProxyGroupsExpandedByDefault = _appSettingsService.ProxyGroupsExpandedByDefault;
             _isUpdatingFromAppSettings = false;
+        }
+
+        private void OnUpdateServiceStateChanged(object? sender, EventArgs e)
+        {
+            RefreshUpdateState();
+        }
+
+        private void RefreshUpdateState()
+        {
+            UpdateState state = _updateService.CurrentState;
+            UpdateStatusHeader = state.Status switch
+            {
+                UpdateStatus.Checking => _localizedStrings["SettingsUpdateStatusChecking"],
+                UpdateStatus.UpToDate => _localizedStrings["SettingsUpdateStatusLatest"],
+                UpdateStatus.UpdateAvailable => _localizedStrings["SettingsUpdateStatusAvailable"],
+                UpdateStatus.Unavailable => _localizedStrings["SettingsUpdateStatusUnavailable"],
+                UpdateStatus.Downloading => _localizedStrings["SettingsUpdateStatusDownloading"],
+                UpdateStatus.LaunchingInstaller => _localizedStrings["SettingsUpdateStatusLaunchingInstaller"],
+                UpdateStatus.DownloadFailed => _localizedStrings["SettingsUpdateStatusDownloadFailed"],
+                _ => string.Empty,
+            };
+
+            IsUpdatingApp = state.IsBusy;
+            IsCheckingForUpdates = state.Status == UpdateStatus.Checking;
+            ShowUpdateDownloadProgress = state.Status == UpdateStatus.Downloading || state.Status == UpdateStatus.LaunchingInstaller;
+            IsUpdateDownloadProgressIndeterminate = state.IsDownloadProgressIndeterminate;
+            UpdateDownloadProgressValue = state.DownloadProgressPercentage;
+            UpdateDownloadProgressText = state.Status switch
+            {
+                UpdateStatus.Downloading when state.IsDownloadProgressIndeterminate => _localizedStrings["SettingsUpdateDownloadProgressIndeterminate"],
+                UpdateStatus.Downloading => string.Format(
+                    _localizedStrings["SettingsUpdateDownloadProgressFormat"],
+                    Math.Round(state.DownloadProgressPercentage, MidpointRounding.AwayFromZero).ToString("0")),
+                UpdateStatus.LaunchingInstaller => _localizedStrings["SettingsUpdateStatusLaunchingInstaller"],
+                _ => string.Empty,
+            };
+
+            string version = string.IsNullOrWhiteSpace(state.CurrentVersion)
+                ? AppPackageInfoHelper.Current.Version.ToString(4)
+                : state.CurrentVersion;
+            CurrentAppVersionText = string.Format(
+                _localizedStrings["SettingsAboutVersionFormat"],
+                version);
         }
 
         private static bool TryMapTagToAppTheme(string tag, out AppThemeMode mode)

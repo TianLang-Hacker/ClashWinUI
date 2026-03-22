@@ -293,9 +293,47 @@
                     </StackPanel>
                 </controls:SettingsCard>
 
+                <TextBlock 
+                    Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
+                    Text="{Binding [SettingsSectionUpdates], Source={StaticResource L}}" />
+
+                <controls:SettingsCard Description="{Binding [SettingsUpdateCardDescription], Source={StaticResource L}}"
+                                       Header="{Binding UpdateStatusHeader}"
+                                       HeaderIcon="{ui:FontIcon Glyph=&#xE895;}">
+                    <StackPanel Spacing="8">
+                        <StackPanel
+                            Orientation="Horizontal"
+                            Spacing="10"
+                            VerticalAlignment="Center">
+                            <ProgressRing
+                                Width="20"
+                                Height="20"
+                                IsActive="{Binding IsCheckingForUpdates}"
+                                Visibility="{Binding IsCheckingForUpdates, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <Button Command="{Binding CheckForUpdatesCommand}"
+                                    Content="{Binding [SettingsUpdateCheckButton], Source={StaticResource L}}"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Visibility="{Binding ShowUpdateDownloadProgress, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Invert}" />
+                        </StackPanel>
+
+                        <StackPanel
+                            Spacing="6"
+                            Visibility="{Binding ShowUpdateDownloadProgress, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <ProgressBar
+                                Height="4"
+                                IsIndeterminate="{Binding IsUpdateDownloadProgressIndeterminate}"
+                                Maximum="100"
+                                Value="{Binding UpdateDownloadProgressValue}" />
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{Binding UpdateDownloadProgressText}" />
+                        </StackPanel>
+                    </StackPanel>
+                </controls:SettingsCard>
+
                 <TextBlock
                     Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
-                    Text="关于" />
+                    Text="{Binding [SettingsSectionAbout], Source={StaticResource L}}" />
 
                 <controls:SettingsCard Description="TianLang Hacker (C) 2026. All rights reserved."
                                        Header="ClashWinUI"
@@ -303,7 +341,7 @@
                     <TextBlock
                         win:IsTextSelectionEnabled="True"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="Version 0.0.9" />
+                        Text="{Binding CurrentAppVersionText}" />
                 </controls:SettingsCard>
 
                 <controls:SettingsExpander
@@ -351,9 +389,6 @@
                         </controls:SettingsCard>
                     </controls:SettingsExpander.Items>
                 </controls:SettingsExpander>
-                <HyperlinkButton
-                    Margin="0,8,0,0"
-                    Content="Send feedback" />
             </StackPanel>
         </Grid>
     </ScrollViewer>

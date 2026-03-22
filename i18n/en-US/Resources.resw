@@ -705,4 +705,46 @@
   <data name="ProxiesStatusNoProxyGroups" xml:space="preserve">
     <value>No proxy groups were found in the current config.</value>
   </data>
+  <data name="SettingsSectionUpdates" xml:space="preserve">
+    <value>Updates</value>
+  </data>
+  <data name="SettingsUpdateCardDescription" xml:space="preserve">
+    <value>Get updates from GitHub Releases</value>
+  </data>
+  <data name="SettingsUpdateCheckButton" xml:space="preserve">
+    <value>Check for updates</value>
+  </data>
+  <data name="SettingsUpdateStatusChecking" xml:space="preserve">
+    <value>Checking for updates</value>
+  </data>
+  <data name="SettingsUpdateStatusLatest" xml:space="preserve">
+    <value>You are using the latest version</value>
+  </data>
+  <data name="SettingsUpdateStatusAvailable" xml:space="preserve">
+    <value>An update is available</value>
+  </data>
+  <data name="SettingsUpdateStatusUnavailable" xml:space="preserve">
+    <value>Unable to get update information</value>
+  </data>
+  <data name="SettingsUpdateStatusDownloading" xml:space="preserve">
+    <value>Downloading update</value>
+  </data>
+  <data name="SettingsUpdateStatusLaunchingInstaller" xml:space="preserve">
+    <value>Launching installer</value>
+  </data>
+  <data name="SettingsUpdateStatusDownloadFailed" xml:space="preserve">
+    <value>Failed to download the update or launch the installer</value>
+  </data>
+  <data name="SettingsUpdateDownloadProgressIndeterminate" xml:space="preserve">
+    <value>Downloading update</value>
+  </data>
+  <data name="SettingsUpdateDownloadProgressFormat" xml:space="preserve">
+    <value>Downloaded {0}%</value>
+  </data>
+  <data name="SettingsSectionAbout" xml:space="preserve">
+    <value>About</value>
+  </data>
+  <data name="SettingsAboutVersionFormat" xml:space="preserve">
+    <value>Version {0}</value>
+  </data>
 </root>

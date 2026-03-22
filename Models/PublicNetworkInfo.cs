@@ -4,6 +4,8 @@ namespace ClashWinUI.Models
     {
         public string Ip { get; init; } = string.Empty;
 
+        public string CountryCode { get; init; } = string.Empty;
+
         public string Location { get; init; } = string.Empty;
 
         public string AsNumber { get; init; } = string.Empty;

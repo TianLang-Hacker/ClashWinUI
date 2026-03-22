@@ -705,4 +705,46 @@
   <data name="ProxiesStatusNoProxyGroups" xml:space="preserve">
     <value>当前配置未找到可展示的代理组。</value>
   </data>
+  <data name="SettingsSectionUpdates" xml:space="preserve">
+    <value>更新</value>
+  </data>
+  <data name="SettingsUpdateCardDescription" xml:space="preserve">
+    <value>从 GitHub Release 获取更新</value>
+  </data>
+  <data name="SettingsUpdateCheckButton" xml:space="preserve">
+    <value>检查更新</value>
+  </data>
+  <data name="SettingsUpdateStatusChecking" xml:space="preserve">
+    <value>正在检查更新</value>
+  </data>
+  <data name="SettingsUpdateStatusLatest" xml:space="preserve">
+    <value>你用的是最新版本</value>
+  </data>
+  <data name="SettingsUpdateStatusAvailable" xml:space="preserve">
+    <value>有可用的更新</value>
+  </data>
+  <data name="SettingsUpdateStatusUnavailable" xml:space="preserve">
+    <value>无法获取更新信息</value>
+  </data>
+  <data name="SettingsUpdateStatusDownloading" xml:space="preserve">
+    <value>正在下载更新</value>
+  </data>
+  <data name="SettingsUpdateStatusLaunchingInstaller" xml:space="preserve">
+    <value>正在启动安装器</value>
+  </data>
+  <data name="SettingsUpdateStatusDownloadFailed" xml:space="preserve">
+    <value>更新下载或安装启动失败</value>
+  </data>
+  <data name="SettingsUpdateDownloadProgressIndeterminate" xml:space="preserve">
+    <value>正在下载更新</value>
+  </data>
+  <data name="SettingsUpdateDownloadProgressFormat" xml:space="preserve">
+    <value>已下载 {0}%</value>
+  </data>
+  <data name="SettingsSectionAbout" xml:space="preserve">
+    <value>关于</value>
+  </data>
+  <data name="SettingsAboutVersionFormat" xml:space="preserve">
+    <value>版本 {0}</value>
+  </data>
 </root>

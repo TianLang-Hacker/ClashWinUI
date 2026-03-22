@@ -50,6 +50,7 @@ namespace ClashWinUI
                     services.AddSingleton<IMihomoService, MihomoService>();
                     services.AddSingleton<IProfileService, ProfileService>();
                     services.AddSingleton<INavigationService, NavigationService>();
+                    services.AddSingleton<IUpdateService, UpdateService>();
                     services.AddSingleton<MainWindow>();
 
                     services.AddSingleton<MainViewModel>();
@@ -80,6 +81,7 @@ namespace ClashWinUI
 
                 await _host.StartAsync();
                 await InitializeStartupPipelineAsync();
+                _ = RunStartupUpdateCheckAsync();
             }
             catch (Exception ex)
             {
@@ -305,6 +307,20 @@ namespace ClashWinUI
 
             WindowExtensions.Show(_window);
             _window.Activate();
+        }
+
+        private async Task RunStartupUpdateCheckAsync()
+        {
+            try
+            {
+                IUpdateService updateService = _host.Services.GetRequiredService<IUpdateService>();
+                await updateService.CheckForUpdatesAsync(forceRefresh: true);
+            }
+            catch (Exception ex)
+            {
+                _host.Services.GetRequiredService<IAppLogService>()
+                    .Add($"Startup update check failed: {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private async Task CleanupRuntimeAsync()
