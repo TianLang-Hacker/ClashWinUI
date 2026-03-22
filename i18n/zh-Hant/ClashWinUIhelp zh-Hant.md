@@ -1,172 +1,217 @@
-# ClashWinUI 專案結構說明
+﻿# ClashWinUI 專案結構說明
 
-## 根目錄檔案
+## 根目錄與主要檔案
 
-|檔案/資料夾|說明|
-|-|-|
-|App.xaml|應用程式的 XAML 進入點，定義全域資源（如樣式、主題）。|
-|App.xaml.cs|應用程式程式碼後置：設定依賴注入容器、設定全域例外處理、初始化日誌、偵測單一實例、啟動系統匣服務。|
-|Package.appxmanifest|WinUI 3 應用程式資訊清單檔案，定義套件名稱、功能（如網絡權限）、圖示、啟動視窗等。|
-|Assets/|存放應用程式所需的靜態資源檔案。|
+| 檔案/目錄 | 說明 |
+| - | - |
+| `App.xaml` | 應用程式入口 XAML，定義全域資源、樣式與主題資源。 |
+| `App.xaml.cs` | 應用程式啟動程式碼，負責 Host/相依注入註冊、啟動流程、未處理例外兜底、系統匣初始化，以及 Mihomo/GeoData 的啟動鏈。 |
+| `Package.appxmanifest` | WinUI 3 打包清單，定義套件資訊、權限、圖示與啟動行為。 |
+| `Properties/` | 專案屬性目錄，目前主要包含 `launchSettings.json`。 |
+| `Assets/` | 打包圖示、啟動畫面與商店資源圖片。 |
+| `Build/` | 建置相關腳本，例如下載 Mihomo 核心與 GeoData。 |
+| `i18n/` | 多語系資源與說明文件。 |
+| `Kernels/` | 倉庫中的核心佔位目錄，目前僅保留 `.gitkeep` 以便版本控制追蹤。 |
+| `bin/`、`obj/` | 本機建置輸出目錄。 |
+| `AppPackages/`、`BundleArtifacts/` | 打包產物與打包輔助輸出目錄。 |
 
 ### Assets/
 
-|檔案|說明|
-|-|-|
-|icon.png|應用程式圖示（系統匣、工作列等使用）。|
-|(其他圖片/字型)|如背景圖、按鈕圖示、自訂字型等。|
-
-## Kernels/
-
-存放 Clash / mihomo 核心執行檔。此資料夾不加入版本控制，由建置指令碼自動下載。
-
-|檔案|說明|
-|-|-|
-|.gitkeep|僅用於保留空目錄，使 Git 能追蹤此資料夾。|
+| 檔案 | 說明 |
+| - | - |
+| `ClashWinUI.ico` | 應用程式主圖示。 |
+| `SplashScreen.scale-200.png` | 啟動畫面資源。 |
+| `Square150x150Logo.scale-200.png` 等 | Windows 套件圖示與磚貼資源。 |
 
 ## Common/
 
-存放全域常數和公用輔助類別。
+| 檔案 | 說明 |
+| - | - |
+| `AppConstants.cs` | 全域常數，例如預設控制器連接埠、路由鍵與應用層常數。 |
+| `ObservableExtensions.cs` | 可觀察物件與非同步串流的輔助擴充方法。 |
 
-|檔案|說明|
-|-|-|
-|AppConstants.cs|靜態類別，定義 mihomo 預設連接埠、API 路徑、版本號、核心下載網址等常數。|
-|ObservableExtensions.cs|針對 System.Reactive 或 IAsyncEnumerable 的擴充方法，簡化響應式編程。|
+## Converters/
 
-## Views/
+`Converters/` 存放頁面繫結轉換器，負責把布林值、字串或延遲等級轉成 `Brush`、`Visibility` 等 UI 需要的型別。
 
-存放所有 XAML 使用者介面檔案，包括主視窗、頁面和對話方塊。
+常見檔案包括：
 
-|檔案/資料夾|說明|
-|-|-|
-|MainWindow.xaml|應用程式主視窗，包含導覽框架（NavigationView）等版面配置元素。|
-|MainWindow.xaml.cs|主視窗程式碼後置（通常很精簡，僅初始化元件和綁定資料內容）。|
-|Pages/|存放應用程式的主要頁面（每個頁面一個 XAML + 程式碼後置）。|
-|├─ HomePage.xaml|首頁：顯示代理節點、流量圖表、開關等。|
-|├─ HomePage.xaml.cs|首頁UI實作：顯示代理節點、流量圖表、開關等的補充UI互動程式碼，業務邏輯等放到ViewModels/HomeViewModel.cs|
-|├─ SettingsPage.xaml|設定頁：設定應用程式選項、核心參數、主題等。|
-|├─ SettingsPage.xaml.cs|設定頁UI實作：設定應用程式選項、核心參數、主題等的補充UI互動程式碼，業務邏輯等放到/ViewModels/SettingsViewModel.cs|
-|Dialogs/|存放自訂對話方塊（XAML + ViewModel 成對出現）。|
-|├─ ExternalOpenDialog.xaml|範例：外部連結開啟確認對話方塊。|
-|├─ ExternalOpenDialogViewModel.cs|該對話方塊的視圖模型。|
-
-## ViewModels/
-
-實作 MVVM 的視圖模型層，負責業務邏輯和狀態管理。
-
-|檔案|說明|
-|-|-|
-|ViewModelBase.cs|視圖模型基底類別，通常繼承自 ObservableRecipient 或 ObservableObject（CommunityToolkit.Mvvm），實作屬性更改通知、訊息收發等。|
-|MainViewModel.cs|主視窗的視圖模型，管理全域狀態（如目前頁面、系統匣互動命令）。|
-|HomeViewModel.cs|首頁視圖模型：處理節點清單、流量數據、代理開關等。|
-|SettingsViewModel.cs|設定頁視圖模型：載入/儲存設定、主題切換、核心更新觸發等。|
-
-## Models/
-
-定義資料實體和狀態物件。
-
-|檔案|說明|
-|-|-|
-|MihomoStatus.cs|表示核心執行狀態（是否執行、目前模式、記憶體/CPU 使用等）。|
-|ProxyNode.cs|代理節點資訊（名稱、類型、延遲、流量統計等）。|
-|AppConfig.cs|應用程式設定（使用者設定、UI 偏好、核心路徑等）。|
-
-## Services/
-
-核心服務層，封裝所有與外部互動和業務操作。
-
-### Interfaces/
-
-定義服務介面，便於依賴注入和單元測試。
-
-|介面|說明|
-|-|-|
-|IMihomoService.cs|進階業務介面：切換節點、更新規則、獲取狀態等，依賴底層 API 用戶端。|
-|IConfigService.cs|設定管理：讀取/寫入設定檔、驗證、備份還原。|
-|IProcessService.cs|處理程序管理：啟動/停止核心、提權請求、處理程序監控。|
-|INavigationService.cs|頁面導覽服務，供 ViewModel 呼叫切換頁面。|
-|IDialogService.cs|對話方塊服務，顯示訊息方塊、自訂對話方塊。|
-|IUpdateService.cs|核心更新服務：檢查新版本、下載、替換核心。|
-|ITrayService.cs|系統匣服務：初始化系統匣圖示、顯示選單、回應點擊。|
-|ILoggerService.cs|（選擇性）自訂日誌介面，如果未使用 Microsoft.Extensions.Logging 的內建介面。|
-
-### Implementations/
-
-介面的具體實作。
-
-|實作類別|說明|
-|-|-|
-|MihomoService.cs|實作 IMihomoService，呼叫 MihomoApiClient 完成業務邏輯，並處理狀態更新。|
-|MihomoApiClient.cs|底層 API 通訊：封裝 HTTP 請求和 WebSocket 連線，處理 Token 驗證、心跳、重新連線。|
-|ProcessService.cs|實作 IProcessService：透過 System.Diagnostics.Process 啟動核心，支援提權（runas），監聽處理程序退出事件，提供健康檢查方法。|
-|NavigationService.cs|實作 INavigationService：基於 Frame 的導覽，支援參數傳遞。|
-|DialogService.cs|實作 IDialogService：使用 ContentDialog 顯示對話方塊，支援非同步等待結果。|
-|UpdateService.cs|實作 IUpdateService：從 GitHub Releases 等來源檢查版本，下載檔案並驗證雜湊值。|
-|TrayService.cs|實作 ITrayService：使用 H.NotifyIcon 函式庫建立系統匣圖示和右鍵選單，處理選單點擊事件。|
-
-### Config/
-
-設定管理相關實作，按模組拆分。
-
-|檔案|說明|
-|-|-|
-|ConfigService.cs|主設定服務，組合驗證器和備份管理員。|
-|ConfigValidator.cs|設定驗證邏輯（YAML 格式、必要欄位等）。|
-|ConfigBackupManager.cs|自動備份與還原設定，防止設定損壞。|
+| 檔案 | 說明 |
+| - | - |
+| `BooleanToCardBackgroundBrushConverter.cs` | 根據布林狀態切換卡片背景。 |
+| `BooleanToCardBorderBrushConverter.cs` | 根據布林狀態切換卡片邊框。 |
+| `BooleanToVisibilityConverter.cs` | 布林值轉可見性。 |
+| `StringToVisibilityConverter.cs` | 字串為空/非空轉可見性。 |
+| `ProxyDelayLevelToBrushConverter.cs` | 依據節點延遲等級給出對應顏色。 |
 
 ## Background/
 
-存放背景執行的任務和監控元件，通常執行於非 UI 執行緒。
-
-|檔案|說明|
-|-|-|
-|ProcessMonitor.cs|核心處理程序監控：監視處理程序退出事件，根據策略自動重新啟動，並通知相關服務。|
-|MihomoEventSubscriber.cs|WebSocket 事件訂閱：連接 mihomo 的 /traffic、/logs 等端點，將推播的資料轉換為可觀察的串流，供 ViewModel 訂閱。|
-|HealthChecker.cs|健康檢查：定期向 mihomo API 發送請求，檢查核心是否回應，異常時觸發通知或自動還原。|
+| 檔案 | 說明 |
+| - | - |
+| `HealthChecker.cs` | 週期性檢查 Mihomo 控制器是否可用。 |
+| `MihomoEventSubscriber.cs` | 訂閱 Mihomo 推送事件，供頁面或服務層消費。 |
+| `ProcessMonitor.cs` | 監控 Mihomo 行程生命週期並協助恢復。 |
 
 ## Exceptions/
 
-自訂例外與全域例外處理邏輯。
-
-|檔案|說明|
-|-|-|
-|GlobalExceptionHandler.cs|全域未處理例外捕獲：註冊到 AppDomain.UnhandledException 和 DispatcherUnhandledException，記錄日誌並顯示友善提示。|
-|KernelException.cs|核心相關自訂例外（如啟動失敗、API 逾時等），便於區分錯誤類型。|
-
-## Logging/
-
-日誌記錄相關元件（如果使用自訂日誌提供者）。
-
-|檔案|說明|
-|-|-|
-|FileLoggerProvider.cs|自訂檔案日誌提供者，實作 ILoggerProvider，將日誌寫入本機檔案。|
+| 檔案 | 說明 |
+| - | - |
+| `GlobalExceptionHandler.cs` | 全域例外捕捉與日誌記錄輔助。 |
+| `KernelException.cs` | Mihomo 核心相關自訂例外。 |
 
 ## Helpers/
 
-通用輔助工具類別。
+`Helpers/` 存放跨頁面、跨服務重用的工具類與適配邏輯。
 
-|檔案|說明|
-|-|-|
-|FileHelper.cs|檔案操作輔助：讀寫檔案、複製、刪除、路徑處理等。|
-|JsonHelper.cs|JSON 序列化 / 反序列化封裝（基於 System.Text.Json 或 Newtonsoft.Json）。|
-|LocalizedStrings.cs|國際化輔助：提供資源字串的綁定存取，支援動態語言切換。|
-|（其他）|可能包含從原 Infrastructure 遷移過來的自訂輔助類別。|
+| 檔案 | 說明 |
+| - | - |
+| `FileHelper.cs` | 檔案讀寫與路徑處理輔助。 |
+| `GeoDataStatusTextHelper.cs` | 根據 GeoData 結果產生使用者可讀狀態文字。 |
+| `JsonHelper.cs` | JSON 讀寫輔助。 |
+| `LiveChartsBootstrapper.cs` | 首頁 LiveCharts 圖表的延遲初始化入口。 |
+| `LocalizedStrings.cs` | 本地化字串存取包裝器。 |
+| `LogLevelToBrushConverter.cs` | 依照日誌等級映射文字顏色。 |
+| `ProfileCompatibilityChecker.cs` | 檢查設定檔/訂閱與目前執行環境的相容性。 |
+| `ProxyConfigParser.cs` | 解析代理節點設定。 |
+| `ProxyGroupParser.cs` | 解析代理群組與成員結構。 |
+| `ShareLinkSubscriptionConverter.cs` | 將分享連結訂閱轉成 Mihomo YAML。 |
+| `SubscriptionContentNormalizer.cs` | 統一訂閱內容編碼與格式。 |
+
+## Logging/
+
+| 檔案 | 說明 |
+| - | - |
+| `FileLoggerProvider.cs` | 自訂日誌提供器，把日誌寫入本機檔案。 |
+
+## Models/
+
+`Models/` 定義應用程式狀態物件、頁面顯示模型與執行期資料結構。
+
+| 檔案 | 說明 |
+| - | - |
+| `AppConfig.cs`、`CloseBehavior.cs` | 應用程式設定與關閉行為定義。 |
+| `ConnectionEntry.cs`、`ConnectionsColumnLayout.cs` | 連線頁的資料列模型與欄位版面狀態。 |
+| `GeoDataAssetStatus.cs`、`GeoDataFailureKind.cs`、`GeoDataOperationKind.cs`、`GeoDataOperationResult.cs` | GeoData 下載/驗證結果模型。 |
+| `HomeChartSample.cs`、`PublicNetworkInfo.cs` | 首頁圖表採樣點與公網網路資訊。 |
+| `LogEntry.cs` | 日誌頁單筆日誌項目。 |
+| `MihomoFailureDiagnostic.cs`、`MihomoFailureKind.cs`、`MihomoStatus.cs` | Mihomo 執行狀態與故障診斷資訊。 |
+| `MixinSettings.cs`、`PortSettingsDraft.cs`、`ProfileConfigWorkspace.cs`、`ProfileItem.cs` | 設定工作區、Mixin 設定與訂閱資料模型。 |
+| `ProxyGroup.cs`、`ProxyGroupLoadResult.cs`、`ProxyGroupMember.cs`、`ProxyNode.cs` | 代理頁使用的節點、群組與載入結果模型。 |
+| `RuntimeRuleItem.cs` | 規則頁展示與啟停用的執行期規則模型。 |
+
+## Serialization/
+
+| 檔案 | 說明 |
+| - | - |
+| `ClashJsonContext.cs` | `System.Text.Json` 的來源產生器上下文，用於提升 JSON 序列化效能並統一模型註冊。 |
+
+## Services/
+
+### Interfaces/
+
+| 介面 | 說明 |
+| - | - |
+| `IAppLogService.cs` | 應用日誌收集與查詢介面。 |
+| `IAppSettingsService.cs` | 應用設定讀寫介面。 |
+| `IConfigService.cs` | 訂閱設定、Mixin、Runtime 與規則開關管理介面。 |
+| `IDialogService.cs` | 對話框顯示介面。 |
+| `IGeoDataService.cs` | GeoData 準備、刷新與狀態查詢介面。 |
+| `IKernelBootstrapService.cs` | Mihomo 核心準備與下載入口。 |
+| `IKernelPathService.cs` | 核心路徑解析介面。 |
+| `ILoggerService.cs` | 日誌抽象介面。 |
+| `IMihomoService.cs` | Mihomo 控制器高階業務介面。 |
+| `INavigationService.cs` | 主視窗頁面導覽介面。 |
+| `INetworkInfoService.cs` | 公網 IP 與網路歸屬查詢介面。 |
+| `IProcessService.cs` | Mihomo 行程啟動、停止與診斷介面。 |
+| `IProfileService.cs` | 訂閱資料讀取、儲存、切換介面。 |
+| `ISystemProxyService.cs` | Windows 系統代理啟停與同步介面。 |
+| `IThemeService.cs` | 主題切換與多視窗主題同步介面。 |
+| `ITrayService.cs` | 系統匣介面。 |
+| `IUpdateService.cs` | 更新檢查與下載介面。 |
+
+### Implementations/
+
+| 實作 | 說明 |
+| - | - |
+| `AppLogService.cs` | 應用程式記憶體日誌與頁面日誌來源實作。 |
+| `AppSettingsService.cs` | 本機應用設定讀寫實作。 |
+| `DialogService.cs` | 基於 WinUI 對話框的實作。 |
+| `GeoDataService.cs` | 呼叫下載腳本並檢查 GeoData 狀態。 |
+| `KernelBootstrapService.cs` | 啟動時準備 Mihomo 核心。 |
+| `KernelPathService.cs` | 解析目前應使用的 Mihomo 核心路徑。 |
+| `MihomoApiClient.cs` | 底層控制器 API 通訊元件。 |
+| `MihomoService.cs` | Mihomo 相關高階業務實作，例如代理群組、連線、規則套用與版本讀取。 |
+| `NavigationService.cs` | 主視窗各頁面與 ViewModel 的導覽對應。 |
+| `NetworkInfoService.cs` | 首頁公網 IP 與網路資訊查詢實作。 |
+| `ProcessService.cs` | Mihomo 行程啟動、停止、復用與失敗診斷實作。 |
+| `ProfileService.cs` | 訂閱資料載入、儲存、刪除與切換實作。 |
+| `SystemProxyService.cs` | 系統代理登錄與同步實作。 |
+| `ThemeService.cs` | 主視窗與子視窗主題同步實作。 |
+| `TrayService.cs` | 系統匣圖示與選單實作。 |
+| `UpdateService.cs` | 更新檢查與下載實作。 |
+
+### Implementations/Config/
+
+| 檔案 | 說明 |
+| - | - |
+| `ConfigService.cs` | 設定工作區、`source.yaml`、`mixin.yaml`、`runtime.yaml` 與規則覆寫檔的核心管理實作。 |
+| `ConfigValidator.cs` | 設定合法性檢查。 |
+| `ConfigBackupManager.cs` | 設定備份與還原輔助。 |
+
+## ViewModels/
+
+| 檔案 | 說明 |
+| - | - |
+| `ViewModelBase.cs` | 視圖模型基礎能力。 |
+| `MainViewModel.cs` | 主視窗導覽狀態與側邊欄路由。 |
+| `HomeViewModel.cs` | 首頁總覽、圖表、網路資訊、系統資訊邏輯。 |
+| `ProfilesViewModel.cs` | 訂閱資料管理與切換邏輯。 |
+| `ProxiesViewModel.cs` | 代理群組、節點、測速與選擇邏輯。 |
+| `ConnectionsViewModel.cs` | 連線頁列表、關閉連線、搜尋與刷新邏輯。 |
+| `LogsViewModel.cs` | 日誌頁篩選、複製與主題色邏輯。 |
+| `RulesViewModel.cs` | 執行期規則列表、搜尋、啟停與立即生效邏輯。 |
+| `SettingsViewModel.cs` | 設定頁、GeoData 更新、連接埠設定、主題與應用設定邏輯。 |
+
+## Views/
+
+### 主視窗與子視窗
+
+| 檔案 | 說明 |
+| - | - |
+| `MainWindow.xaml` / `MainWindow.xaml.cs` | 應用主視窗與導覽宿主。 |
+| `PortSettingsWindow.xaml` / `PortSettingsWindow.xaml.cs` | 獨立的連接埠設定視窗。 |
+
+### Views/Pages/
+
+| 頁面 | 說明 |
+| - | - |
+| `HomePage.xaml` / `HomePage.xaml.cs` | 首頁總覽儀表板，顯示連線數、流量、圖表、網路資訊、系統資訊等。 |
+| `ProfilesPage.xaml` / `ProfilesPage.xaml.cs` | 訂閱資料頁面。 |
+| `ProxiesPage.xaml` / `ProxiesPage.xaml.cs` | 代理群組與節點選擇頁面。 |
+| `ConnectionsPage.xaml` / `ConnectionsPage.xaml.cs` | 連線列表、搜尋、關閉連線與連線統計頁面。 |
+| `LogsPage.xaml` / `LogsPage.xaml.cs` | 執行日誌檢視頁面。 |
+| `RulesPage.xaml` / `RulesPage.xaml.cs` | 執行期規則展示、搜尋與開關頁面。 |
+| `SettingsPage.xaml` / `SettingsPage.xaml.cs` | 應用設定、GeoData、核心與執行設定頁面。 |
+
+> 目前倉庫沒有獨立的 `Dialogs/` 目錄；對話框能力主要透過 `IDialogService` 與頁面內的 `ContentDialog` 組織。
 
 ## i18n/
 
-多語言資源資料夾。
-
-|資料夾|說明|
-|-|-|
-|en-US/|美國英語資源：包含 Resources.resw 檔案，定義所有英文文字。|
-|zh-Hans/|簡體中文資源。|
-|zh-Hant/|繁體中文資源。|
+| 目錄 | 說明 |
+| - | - |
+| `en-US/` | 英文資源目錄，包含 `Resources.resw` 與英文說明文件。 |
+| `zh-Hans/` | 簡體中文資源目錄，包含 `Resources.resw` 與簡體中文說明文件。 |
+| `zh-Hant/` | 繁體中文資源目錄，包含 `Resources.resw` 與繁體中文說明文件。 |
 
 ## Build/
 
-存放與建置相關的指令碼和設定檔。
+| 檔案 | 說明 |
+| - | - |
+| `DownloadKernel.ps1` | 下載或更新 Mihomo 核心的 PowerShell 腳本。 |
+| `DownloadGeoData.ps1` | 下載或刷新 `geoip.metadb`、`geoip.dat`、`geosite.dat` 的 PowerShell 腳本。 |
 
-|檔案|說明|
-|-|-|
-|DownloadKernel.ps1|PowerShell 指令碼，在編譯前自動下載指定版本的 mihomo 核心，支援版本鎖定和雜湊驗證。|
-|（後續的其他建置相關檔案）|建置後處理指令碼、程式碼簽署工具等。|
+## 結構補充說明
+
+- 倉庫中的目錄主要描述的是**原始碼結構**與**打包結構**。
+- 執行期產生的訂閱資料、核心副本、GeoData、日誌與使用者設定會存放在使用者目錄，不會全部直接提交到倉庫中。
+- 頁面層遵循 `Views + ViewModels + Services + Models` 的 MVVM 分層，設定與 Mihomo 執行鏈則集中在 `Services`、`Helpers` 與 `Background` 中實作。

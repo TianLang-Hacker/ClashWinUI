@@ -1,172 +1,217 @@
-# ClashWinUI Project Structure Overview
+﻿# ClashWinUI Project Structure Overview
 
-## Root Directory Files
+## Root Directory and Main Files
 
-|File/Folder|Description|
-|-|-|
-|App.xaml|The XAML entry point of the application, defining global resources (such as styles and themes).|
-|App.xaml.cs|Application code-behind: configures the dependency injection container, sets up global exception handling, initializes logging, detects single instance, and starts the system tray service.|
-|Package.appxmanifest|WinUI 3 application manifest file, defining the package name, capabilities (like network permissions), icons, splash screen, etc.|
-|Assets/|Stores static resource files required by the application.|
+| File/Folder | Description |
+| - | - |
+| `App.xaml` | Application entry XAML that defines global resources, styles, and theme resources. |
+| `App.xaml.cs` | Application startup code that builds the Host/DI container, runs the startup pipeline, handles unhandled exceptions, initializes the tray icon, and boots Mihomo/GeoData. |
+| `Package.appxmanifest` | WinUI 3 package manifest that defines package identity, capabilities, icons, and launch behavior. |
+| `Properties/` | Project property folder; currently mainly contains `launchSettings.json`. |
+| `Assets/` | Packaged icons, splash screen assets, and Store images. |
+| `Build/` | Build-related scripts, including Mihomo kernel and GeoData download helpers. |
+| `i18n/` | Localization resources and localized help documents. |
+| `Kernels/` | Placeholder kernel folder kept in the repo; currently only contains `.gitkeep`. |
+| `bin/`, `obj/` | Local build output folders. |
+| `AppPackages/`, `BundleArtifacts/` | Packaging outputs and packaging helper artifacts. |
 
 ### Assets/
 
-|File|Description|
-|-|-|
-|icon.png|Application icon (used in the system tray, taskbar, etc.).|
-|(Other images/fonts)|Such as background images, button icons, custom fonts, etc.|
-
-## Kernels/
-
-Stores Clash / mihomo kernel executables. This folder is excluded from version control and is automatically downloaded by the build script.
-
-|File|Description|
-|-|-|
-|.gitkeep|Used solely to retain an empty directory so Git can track this folder.|
+| File | Description |
+| - | - |
+| `ClashWinUI.ico` | Main application icon. |
+| `SplashScreen.scale-200.png` | Splash screen asset. |
+| `Square150x150Logo.scale-200.png` and related files | Windows package icons and tile assets. |
 
 ## Common/
 
-Stores global constants and common helper classes.
+| File | Description |
+| - | - |
+| `AppConstants.cs` | Global constants such as controller ports, route keys, and app-level defaults. |
+| `ObservableExtensions.cs` | Helper extension methods for observable objects and async streams. |
 
-|File|Description|
-|-|-|
-|AppConstants.cs|Static class defining constants like the default mihomo port, API paths, version numbers, and kernel download URLs.|
-|ObservableExtensions.cs|Extension methods for System.Reactive or IAsyncEnumerable to simplify reactive programming.|
+## Converters/
 
-## Views/
+`Converters/` contains page binding converters that translate booleans, strings, and delay levels into UI-facing types such as `Brush` and `Visibility`.
 
-Stores all XAML user interface files, including the main window, pages, and dialogs.
+Representative files include:
 
-|File/Folder|Description|
-|-|-|
-|MainWindow.xaml|The application's main window, containing layout elements like the navigation framework (NavigationView).|
-|MainWindow.xaml.cs|Main window code-behind (usually very concise, only initializing components and binding the data context).|
-|Pages/|Stores the application's main pages (one XAML + code-behind per page).|
-|├─ HomePage.xaml|Home page: displays proxy nodes, traffic charts, switches, etc.|
-|├─ HomePage.xaml.cs|Home page UI implementation: supplementary UI interaction code for proxy nodes, traffic charts, switches, etc. Business logic is placed in ViewModels/HomeViewModel.cs.|
-|├─ SettingsPage.xaml|Settings page: configures application options, kernel parameters, themes, etc.|
-|├─ SettingsPage.xaml.cs|Settings page UI implementation: supplementary UI interaction code for application options, kernel parameters, themes, etc. Business logic is placed in /ViewModels/SettingsViewModel.cs.|
-|Dialogs/|Stores custom dialogs (XAML + ViewModel appearing in pairs).|
-|├─ ExternalOpenDialog.xaml|Example: External link opening confirmation dialog.|
-|├─ ExternalOpenDialogViewModel.cs|The view model for this dialog.|
-
-## ViewModels/
-
-Implements the View Model layer of MVVM, responsible for business logic and state management.
-
-|File|Description|
-|-|-|
-|ViewModelBase.cs|View model base class, typically inheriting from ObservableRecipient or ObservableObject (CommunityToolkit.Mvvm), implementing property change notifications, message pub/sub, etc.|
-|MainViewModel.cs|View model for the main window, managing global state (like the current page, tray interaction commands).|
-|HomeViewModel.cs|Home page view model: handles the node list, traffic data, proxy switches, etc.|
-|SettingsViewModel.cs|Settings page view model: loads/saves configurations, theme switching, kernel update triggers, etc.|
-
-## Models/
-
-Defines data entities and state objects.
-
-|File|Description|
-|-|-|
-|MihomoStatus.cs|Represents the kernel running status (whether it's running, current mode, memory/CPU usage, etc.).|
-|ProxyNode.cs|Proxy node information (name, type, latency, traffic statistics, etc.).|
-|AppConfig.cs|Application configuration (user settings, UI preferences, kernel paths, etc.).|
-
-## Services/
-
-Core service layer, encapsulating all external interactions and business operations.
-
-### Interfaces/
-
-Defines service interfaces to facilitate dependency injection and unit testing.
-
-|Interface|Description|
-|-|-|
-|IMihomoService.cs|High-level business interface: switching nodes, updating rules, getting status, etc., depending on the underlying API client.|
-|IConfigService.cs|Configuration management: reading/writing config files, validation, backup, and restore.|
-|IProcessService.cs|Process management: starting/stopping the kernel, elevation requests, process monitoring.|
-|INavigationService.cs|Page navigation service, called by ViewModels to switch pages.|
-|IDialogService.cs|Dialog service, displays message boxes and custom dialogs.|
-|IUpdateService.cs|Kernel update service: checking for new versions, downloading, and replacing the kernel.|
-|ITrayService.cs|System tray service: initializing the tray icon, displaying the menu, and responding to clicks.|
-|ILoggerService.cs|(Optional) Custom logging interface, if the built-in Microsoft.Extensions.Logging interface is not used.|
-
-### Implementations/
-
-Concrete implementations of the interfaces.
-
-|Implementation Class|Description|
-|-|-|
-|MihomoService.cs|Implements IMihomoService, calls MihomoApiClient to complete business logic, and handles state updates.|
-|MihomoApiClient.cs|Underlying API communication: encapsulates HTTP requests and WebSocket connections, handles Token authentication, heartbeats, and reconnections.|
-|ProcessService.cs|Implements IProcessService: starts the kernel via System.Diagnostics.Process, supports elevation (runas), listens for process exit events, and provides health check methods.|
-|NavigationService.cs|Implements INavigationService: Frame-based navigation, supports parameter passing.|
-|DialogService.cs|Implements IDialogService: uses ContentDialog to show dialogs, supports asynchronously waiting for results.|
-|UpdateService.cs|Implements IUpdateService: checks for versions from sources like GitHub Releases, downloads files, and verifies hashes.|
-|TrayService.cs|Implements ITrayService: uses the H.NotifyIcon library to create the tray icon and context menu, handles menu click events.|
-
-### Config/
-
-Configuration management implementations, split by module.
-
-|File|Description|
-|-|-|
-|ConfigService.cs|Main configuration service, combining the validator and backup manager.|
-|ConfigValidator.cs|Configuration validation logic (YAML format, required fields, etc.).|
-|ConfigBackupManager.cs|Automatic backup and restoration of configurations to prevent corruption.|
+| File | Description |
+| - | - |
+| `BooleanToCardBackgroundBrushConverter.cs` | Switches card backgrounds from a boolean state. |
+| `BooleanToCardBorderBrushConverter.cs` | Switches card borders from a boolean state. |
+| `BooleanToVisibilityConverter.cs` | Converts booleans to visibility. |
+| `StringToVisibilityConverter.cs` | Converts empty/non-empty strings to visibility. |
+| `ProxyDelayLevelToBrushConverter.cs` | Maps proxy delay levels to colors. |
 
 ## Background/
 
-Stores background running tasks and monitoring components, usually running on non-UI threads.
-
-|File|Description|
-|-|-|
-|ProcessMonitor.cs|Kernel process monitoring: monitors process exit events, automatically restarts based on policies, and notifies relevant services.|
-|MihomoEventSubscriber.cs|WebSocket event subscription: connects to mihomo's /traffic, /logs, etc., endpoints, converting pushed data into observable streams for ViewModels to subscribe to.|
-|HealthChecker.cs|Health check: periodically sends requests to the mihomo API to check if the kernel is responsive, triggering notifications or automatic recovery upon exceptions.|
+| File | Description |
+| - | - |
+| `HealthChecker.cs` | Periodically checks Mihomo controller health. |
+| `MihomoEventSubscriber.cs` | Subscribes to Mihomo event streams for higher layers. |
+| `ProcessMonitor.cs` | Monitors the Mihomo process lifecycle and assists recovery. |
 
 ## Exceptions/
 
-Custom exceptions and global exception handling logic.
-
-|File|Description|
-|-|-|
-|GlobalExceptionHandler.cs|Global unhandled exception capture: registered to AppDomain.UnhandledException and DispatcherUnhandledException, logs and displays user-friendly prompts.|
-|KernelException.cs|Kernel-related custom exceptions (like startup failures, API timeouts, etc.), facilitating error type differentiation.|
-
-## Logging/
-
-Logging-related components (if using a custom logging provider).
-
-|File|Description|
-|-|-|
-|FileLoggerProvider.cs|Custom file logger provider, implementing ILoggerProvider, writing logs to local files.|
+| File | Description |
+| - | - |
+| `GlobalExceptionHandler.cs` | Global exception capture and logging helper. |
+| `KernelException.cs` | Custom exception type for Mihomo kernel-related failures. |
 
 ## Helpers/
 
-General utility helper classes.
+`Helpers/` contains reusable utility and adapter classes shared across pages and services.
 
-|File|Description|
-|-|-|
-|FileHelper.cs|File operation helpers: reading/writing files, copying, deleting, path handling, etc.|
-|JsonHelper.cs|JSON serialization / deserialization wrappers (based on System.Text.Json or Newtonsoft.Json).|
-|LocalizedStrings.cs|Internationalization helpers: provides binding access to resource strings, supporting dynamic language switching.|
-|(Others)|May contain custom helper classes migrated from the original Infrastructure.|
+| File | Description |
+| - | - |
+| `FileHelper.cs` | File IO and path handling helper. |
+| `GeoDataStatusTextHelper.cs` | Builds user-facing GeoData status text. |
+| `JsonHelper.cs` | JSON read/write helper. |
+| `LiveChartsBootstrapper.cs` | Lazy initialization entry point for HomePage LiveCharts charts. |
+| `LocalizedStrings.cs` | Localized string access wrapper. |
+| `LogLevelToBrushConverter.cs` | Maps log levels to text colors. |
+| `ProfileCompatibilityChecker.cs` | Checks whether a profile/config is compatible with the current runtime environment. |
+| `ProxyConfigParser.cs` | Parses proxy node configuration. |
+| `ProxyGroupParser.cs` | Parses proxy groups and members. |
+| `ShareLinkSubscriptionConverter.cs` | Converts share-link subscriptions into Mihomo YAML. |
+| `SubscriptionContentNormalizer.cs` | Normalizes subscription encoding and content format. |
+
+## Logging/
+
+| File | Description |
+| - | - |
+| `FileLoggerProvider.cs` | Custom logger provider that writes logs to local files. |
+
+## Models/
+
+`Models/` defines application state objects, page view models, and runtime data structures.
+
+| File | Description |
+| - | - |
+| `AppConfig.cs`, `CloseBehavior.cs` | Application settings and close-behavior definitions. |
+| `ConnectionEntry.cs`, `ConnectionsColumnLayout.cs` | Connection page row model and column layout state. |
+| `GeoDataAssetStatus.cs`, `GeoDataFailureKind.cs`, `GeoDataOperationKind.cs`, `GeoDataOperationResult.cs` | GeoData download and verification result models. |
+| `HomeChartSample.cs`, `PublicNetworkInfo.cs` | Home dashboard chart samples and public network information. |
+| `LogEntry.cs` | Single log item model for the logs page. |
+| `MihomoFailureDiagnostic.cs`, `MihomoFailureKind.cs`, `MihomoStatus.cs` | Mihomo runtime status and failure diagnostics. |
+| `MixinSettings.cs`, `PortSettingsDraft.cs`, `ProfileConfigWorkspace.cs`, `ProfileItem.cs` | Profile workspace, mixin settings, and subscription metadata models. |
+| `ProxyGroup.cs`, `ProxyGroupLoadResult.cs`, `ProxyGroupMember.cs`, `ProxyNode.cs` | Proxy groups, members, nodes, and load result models. |
+| `RuntimeRuleItem.cs` | Runtime rule model used by the rules page. |
+
+## Serialization/
+
+| File | Description |
+| - | - |
+| `ClashJsonContext.cs` | `System.Text.Json` source-generated context used to centralize JSON model registration and improve serialization performance. |
+
+## Services/
+
+### Interfaces/
+
+| Interface | Description |
+| - | - |
+| `IAppLogService.cs` | Application log collection and query interface. |
+| `IAppSettingsService.cs` | App settings read/write interface. |
+| `IConfigService.cs` | Interface for subscription config, mixin, runtime, and rule-toggle management. |
+| `IDialogService.cs` | Dialog display abstraction. |
+| `IGeoDataService.cs` | GeoData prepare/refresh/status interface. |
+| `IKernelBootstrapService.cs` | Entry point for Mihomo kernel preparation and download. |
+| `IKernelPathService.cs` | Kernel path resolution interface. |
+| `ILoggerService.cs` | Logging abstraction interface. |
+| `IMihomoService.cs` | High-level Mihomo controller business interface. |
+| `INavigationService.cs` | Main-window page navigation interface. |
+| `INetworkInfoService.cs` | Public IP and network ownership lookup interface. |
+| `IProcessService.cs` | Mihomo process start/stop/diagnostic interface. |
+| `IProfileService.cs` | Subscription/profile load/save/switch interface. |
+| `ISystemProxyService.cs` | Windows system proxy enable/disable/sync interface. |
+| `IThemeService.cs` | Theme switching and multi-window theme synchronization interface. |
+| `ITrayService.cs` | System tray abstraction. |
+| `IUpdateService.cs` | Update check and download interface. |
+
+### Implementations/
+
+| Implementation | Description |
+| - | - |
+| `AppLogService.cs` | In-memory application log source used by the UI and file logger. |
+| `AppSettingsService.cs` | Local app settings persistence implementation. |
+| `DialogService.cs` | WinUI dialog implementation. |
+| `GeoDataService.cs` | Calls the GeoData download script and validates GeoData availability. |
+| `KernelBootstrapService.cs` | Ensures the Mihomo kernel is available at startup. |
+| `KernelPathService.cs` | Resolves the Mihomo kernel path used by the app. |
+| `MihomoApiClient.cs` | Low-level Mihomo controller API communication component. |
+| `MihomoService.cs` | High-level Mihomo operations such as proxy groups, connections, config apply, and version retrieval. |
+| `NavigationService.cs` | Maps routes to pages and view models in the main window. |
+| `NetworkInfoService.cs` | Home dashboard network information lookup implementation. |
+| `ProcessService.cs` | Mihomo process startup, shutdown, reuse, and failure diagnostic implementation. |
+| `ProfileService.cs` | Subscription/profile load, save, delete, and activation implementation. |
+| `SystemProxyService.cs` | System proxy registry synchronization implementation. |
+| `ThemeService.cs` | Theme synchronization for the main window and auxiliary windows. |
+| `TrayService.cs` | System tray icon and menu implementation. |
+| `UpdateService.cs` | Update checking and download implementation. |
+
+### Implementations/Config/
+
+| File | Description |
+| - | - |
+| `ConfigService.cs` | Core manager for profile workspaces, `source.yaml`, `mixin.yaml`, `runtime.yaml`, and rule override files. |
+| `ConfigValidator.cs` | Config validation helper. |
+| `ConfigBackupManager.cs` | Config backup and restore helper. |
+
+## ViewModels/
+
+| File | Description |
+| - | - |
+| `ViewModelBase.cs` | Shared base capabilities for view models. |
+| `MainViewModel.cs` | Main window navigation state and sidebar routes. |
+| `HomeViewModel.cs` | Home dashboard logic for metrics, charts, network info, and system info. |
+| `ProfilesViewModel.cs` | Subscription/profile management and switching logic. |
+| `ProxiesViewModel.cs` | Proxy groups, nodes, delay testing, and selection logic. |
+| `ConnectionsViewModel.cs` | Connections page list, close connection, search, and refresh logic. |
+| `LogsViewModel.cs` | Logs page filtering, copying, and theme-aware coloring logic. |
+| `RulesViewModel.cs` | Runtime rule listing, search, toggle, and immediate-apply logic. |
+| `SettingsViewModel.cs` | Settings page logic for GeoData updates, port settings, themes, and app configuration. |
+
+## Views/
+
+### Main windows
+
+| File | Description |
+| - | - |
+| `MainWindow.xaml` / `MainWindow.xaml.cs` | Main application window and navigation host. |
+| `PortSettingsWindow.xaml` / `PortSettingsWindow.xaml.cs` | Standalone port settings window. |
+
+### Views/Pages/
+
+| Page | Description |
+| - | - |
+| `HomePage.xaml` / `HomePage.xaml.cs` | Home dashboard that shows connection metrics, traffic charts, network info, and system info. |
+| `ProfilesPage.xaml` / `ProfilesPage.xaml.cs` | Subscription/profile management page. |
+| `ProxiesPage.xaml` / `ProxiesPage.xaml.cs` | Proxy group and proxy node selection page. |
+| `ConnectionsPage.xaml` / `ConnectionsPage.xaml.cs` | Connection list, search, close-connection, and traffic summary page. |
+| `LogsPage.xaml` / `LogsPage.xaml.cs` | Runtime log viewer page. |
+| `RulesPage.xaml` / `RulesPage.xaml.cs` | Runtime rules list, search, and enable/disable page. |
+| `SettingsPage.xaml` / `SettingsPage.xaml.cs` | App settings, GeoData, kernel, and runtime configuration page. |
+
+> The current repo does not have a dedicated `Dialogs/` folder. Dialog behavior is mainly organized through `IDialogService` and page-level `ContentDialog` usage.
 
 ## i18n/
 
-Multi-language resource folder.
-
-|Folder|Description|
-|-|-|
-|en-US/|US English resources: contains the Resources.resw file, defining all English text.|
-|zh-Hans/|Simplified Chinese resources.|
-|zh-Hant/|Traditional Chinese resources.|
+| Folder | Description |
+| - | - |
+| `en-US/` | English resource folder containing `Resources.resw` and the English help document. |
+| `zh-Hans/` | Simplified Chinese resource folder containing `Resources.resw` and the Simplified Chinese help document. |
+| `zh-Hant/` | Traditional Chinese resource folder containing `Resources.resw` and the Traditional Chinese help document. |
 
 ## Build/
 
-Stores scripts and configuration files related to the build.
+| File | Description |
+| - | - |
+| `DownloadKernel.ps1` | PowerShell script that downloads or refreshes the Mihomo kernel. |
+| `DownloadGeoData.ps1` | PowerShell script that downloads or refreshes `geoip.metadb`, `geoip.dat`, and `geosite.dat`. |
 
-|File|Description|
-|-|-|
-|DownloadKernel.ps1|PowerShell script, automatically downloads a specified version of the mihomo kernel before compilation, supports version locking and hash verification.|
-|(Other subsequent build-related files)|Post-build processing scripts, code signing tools, etc.|
+## Additional Notes
+
+- The repo layout mainly describes the **source structure** and **packaging structure**.
+- Runtime-generated profiles, kernel copies, GeoData, logs, and user settings live under user directories and are not all committed to the repo.
+- The UI follows a `Views + ViewModels + Services + Models` MVVM split, while config orchestration and Mihomo runtime flows are concentrated in `Services`, `Helpers`, and `Background`.
