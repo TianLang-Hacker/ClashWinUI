@@ -1,5 +1,5 @@
-﻿
-using ClashWinUI.Models;
+﻿using ClashWinUI.Models;
+using System.Collections.Generic;
 
 namespace ClashWinUI.Services.Interfaces
 {
@@ -11,5 +11,7 @@ namespace ClashWinUI.Services.Interfaces
         void SaveMixin(ProfileItem profile, MixinSettings settings);
         string BuildRuntime(ProfileItem profile);
         string GetRuntimePath(ProfileItem profile);
+        IReadOnlyList<RuntimeRuleItem> GetRuntimeRules(ProfileItem profile);
+        void SetRuleEnabled(ProfileItem profile, string stableId, bool isEnabled);
     }
 }

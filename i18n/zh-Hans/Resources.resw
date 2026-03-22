@@ -144,6 +144,102 @@
   <data name="PageOverview" xml:space="preserve">
     <value>概览</value>
   </data>
+  <data name="HomeMetricConnections" xml:space="preserve">
+    <value>当前连接</value>
+  </data>
+  <data name="HomeMetricMemoryUsage" xml:space="preserve">
+    <value>内存使用</value>
+  </data>
+  <data name="HomeMetricDownloadTotal" xml:space="preserve">
+    <value>下载总量</value>
+  </data>
+  <data name="HomeMetricDownloadSpeed" xml:space="preserve">
+    <value>下载速度</value>
+  </data>
+  <data name="HomeMetricUploadTotal" xml:space="preserve">
+    <value>上传总量</value>
+  </data>
+  <data name="HomeMetricUploadSpeed" xml:space="preserve">
+    <value>上传速度</value>
+  </data>
+  <data name="HomeTrafficChartTitle" xml:space="preserve">
+    <value>上传与下载速度</value>
+  </data>
+  <data name="HomeLegendDownload" xml:space="preserve">
+    <value>下载</value>
+  </data>
+  <data name="HomeLegendUpload" xml:space="preserve">
+    <value>上传</value>
+  </data>
+  <data name="HomeMemoryChartTitle" xml:space="preserve">
+    <value>内存使用</value>
+  </data>
+  <data name="HomeLegendMemory" xml:space="preserve">
+    <value>内存</value>
+  </data>
+  <data name="HomeSectionNetwork" xml:space="preserve">
+    <value>网络信息</value>
+  </data>
+  <data name="HomeFieldPublicIp" xml:space="preserve">
+    <value>公网 IP</value>
+  </data>
+  <data name="HomeShowPublicIpTooltip" xml:space="preserve">
+    <value>显示公网 IP</value>
+  </data>
+  <data name="HomeHidePublicIpTooltip" xml:space="preserve">
+    <value>隐藏公网 IP</value>
+  </data>
+  <data name="HomeCopyPublicIpTooltip" xml:space="preserve">
+    <value>复制公网 IP</value>
+  </data>
+  <data name="HomeFieldLocation" xml:space="preserve">
+    <value>归属地</value>
+  </data>
+  <data name="HomeFieldAsn" xml:space="preserve">
+    <value>AS 号</value>
+  </data>
+  <data name="HomeFieldServiceProvider" xml:space="preserve">
+    <value>服务商</value>
+  </data>
+  <data name="HomeFieldOrganization" xml:space="preserve">
+    <value>组织</value>
+  </data>
+  <data name="HomeFieldTimeZone" xml:space="preserve">
+    <value>时区</value>
+  </data>
+  <data name="HomeFieldCoordinates" xml:space="preserve">
+    <value>经纬度</value>
+  </data>
+  <data name="HomeNetworkInfoLookupFailed" xml:space="preserve">
+    <value>获取公网网络信息失败。</value>
+  </data>
+  <data name="HomeSectionMihomo" xml:space="preserve">
+    <value>Mihomo 内核信息</value>
+  </data>
+  <data name="HomeFieldKernelVersion" xml:space="preserve">
+    <value>内核版本</value>
+  </data>
+  <data name="HomeFieldSystemProxy" xml:space="preserve">
+    <value>系统代理地址</value>
+  </data>
+  <data name="HomeFieldMixinPorts" xml:space="preserve">
+    <value>Mixin 端口</value>
+  </data>
+  <data name="HomeFieldRuntimeEvents" xml:space="preserve">
+    <value>运行事件</value>
+  </data>
+  <data name="HomeFieldRulesCount" xml:space="preserve">
+    <value>规则数量</value>
+  </data>
+  <data name="HomeSectionSystem" xml:space="preserve">
+    <value>系统信息</value>
+  </data>
+  <data name="HomeFieldOperatingSystem" xml:space="preserve">
+    <value>操作系统</value>
+  </data>
+  <data name="HomeFieldSystemVersion" xml:space="preserve">
+    <value>系统版本号</value>
+  </data>
   <data name="PageProfiles" xml:space="preserve">
     <value>订阅</value>
   </data>
@@ -153,11 +249,92 @@
   <data name="PageConnections" xml:space="preserve">
     <value>连接</value>
   </data>
+  <data name="ConnectionsActiveBadge" xml:space="preserve">
+    <value>活跃</value>
+  </data>
+  <data name="ConnectionsClosedBadge" xml:space="preserve">
+    <value>已关闭</value>
+  </data>
+  <data name="ConnectionsRefreshButton" xml:space="preserve">
+    <value>刷新</value>
+  </data>
+  <data name="ConnectionsSearchPlaceholder" xml:space="preserve">
+    <value>搜索 多个关键词用空格分隔</value>
+  </data>
+  <data name="ConnectionsColumnClose" xml:space="preserve">
+    <value>关闭</value>
+  </data>
+  <data name="ConnectionsColumnHost" xml:space="preserve">
+    <value>主机</value>
+  </data>
+  <data name="ConnectionsColumnType" xml:space="preserve">
+    <value>类型</value>
+  </data>
+  <data name="ConnectionsColumnRule" xml:space="preserve">
+    <value>规则</value>
+  </data>
+  <data name="ConnectionsColumnChain" xml:space="preserve">
+    <value>代理链</value>
+  </data>
+  <data name="ConnectionsColumnDownloadSpeed" xml:space="preserve">
+    <value>下载速度</value>
+  </data>
+  <data name="ConnectionsColumnUploadSpeed" xml:space="preserve">
+    <value>上传速度</value>
+  </data>
+  <data name="ConnectionsColumnDownload" xml:space="preserve">
+    <value>下载</value>
+  </data>
+  <data name="ConnectionsColumnUpload" xml:space="preserve">
+    <value>上传</value>
+  </data>
+  <data name="ConnectionsColumnDuration" xml:space="preserve">
+    <value>连接时间</value>
+  </data>
+  <data name="ConnectionsCloseTooltip" xml:space="preserve">
+    <value>关闭该连接</value>
+  </data>
+  <data name="ConnectionsStatusEmpty" xml:space="preserve">
+    <value>当前没有活跃连接。</value>
+  </data>
+  <data name="ConnectionsStatusLoaded" xml:space="preserve">
+    <value>已加载 {0} 个连接。</value>
+  </data>
+  <data name="ConnectionsStatusLoadFailed" xml:space="preserve">
+    <value>加载连接失败：{0}</value>
+  </data>
+  <data name="ConnectionsStatusClosed" xml:space="preserve">
+    <value>已关闭连接：{0}</value>
+  </data>
+  <data name="ConnectionsStatusCloseFailed" xml:space="preserve">
+    <value>关闭连接失败：{0}</value>
+  </data>
   <data name="PageLogs" xml:space="preserve">
     <value>日志</value>
   </data>
   <data name="PageRules" xml:space="preserve">
     <value>规则</value>
+  </data>
+  <data name="RulesSearchPlaceholder" xml:space="preserve">
+    <value>搜索 | 多个关键词用空格分隔</value>
+  </data>
+  <data name="RulesNoActiveProfile" xml:space="preserve">
+    <value>当前没有激活配置。</value>
+  </data>
+  <data name="RulesStatusEmpty" xml:space="preserve">
+    <value>当前配置没有可显示的规则。</value>
+  </data>
+  <data name="RulesStatusLoaded" xml:space="preserve">
+    <value>已加载 {0} 条规则。</value>
+  </data>
+  <data name="RulesStatusLoadFailed" xml:space="preserve">
+    <value>加载规则失败：{0}</value>
+  </data>
+  <data name="RulesStatusApplied" xml:space="preserve">
+    <value>规则已更新并立即生效：{0}</value>
+  </data>
+  <data name="RulesStatusApplyFailed" xml:space="preserve">
+    <value>规则应用失败。</value>
   </data>
   <data name="PageSettings" xml:space="preserve">
     <value>设置</value>

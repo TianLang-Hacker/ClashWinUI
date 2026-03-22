@@ -5,12 +5,14 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    xmlns:helpers="using:ClashWinUI.Helpers"
     xmlns:viewmodels="using:ClashWinUI.ViewModels"
     mc:Ignorable="d">
 
     <Page.Resources>
-        <helpers:LogLevelToBrushConverter x:Key="LogLevelToBrushConverter" />
+        <Style x:Key="NoTransitionListViewItemStyle" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Transitions" Value="{x:Null}" />
+        </Style>
     </Page.Resources>
 
     <Grid Background="Transparent">
@@ -94,10 +96,11 @@
                 ScrollViewer.HorizontalScrollMode="Disabled"
                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                 Background="Transparent">
+                <ListView.ItemContainerTransitions>
+                    <TransitionCollection />
+                </ListView.ItemContainerTransitions>
                 <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    </Style>
+                    <StaticResource ResourceKey="NoTransitionListViewItemStyle" />
                 </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="viewmodels:LogsListItem">
@@ -108,7 +111,7 @@
                             Text="{Binding DisplayText}"
                             IsTextSelectionEnabled="True"
                             TextWrapping="Wrap"
-                            Foreground="{Binding Level, Converter={StaticResource LogLevelToBrushConverter}}" />
+                            Foreground="{Binding ForegroundBrush}" />
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>

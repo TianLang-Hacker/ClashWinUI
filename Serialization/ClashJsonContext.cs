@@ -22,6 +22,11 @@ namespace ClashWinUI.Serialization
         public List<ProfileItem> Profiles { get; set; } = new();
     }
 
+    internal sealed class RulesOverrideState
+    {
+        public List<string> DisabledRuleIds { get; set; } = new();
+    }
+
     internal sealed class MihomoApplyConfigPayload
     {
         [JsonPropertyName("path")]
@@ -43,6 +48,7 @@ namespace ClashWinUI.Serialization
     [JsonSerializable(typeof(AppSettingsState))]
     [JsonSerializable(typeof(KernelPathSettingsState))]
     [JsonSerializable(typeof(ProfileStoreState))]
+    [JsonSerializable(typeof(RulesOverrideState))]
     [JsonSerializable(typeof(MihomoApplyConfigPayload))]
     [JsonSerializable(typeof(MihomoProxySelectionPayload))]
     internal partial class ClashJsonContext : JsonSerializerContext

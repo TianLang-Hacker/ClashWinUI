@@ -1,18 +1,305 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="ClashWinUI.Views.Pages.ConnectionsPage"
+    x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:ClashWinUI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:ClashWinUI.Models"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     mc:Ignorable="d">
 
-    <Grid>
+    <Page.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="ConnectionsColumnResizeLineBrush" Color="#CC111111" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="ConnectionsColumnResizeLineBrush" Color="#E6FFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="ConnectionsColumnResizeLineBrush" Color="#E6FFFFFF" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+            <models:ConnectionsColumnLayout x:Key="ConnectionsColumnLayoutResource" />
+        <Style x:Key="ConnectionsHeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="Margin" Value="6,0,6,0" />
+        </Style>
+        <Style x:Key="ConnectionsCellTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="Margin" Value="6,0,6,0" />
+        </Style>
+        <Style x:Key="NoTransitionListViewItemStyle" TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Transitions" Value="{x:Null}" />
+        </Style>
+        <Style x:Key="ConnectionsListViewItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource NoTransitionListViewItemStyle}">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <Style x:Key="ConnectionsStatusDisplayButtonStyle" TargetType="Button" BasedOn="{StaticResource DefaultButtonStyle}">
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="UseSystemFocusVisuals" Value="False" />
+        </Style>
+        <Style x:Key="ConnectionsAccentStatusDisplayButtonStyle" TargetType="Button" BasedOn="{StaticResource AccentButtonStyle}">
+            <Setter Property="MinHeight" Value="36" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+            <Setter Property="UseSystemFocusVisuals" Value="False" />
+        </Style>
+        <Style x:Key="ConnectionsColumnResizeThumbStyle" TargetType="primitives:Thumb">
+            <Setter Property="Width" Value="14" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Opacity" Value="0.9" />
+            <Setter Property="Canvas.ZIndex" Value="10" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="primitives:Thumb">
+                        <Grid Background="Transparent">
+                            <Border
+                                Width="1"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Stretch"
+                                Background="{ThemeResource ConnectionsColumnResizeLineBrush}" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        </ResourceDictionary>
+    </Page.Resources>
+
+    <Grid Padding="24" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Style="{StaticResource ConnectionsAccentStatusDisplayButtonStyle}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <TextBlock
+                            Text="{Binding [ConnectionsActiveBadge], Source={StaticResource L}}"
+                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                            FontWeight="SemiBold" />
+                        <TextBlock
+                            Text="{Binding ActiveConnectionCount}"
+                            Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"
+                            FontWeight="SemiBold" />
+                    </StackPanel>
+                </Button>
+
+                <Button
+                    Grid.Column="1"
+                    Style="{StaticResource ConnectionsStatusDisplayButtonStyle}"
+                    Content="{Binding [ConnectionsClosedBadge], Source={StaticResource L}}" />
+            </StackPanel>
+
+            <TextBox
+                Grid.Column="1"
+                MaxWidth="420"
+                HorizontalAlignment="Stretch"
+                Text="{Binding SearchKeyword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                PlaceholderText="{Binding [ConnectionsSearchPlaceholder], Source={StaticResource L}}" />
+        </Grid>
+
         <TextBlock
-            Text="{Binding Title, Mode=OneWay}"
-            FontSize="30"
-            FontWeight="SemiBold"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center" />
+            Grid.Row="1"
+            Text="{Binding StatusMessage}"
+            Style="{StaticResource BodyStrongTextBlockStyle}"
+            Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibilityConverter}}" />
+
+        <Border
+            Grid.Row="2"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="18">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <Border
+                    Padding="12,14,12,14"
+                    Background="{ThemeResource LayerFillColorAltBrush}"
+                    CornerRadius="18,18,0,0">
+                    <ScrollViewer
+                        x:Name="HeaderScrollViewer"
+                        HorizontalScrollMode="Enabled"
+                        HorizontalScrollBarVisibility="Hidden"
+                        VerticalScrollMode="Disabled"
+                        VerticalScrollBarVisibility="Disabled"
+                        ZoomMode="Disabled">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="{Binding CloseColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding HostColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding TypeColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding RuleColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding ChainColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding DownloadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding UploadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding DownloadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding UploadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                <ColumnDefinition Width="{Binding DurationColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                            </Grid.ColumnDefinitions>
+
+                            <Grid Grid.Column="0">
+                                <TextBlock Text="{Binding [ConnectionsColumnClose], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Close" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="1">
+                                <TextBlock Text="{Binding [ConnectionsColumnHost], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Host" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="2">
+                                <TextBlock Text="{Binding [ConnectionsColumnType], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Type" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="3">
+                                <TextBlock Text="{Binding [ConnectionsColumnRule], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Rule" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="4">
+                                <TextBlock Text="{Binding [ConnectionsColumnChain], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Chain" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="5">
+                                <TextBlock Text="{Binding [ConnectionsColumnDownloadSpeed], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="DownloadSpeed" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="6">
+                                <TextBlock Text="{Binding [ConnectionsColumnUploadSpeed], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="UploadSpeed" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="7">
+                                <TextBlock Text="{Binding [ConnectionsColumnDownload], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Download" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="8">
+                                <TextBlock Text="{Binding [ConnectionsColumnUpload], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Upload" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                            <Grid Grid.Column="9">
+                                <TextBlock Text="{Binding [ConnectionsColumnDuration], Source={StaticResource L}}" Style="{StaticResource ConnectionsHeaderTextStyle}" />
+                                <primitives:Thumb Style="{StaticResource ConnectionsColumnResizeThumbStyle}" Tag="Duration" DragStarted="ResizeThumb_DragStarted" DragDelta="ResizeThumb_DragDelta" DragCompleted="ResizeThumb_DragCompleted" />
+                            </Grid>
+                        </Grid>
+                    </ScrollViewer>
+                </Border>
+
+                <ScrollViewer
+                    x:Name="BodyScrollViewer"
+                    Grid.Row="1"
+                    HorizontalScrollMode="Enabled"
+                    HorizontalScrollBarVisibility="Auto"
+                    VerticalScrollMode="Enabled"
+                    VerticalScrollBarVisibility="Auto"
+                    ViewChanged="BodyScrollViewer_ViewChanged">
+                    <ListView
+                        ItemsSource="{Binding Connections}"
+                        SelectionMode="None"
+                        IsItemClickEnabled="False"
+                        BorderThickness="0"
+                        Background="Transparent"
+                        ScrollViewer.HorizontalScrollMode="Disabled"
+                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                        ScrollViewer.VerticalScrollMode="Disabled"
+                        ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        <ListView.ItemContainerTransitions>
+                            <TransitionCollection />
+                        </ListView.ItemContainerTransitions>
+                        <ListView.ItemContainerStyle>
+                            <StaticResource ResourceKey="ConnectionsListViewItemStyle" />
+                        </ListView.ItemContainerStyle>
+
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:ConnectionEntry">
+                                <Border
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                    BorderThickness="0,0,0,1"
+                                    Padding="12,0">
+                                    <Grid Height="56" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="{Binding CloseColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding HostColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding TypeColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding RuleColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding ChainColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding DownloadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding UploadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding DownloadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding UploadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                            <ColumnDefinition Width="{Binding DurationColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <Button
+                                            Grid.Column="0"
+                                            Width="36"
+                                            Height="36"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Center"
+                                            Click="CloseConnectionButton_Click"
+                                            ToolTipService.ToolTip="{Binding [ConnectionsCloseTooltip], Source={StaticResource L}}">
+                                            <TextBlock
+                                                Text="&#x00D7;"
+                                                FontSize="18"
+                                                FontWeight="SemiBold"
+                                                VerticalAlignment="Center"
+                                                HorizontalAlignment="Center" />
+                                        </Button>
+
+                                        <TextBlock Grid.Column="1" Text="{Binding HostDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="2" Text="{Binding TypeDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="3" Text="{Binding RuleDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="4" Text="{Binding ChainDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="5" Text="{Binding DownloadSpeedText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="6" Text="{Binding UploadSpeedText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="7" Text="{Binding DownloadText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="8" Text="{Binding UploadText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                        <TextBlock Grid.Column="9" Text="{Binding DurationText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </ScrollViewer>
+            </Grid>
+        </Border>
     </Grid>
 </Page>

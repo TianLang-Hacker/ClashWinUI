@@ -123,6 +123,8 @@ namespace ClashWinUI.ViewModels
         [ObservableProperty]
         public partial string SelectedLogLevelTag { get; set; }
 
+        public IThemeService ThemeService => _themeService;
+
         public SettingsViewModel(
             LocalizedStrings localizedStrings,
             IThemeService themeService,

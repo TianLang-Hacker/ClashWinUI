@@ -1,18 +1,125 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="ClashWinUI.Views.Pages.RulesPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:ClashWinUI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d">
+    xmlns:models="using:ClashWinUI.Models"
+    mc:Ignorable="d"
+    Background="Transparent">
 
-    <Grid>
-        <TextBlock
-            Text="{Binding Title, Mode=OneWay}"
-            FontSize="30"
-            FontWeight="SemiBold"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center" />
+    <Page.Resources>
+        <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+
+        <Style
+            x:Key="RulesListViewItemStyle"
+            TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Transitions" Value="{x:Null}" />
+        </Style>
+    </Page.Resources>
+
+    <Grid
+        Background="Transparent"
+        Padding="24"
+        RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <StackPanel
+            Grid.Row="1"
+            Spacing="10">
+            <TextBox
+                HorizontalAlignment="Stretch"
+                Text="{Binding SearchKeyword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                PlaceholderText="{Binding [RulesSearchPlaceholder], Source={StaticResource L}}" />
+
+            <TextBlock
+                Text="{Binding StatusMessage}"
+                Style="{StaticResource BodyStrongTextBlockStyle}"
+                Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibilityConverter}}" />
+        </StackPanel>
+
+        <Border
+            Grid.Row="2"
+            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+            BorderThickness="1"
+            CornerRadius="18">
+            <ListView
+                ItemsSource="{Binding Rules}"
+                SelectionMode="None"
+                IsItemClickEnabled="False"
+                Background="Transparent"
+                BorderThickness="0"
+                ScrollViewer.HorizontalScrollMode="Disabled"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListView.ItemContainerTransitions>
+                    <TransitionCollection />
+                </ListView.ItemContainerTransitions>
+                <ListView.ItemContainerStyle>
+                    <StaticResource ResourceKey="RulesListViewItemStyle" />
+                </ListView.ItemContainerStyle>
+
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="models:RuntimeRuleItem">
+                        <Border
+                            Padding="16"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="0,0,0,1">
+                            <StackPanel Spacing="12">
+                                <TextBlock
+                                    FontSize="16"
+                                    FontWeight="SemiBold"
+                                    TextWrapping="WrapWholeWords">
+                                    <Run Text="{x:Bind IndexDisplay}" />
+                                    <Run Text=" " />
+                                    <Run Text="{x:Bind MatcherTypeDisplay}" />
+                                    <Run Text=" " />
+                                    <Run
+                                        Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                        Text="{x:Bind MatcherValueDisplay}" />
+                                </TextBlock>
+
+                                <StackPanel Spacing="8">
+                                    <StackPanel
+                                        Orientation="Horizontal"
+                                        Spacing="12"
+                                        VerticalAlignment="Center">
+                                        <ToggleSwitch
+                                            Toggled="RuleToggleSwitch_Toggled"
+                                            IsOn="{x:Bind IsEnabled, Mode=OneWay}"
+                                            IsEnabled="{x:Bind CanToggle, Mode=OneWay}"
+                                            OffContent=""
+                                            OnContent="" />
+
+                                        <TextBlock
+                                            VerticalAlignment="Center"
+                                            FontSize="15"
+                                            FontWeight="SemiBold"
+                                            Text="{x:Bind ActionKindDisplay}" />
+                                    </StackPanel>
+
+                                    <TextBlock
+                                        Margin="68,0,0,0"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="{x:Bind ActionTargetDisplay}"
+                                        TextWrapping="WrapWholeWords"
+                                        Visibility="{Binding ActionTargetDisplay, Converter={StaticResource StringToVisibilityConverter}}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
     </Grid>
 </Page>

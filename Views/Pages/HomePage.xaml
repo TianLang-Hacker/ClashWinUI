@@ -1,18 +1,482 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="ClashWinUI.Views.Pages.HomePage"
+    x:Name="RootPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:converters="using:ClashWinUI.Converters"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:lvc="using:LiveChartsCore.SkiaSharpView.WinUI"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:viewModels="using:ClashWinUI.ViewModels"
+    NavigationCacheMode="Enabled"
+    Background="Transparent"
     mc:Ignorable="d">
 
-    <Grid>
-        <TextBlock
-            Text="{Binding Title, Mode=OneWay}"
-            FontSize="30"
-            FontWeight="SemiBold"
-            HorizontalAlignment="Center"
-            VerticalAlignment="Center" />
+    <Page.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="HomeDownloadChartBrush" Color="#0A84FF" />
+                    <SolidColorBrush x:Key="HomeUploadChartBrush" Color="#FF7A00" />
+                    <SolidColorBrush x:Key="HomeMemoryChartBrush" Color="#198754" />
+                    <SolidColorBrush x:Key="HomeChartAxisBrush" Color="#7A000000" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="HomeDownloadChartBrush" Color="#3CB6FF" />
+                    <SolidColorBrush x:Key="HomeUploadChartBrush" Color="#FFB14A" />
+                    <SolidColorBrush x:Key="HomeMemoryChartBrush" Color="#5DD39E" />
+                    <SolidColorBrush x:Key="HomeChartAxisBrush" Color="#A8FFFFFF" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="HomeDownloadChartBrush" Color="#3CB6FF" />
+                    <SolidColorBrush x:Key="HomeUploadChartBrush" Color="#FFB14A" />
+                    <SolidColorBrush x:Key="HomeMemoryChartBrush" Color="#5DD39E" />
+                    <SolidColorBrush x:Key="HomeChartAxisBrush" Color="#A8FFFFFF" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <converters:StringToVisibilityConverter x:Key="StringToVisibilityConverter" />
+
+            <Style x:Key="HomeCardBorderStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="18" />
+                <Setter Property="Padding" Value="18" />
+            </Style>
+
+            <Style x:Key="HomeMetricLabelStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="TextWrapping" Value="WrapWholeWords" />
+            </Style>
+
+            <Style x:Key="HomeMetricValueStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="30" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="TextWrapping" Value="WrapWholeWords" />
+            </Style>
+
+            <Style x:Key="HomeSectionTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="18" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+            </Style>
+
+            <Style x:Key="HomeInfoLabelStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="13" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                <Setter Property="VerticalAlignment" Value="Top" />
+            </Style>
+
+            <Style x:Key="HomeInfoValueStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                <Setter Property="TextWrapping" Value="WrapWholeWords" />
+                <Setter Property="VerticalAlignment" Value="Top" />
+            </Style>
+
+            <Style x:Key="HomeChartAxisLabelStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="11" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+
+            <Style x:Key="HomeInlineIconButtonStyle" TargetType="Button">
+                <Setter Property="MinWidth" Value="32" />
+                <Setter Property="MinHeight" Value="32" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            </Style>
+
+            <DataTemplate x:Key="TrafficChartTemplate" x:DataType="viewModels:HomeViewModel">
+                <lvc:CartesianChart
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    Height="156"
+                    Series="{Binding TrafficSeries}"
+                    XAxes="{Binding TrafficXAxes}"
+                    YAxes="{Binding TrafficYAxes}"
+                    LegendPosition="Hidden"
+                    TooltipPosition="Top"
+                    TooltipBackgroundPaint="{Binding TooltipBackgroundPaint}"
+                    TooltipTextPaint="{Binding TooltipTextPaint}" />
+            </DataTemplate>
+
+            <DataTemplate x:Key="MemoryChartTemplate" x:DataType="viewModels:HomeViewModel">
+                <lvc:CartesianChart
+                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                    Height="156"
+                    Series="{Binding MemorySeries}"
+                    XAxes="{Binding MemoryXAxes}"
+                    YAxes="{Binding MemoryYAxes}"
+                    LegendPosition="Hidden"
+                    TooltipPosition="Top"
+                    TooltipBackgroundPaint="{Binding TooltipBackgroundPaint}"
+                    TooltipTextPaint="{Binding TooltipTextPaint}" />
+            </DataTemplate>
+        </ResourceDictionary>
+    </Page.Resources>
+
+    <Grid Background="Transparent">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="NarrowLayout" />
+                <VisualState x:Name="WideLayout">
+                    <VisualState.StateTriggers>
+                        <AdaptiveTrigger MinWindowWidth="1100" />
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="StatsGrid.ColumnSpacing" Value="16" />
+                        <Setter Target="StatsColumn1.Width" Value="*" />
+                        <Setter Target="StatsColumn2.Width" Value="*" />
+                        <Setter Target="UploadSpeedCard.(Grid.Row)" Value="0" />
+                        <Setter Target="UploadSpeedCard.(Grid.Column)" Value="1" />
+                        <Setter Target="UploadTotalCard.(Grid.Row)" Value="0" />
+                        <Setter Target="UploadTotalCard.(Grid.Column)" Value="2" />
+                        <Setter Target="MemoryCard.(Grid.Row)" Value="1" />
+                        <Setter Target="MemoryCard.(Grid.Column)" Value="0" />
+                        <Setter Target="DownloadSpeedCard.(Grid.Row)" Value="1" />
+                        <Setter Target="DownloadSpeedCard.(Grid.Column)" Value="1" />
+                        <Setter Target="DownloadTotalCard.(Grid.Row)" Value="1" />
+                        <Setter Target="DownloadTotalCard.(Grid.Column)" Value="2" />
+
+                        <Setter Target="ChartsGrid.ColumnSpacing" Value="16" />
+                        <Setter Target="ChartsColumn1.Width" Value="*" />
+                        <Setter Target="MemoryChartCard.(Grid.Row)" Value="0" />
+                        <Setter Target="MemoryChartCard.(Grid.Column)" Value="1" />
+
+                        <Setter Target="BottomGrid.ColumnSpacing" Value="16" />
+                        <Setter Target="BottomColumn1.Width" Value="*" />
+                        <Setter Target="SystemInfoCard.(Grid.Row)" Value="0" />
+                        <Setter Target="SystemInfoCard.(Grid.Column)" Value="1" />
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel
+                Padding="24"
+                Spacing="24">
+
+                <Grid
+                    x:Name="StatsGrid"
+                    ColumnSpacing="0"
+                    RowSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="StatsColumn0" Width="*" />
+                        <ColumnDefinition x:Name="StatsColumn1" Width="0" />
+                        <ColumnDefinition x:Name="StatsColumn2" Width="0" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border
+                        x:Name="ConnectionsCard"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding [HomeMetricConnections], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                            <TextBlock Text="{Binding ConnectionsCountText}" Style="{StaticResource HomeMetricValueStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="UploadSpeedCard"
+                        Grid.Row="1"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding [HomeMetricUploadSpeed], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                            <TextBlock Text="{Binding UploadSpeedText}" Style="{StaticResource HomeMetricValueStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="UploadTotalCard"
+                        Grid.Row="2"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding [HomeMetricUploadTotal], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                            <TextBlock Text="{Binding UploadTotalText}" Style="{StaticResource HomeMetricValueStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="MemoryCard"
+                        Grid.Row="3"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding [HomeMetricMemoryUsage], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                            <TextBlock Text="{Binding MemoryUsageText}" Style="{StaticResource HomeMetricValueStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="DownloadSpeedCard"
+                        Grid.Row="4"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding [HomeMetricDownloadSpeed], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                            <TextBlock Text="{Binding DownloadSpeedText}" Style="{StaticResource HomeMetricValueStyle}" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="DownloadTotalCard"
+                        Grid.Row="5"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="{Binding [HomeMetricDownloadTotal], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                            <TextBlock Text="{Binding DownloadTotalText}" Style="{StaticResource HomeMetricValueStyle}" />
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Grid
+                    x:Name="ChartsGrid"
+                    ColumnSpacing="0"
+                    RowSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="ChartsColumn0" Width="*" />
+                        <ColumnDefinition x:Name="ChartsColumn1" Width="0" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border
+                        x:Name="TrafficChartCard"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="{Binding [HomeTrafficChartTitle], Source={StaticResource L}}" Style="{StaticResource HomeSectionTitleStyle}" />
+
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Ellipse Width="10" Height="10" Fill="{ThemeResource HomeDownloadChartBrush}" />
+                                    <TextBlock Text="{Binding [HomeLegendDownload], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <Ellipse Width="10" Height="10" Fill="{ThemeResource HomeUploadChartBrush}" />
+                                    <TextBlock Text="{Binding [HomeLegendUpload], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Border
+                                Height="180"
+                                Padding="12"
+                                CornerRadius="14"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}">
+                                <ContentControl
+                                    x:Name="TrafficChartHost"
+                                    Height="156"
+                                    HorizontalContentAlignment="Stretch"
+                                    VerticalContentAlignment="Stretch" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="MemoryChartCard"
+                        Grid.Row="1"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="{Binding [HomeMemoryChartTitle], Source={StaticResource L}}" Style="{StaticResource HomeSectionTitleStyle}" />
+
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Ellipse Width="10" Height="10" Fill="{ThemeResource HomeMemoryChartBrush}" />
+                                <TextBlock Text="{Binding [HomeLegendMemory], Source={StaticResource L}}" Style="{StaticResource HomeMetricLabelStyle}" />
+                            </StackPanel>
+
+                            <Border
+                                Height="180"
+                                Padding="12"
+                                CornerRadius="14"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}">
+                                <ContentControl
+                                    x:Name="MemoryChartHost"
+                                    Height="156"
+                                    HorizontalContentAlignment="Stretch"
+                                    VerticalContentAlignment="Stretch" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <Border Style="{StaticResource HomeCardBorderStyle}">
+                    <StackPanel Spacing="16">
+                        <TextBlock Text="{Binding [HomeSectionNetwork], Source={StaticResource L}}" Style="{StaticResource HomeSectionTitleStyle}" />
+
+                        <Grid
+                            ColumnSpacing="18"
+                            RowSpacing="10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <TextBlock Text="{Binding [HomeFieldPublicIp], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                            <Grid
+                                Grid.Column="1"
+                                ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Text="{Binding DisplayedPublicIpText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <Button
+                                    Grid.Column="1"
+                                    Style="{StaticResource HomeInlineIconButtonStyle}"
+                                    Command="{Binding TogglePublicIpVisibilityCommand}">
+                                    <ToolTipService.ToolTip>
+                                        <TextBlock Text="{Binding PublicIpVisibilityToolTipText}" />
+                                    </ToolTipService.ToolTip>
+                                    <FontIcon
+                                        FontSize="14"
+                                        Glyph="{Binding PublicIpVisibilityGlyph}" />
+                                </Button>
+
+                                <Button
+                                    Grid.Column="2"
+                                    Style="{StaticResource HomeInlineIconButtonStyle}"
+                                    Command="{Binding CopyPublicIpCommand}">
+                                    <ToolTipService.ToolTip>
+                                        <TextBlock Text="{Binding [HomeCopyPublicIpTooltip], Source={StaticResource L}}" />
+                                    </ToolTipService.ToolTip>
+                                    <FontIcon
+                                        FontSize="14"
+                                        Glyph="&#xE8C8;" />
+                                </Button>
+                            </Grid>
+
+                            <TextBlock Grid.Row="1" Text="{Binding [HomeFieldLocation], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LocationText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                            <TextBlock Grid.Row="2" Text="{Binding [HomeFieldAsn], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding AsNumberText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                            <TextBlock Grid.Row="3" Text="{Binding [HomeFieldServiceProvider], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding ServiceProviderText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                            <TextBlock Grid.Row="4" Text="{Binding [HomeFieldOrganization], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding OrganizationText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                            <TextBlock Grid.Row="5" Text="{Binding [HomeFieldTimeZone], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding TimeZoneText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                            <TextBlock Grid.Row="6" Text="{Binding [HomeFieldCoordinates], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding CoordinatesText}" Style="{StaticResource HomeInfoValueStyle}" />
+                        </Grid>
+
+                        <TextBlock
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Text="{Binding NetworkInfoStatusMessage}"
+                            Visibility="{Binding NetworkInfoStatusMessage, Converter={StaticResource StringToVisibilityConverter}}" />
+                    </StackPanel>
+                </Border>
+
+                <Grid
+                    x:Name="BottomGrid"
+                    ColumnSpacing="0"
+                    RowSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition x:Name="BottomColumn0" Width="*" />
+                        <ColumnDefinition x:Name="BottomColumn1" Width="0" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <Border
+                        x:Name="MihomoInfoCard"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="16">
+                            <TextBlock Text="{Binding [HomeSectionMihomo], Source={StaticResource L}}" Style="{StaticResource HomeSectionTitleStyle}" />
+
+                            <Grid
+                                ColumnSpacing="18"
+                                RowSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="{Binding [HomeFieldKernelVersion], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Column="1" Text="{Binding KernelVersionText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <TextBlock Grid.Row="1" Text="{Binding [HomeFieldSystemProxy], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SystemProxyAddressText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <TextBlock Grid.Row="2" Text="{Binding [HomeFieldMixinPorts], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding MixinPortsText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <TextBlock Grid.Row="3" Text="{Binding [HomeFieldRuntimeEvents], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RuntimeEventsText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <TextBlock Grid.Row="4" Text="{Binding [HomeFieldRulesCount], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding RulesCountText}" Style="{StaticResource HomeInfoValueStyle}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="SystemInfoCard"
+                        Grid.Row="1"
+                        Style="{StaticResource HomeCardBorderStyle}">
+                        <StackPanel Spacing="16">
+                            <TextBlock Text="{Binding [HomeSectionSystem], Source={StaticResource L}}" Style="{StaticResource HomeSectionTitleStyle}" />
+
+                            <Grid
+                                ColumnSpacing="18"
+                                RowSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="150" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Text="{Binding [HomeFieldOperatingSystem], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Column="1" Text="{Binding OperatingSystemInfoText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <TextBlock Grid.Row="1" Text="{Binding [HomeFieldSystemVersion], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SystemVersionText}" Style="{StaticResource HomeInfoValueStyle}" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
     </Grid>
 </Page>

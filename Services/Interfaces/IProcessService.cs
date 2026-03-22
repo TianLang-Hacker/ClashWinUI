@@ -10,6 +10,7 @@ namespace ClashWinUI.Services.Interfaces
         int ControllerPort { get; }
         string ControllerHost { get; }
         MihomoFailureDiagnostic LastFailureDiagnostic { get; }
+        long? GetMihomoMemoryUsageBytes();
 
         string EnsureStartupConfigPath(string? preferredConfigPath = null);
         int ResolveProxyPort(string configPath);

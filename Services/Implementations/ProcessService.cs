@@ -43,6 +43,41 @@ namespace ClashWinUI.Services.Implementations
 
         public MihomoFailureDiagnostic LastFailureDiagnostic => _lastFailureDiagnostic;
 
+        public long? GetMihomoMemoryUsageBytes()
+        {
+            try
+            {
+                if (_mihomoProcess is { HasExited: false })
+                {
+                    return _mihomoProcess.WorkingSet64;
+                }
+
+                string kernelPath = _kernelPathService.ResolveKernelPath();
+                List<Process> ownedProcesses = FindOwnedMihomoProcesses(kernelPath);
+                if (ownedProcesses.Count == 0)
+                {
+                    return null;
+                }
+
+                try
+                {
+                    Process selected = SelectProcessToKeep(ownedProcesses);
+                    return selected.HasExited ? null : selected.WorkingSet64;
+                }
+                finally
+                {
+                    foreach (Process process in ownedProcesses)
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public string EnsureStartupConfigPath(string? preferredConfigPath = null)
         {
             if (!string.IsNullOrWhiteSpace(preferredConfigPath))

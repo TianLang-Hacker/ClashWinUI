@@ -1,6 +1,7 @@
 using ClashWinUI.Common;
 using ClashWinUI.Helpers;
 using ClashWinUI.Models;
+using ClashWinUI.Services.Interfaces;
 using ClashWinUI.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -19,6 +20,7 @@ namespace ClashWinUI.Views
         private const uint WmGetMinMaxInfo = 0x0024;
 
         private readonly SettingsViewModel _settingsViewModel;
+        private readonly IThemeService _themeService;
         private readonly WndProcDelegate _windowProcDelegate;
         private bool _titleBarConfigured;
         private IntPtr _windowHandle;
@@ -26,14 +28,16 @@ namespace ClashWinUI.Views
 
         public PortSettingsDraft Draft { get; }
 
-        public PortSettingsWindow(SettingsViewModel settingsViewModel, PortSettingsDraft draft)
+        public PortSettingsWindow(SettingsViewModel settingsViewModel, PortSettingsDraft draft, IThemeService themeService)
         {
             _settingsViewModel = settingsViewModel;
+            _themeService = themeService;
             _windowProcDelegate = WindowProc;
             Draft = draft;
 
             InitializeComponent();
             ConfigureExtendedTitleBar();
+            _themeService.RegisterWindow(this);
 
             if (Application.Current.Resources["L"] is LocalizedStrings localizedStrings)
             {
@@ -122,6 +126,7 @@ namespace ClashWinUI.Views
         {
             Activated -= OnActivated;
             Closed -= OnWindowClosed;
+            _themeService.UnregisterWindow(this);
 
             if (_windowHandle != IntPtr.Zero && _previousWindowProc != IntPtr.Zero)
             {

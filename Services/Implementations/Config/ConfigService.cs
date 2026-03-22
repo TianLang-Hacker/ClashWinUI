@@ -1,12 +1,15 @@
 ﻿
 using ClashWinUI.Models;
+using ClashWinUI.Serialization;
 using ClashWinUI.Services.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using YamlDotNet.RepresentationModel;
 
 namespace ClashWinUI.Services.Implementations.Config
@@ -16,6 +19,7 @@ namespace ClashWinUI.Services.Implementations.Config
         private const string SourceFileName = "source.yaml";
         private const string MixinFileName = "mixin.yaml";
         private const string RuntimeFileName = "runtime.yaml";
+        private const string RulesOverrideFileName = "rules.overrides.json";
 
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         private static readonly Encoding Utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
@@ -46,6 +50,7 @@ namespace ClashWinUI.Services.Implementations.Config
                 SourcePath = Path.Combine(directoryPath, SourceFileName),
                 MixinPath = Path.Combine(directoryPath, MixinFileName),
                 RuntimePath = Path.Combine(directoryPath, RuntimeFileName),
+                RulesOverridePath = Path.Combine(directoryPath, RulesOverrideFileName),
             };
         }
 
@@ -112,6 +117,37 @@ namespace ClashWinUI.Services.Implementations.Config
             }
 
             return workspace.RuntimePath;
+        }
+
+        public IReadOnlyList<RuntimeRuleItem> GetRuntimeRules(ProfileItem profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
+            YamlMappingNode merged = BuildMergedMapping(workspace);
+            HashSet<string> disabledRuleIds = LoadDisabledRuleIds(workspace);
+            return BuildRuntimeRuleItems(merged, disabledRuleIds);
+        }
+
+        public void SetRuleEnabled(ProfileItem profile, string stableId, bool isEnabled)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentException.ThrowIfNullOrWhiteSpace(stableId);
+
+            ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
+            HashSet<string> disabledRuleIds = LoadDisabledRuleIds(workspace);
+            string normalizedId = stableId.Trim();
+
+            if (isEnabled)
+            {
+                disabledRuleIds.Remove(normalizedId);
+            }
+            else
+            {
+                disabledRuleIds.Add(normalizedId);
+            }
+
+            SaveRulesOverrideState(workspace, disabledRuleIds);
         }
 
         private bool UpdateProfilePaths(ProfileItem profile, ProfileConfigWorkspace workspace)
@@ -182,14 +218,148 @@ namespace ClashWinUI.Services.Implementations.Config
         {
             try
             {
-                YamlMappingNode source = LoadYamlMapping(workspace.SourcePath);
-                YamlMappingNode mixin = LoadYamlMapping(workspace.MixinPath);
-                YamlMappingNode merged = MergeMappings(source, mixin);
+                YamlMappingNode merged = BuildMergedMapping(workspace);
+                ApplyRuleOverrides(workspace, merged);
                 SaveYamlMapping(workspace.RuntimePath, merged, useBom: true);
             }
             catch (Exception ex)
             {
                 _logService.Add($"Build runtime.yaml failed: {ex.Message}", LogLevel.Warning);
+                throw;
+            }
+        }
+
+        private YamlMappingNode BuildMergedMapping(ProfileConfigWorkspace workspace)
+        {
+            YamlMappingNode source = LoadYamlMapping(workspace.SourcePath);
+            YamlMappingNode mixin = LoadYamlMapping(workspace.MixinPath);
+            return MergeMappings(source, mixin);
+        }
+
+        private void ApplyRuleOverrides(ProfileConfigWorkspace workspace, YamlMappingNode merged)
+        {
+            HashSet<string> disabledRuleIds = LoadDisabledRuleIds(workspace);
+            if (disabledRuleIds.Count == 0)
+            {
+                return;
+            }
+
+            if (!TryGetChild(merged, "rules", out YamlNode? rulesKey, out YamlNode? rulesNode)
+                || rulesKey is null
+                || rulesNode is not YamlSequenceNode rulesSequence)
+            {
+                return;
+            }
+
+            var filteredRules = new YamlSequenceNode();
+            var occurrenceCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+            foreach (YamlNode child in rulesSequence.Children)
+            {
+                string rawRuleText = ExtractRuleText(child);
+                string normalizedRuleText = NormalizeRuleText(rawRuleText);
+                int occurrence = NextRuleOccurrence(occurrenceCounts, normalizedRuleText);
+                string stableId = BuildRuleStableId(normalizedRuleText, occurrence);
+                if (disabledRuleIds.Contains(stableId))
+                {
+                    continue;
+                }
+
+                filteredRules.Add(CloneNode(child));
+            }
+
+            merged.Children[rulesKey] = filteredRules;
+        }
+
+        private IReadOnlyList<RuntimeRuleItem> BuildRuntimeRuleItems(YamlMappingNode merged, HashSet<string> disabledRuleIds)
+        {
+            if (!TryGetChild(merged, "rules", out _, out YamlNode? rulesNode) || rulesNode is not YamlSequenceNode rulesSequence)
+            {
+                return Array.Empty<RuntimeRuleItem>();
+            }
+
+            var items = new List<RuntimeRuleItem>();
+            var occurrenceCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            int index = 1;
+
+            foreach (YamlNode child in rulesSequence.Children)
+            {
+                string rawRuleText = ExtractRuleText(child);
+                if (string.IsNullOrWhiteSpace(rawRuleText))
+                {
+                    continue;
+                }
+
+                string normalizedRuleText = NormalizeRuleText(rawRuleText);
+                int occurrence = NextRuleOccurrence(occurrenceCounts, normalizedRuleText);
+                string stableId = BuildRuleStableId(normalizedRuleText, occurrence);
+                items.Add(ParseRuntimeRuleItem(
+                    stableId,
+                    index++,
+                    rawRuleText,
+                    !disabledRuleIds.Contains(stableId)));
+            }
+
+            return items;
+        }
+
+        private HashSet<string> LoadDisabledRuleIds(ProfileConfigWorkspace workspace)
+        {
+            try
+            {
+                if (!File.Exists(workspace.RulesOverridePath))
+                {
+                    return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                string content = File.ReadAllText(workspace.RulesOverridePath);
+                RulesOverrideState? state = JsonSerializer.Deserialize(content, ClashJsonContext.Default.RulesOverrideState);
+                return state?.DisabledRuleIds?
+                    .Where(id => !string.IsNullOrWhiteSpace(id))
+                    .Select(id => id.Trim())
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                    ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Load rule overrides failed: {ex.Message}", LogLevel.Warning);
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        private void SaveRulesOverrideState(ProfileConfigWorkspace workspace, HashSet<string> disabledRuleIds)
+        {
+            try
+            {
+                if (disabledRuleIds.Count == 0)
+                {
+                    if (File.Exists(workspace.RulesOverridePath))
+                    {
+                        File.Delete(workspace.RulesOverridePath);
+                    }
+
+                    return;
+                }
+
+                string? directory = Path.GetDirectoryName(workspace.RulesOverridePath);
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                var state = new RulesOverrideState
+                {
+                    DisabledRuleIds = disabledRuleIds
+                        .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                };
+
+                string content = JsonSerializer.Serialize(state, ClashJsonContext.Default.RulesOverrideState);
+                File.WriteAllText(workspace.RulesOverridePath, content, Utf8NoBom);
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Save rule overrides failed: {ex.Message}", LogLevel.Warning);
                 throw;
             }
         }
@@ -289,6 +459,41 @@ namespace ClashWinUI.Services.Implementations.Config
         private static void AddScalar(YamlMappingNode root, string key, string value)
         {
             root.Add(new YamlScalarNode(key), new YamlScalarNode(value));
+        }
+
+        private static RuntimeRuleItem ParseRuntimeRuleItem(string stableId, int index, string rawRuleText, bool isEnabled)
+        {
+            string[] segments = rawRuleText
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+            string matcherType = segments.Length > 0
+                ? segments[0].Trim().ToUpperInvariant()
+                : "UNKNOWN";
+            bool hasMatcherValue = !IsValueLessRuleType(matcherType);
+            string matcherValue = hasMatcherValue && segments.Length > 1
+                ? segments[1].Trim()
+                : string.Empty;
+            int actionIndex = hasMatcherValue ? 2 : 1;
+            string actionTarget = segments.Length > actionIndex
+                ? segments[actionIndex].Trim()
+                : string.Empty;
+            RuleActionKind actionKind = ClassifyRuleActionKind(actionTarget);
+
+            return new RuntimeRuleItem
+            {
+                StableId = stableId,
+                Index = index,
+                MatcherType = matcherType,
+                MatcherTypeDisplay = FormatMatcherTypeDisplay(matcherType),
+                MatcherValue = matcherValue,
+                MatcherValueDisplay = matcherValue,
+                RawRuleText = rawRuleText,
+                ActionKind = actionKind,
+                ActionKindDisplay = FormatActionKindDisplay(actionKind, actionTarget),
+                ActionTargetRaw = actionTarget,
+                ActionTargetDisplay = actionKind == RuleActionKind.Proxy ? actionTarget : string.Empty,
+                IsEnabled = isEnabled,
+            };
         }
 
         private static YamlMappingNode LoadYamlMapping(string path)
@@ -438,6 +643,145 @@ namespace ClashWinUI.Services.Implementations.Config
         private static string? GetScalarValue(YamlNode? node)
         {
             return (node as YamlScalarNode)?.Value;
+        }
+
+        private static string ExtractRuleText(YamlNode node)
+        {
+            return node switch
+            {
+                YamlScalarNode scalar => scalar.Value?.Trim() ?? string.Empty,
+                _ => node.ToString().Trim(),
+            };
+        }
+
+        private static string NormalizeRuleText(string rawRuleText)
+        {
+            if (string.IsNullOrWhiteSpace(rawRuleText))
+            {
+                return string.Empty;
+            }
+
+            string[] segments = rawRuleText
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .Select(segment => segment.Trim().ToUpperInvariant())
+                .ToArray();
+
+            return string.Join(",", segments);
+        }
+
+        private static int NextRuleOccurrence(Dictionary<string, int> occurrenceCounts, string normalizedRuleText)
+        {
+            if (occurrenceCounts.TryGetValue(normalizedRuleText, out int current))
+            {
+                current++;
+            }
+            else
+            {
+                current = 1;
+            }
+
+            occurrenceCounts[normalizedRuleText] = current;
+            return current;
+        }
+
+        private static string BuildRuleStableId(string normalizedRuleText, int occurrence)
+        {
+            string payload = $"{normalizedRuleText}|{occurrence.ToString(CultureInfo.InvariantCulture)}";
+            byte[] hash = SHA256.HashData(Utf8NoBom.GetBytes(payload));
+            return Convert.ToHexString(hash);
+        }
+
+        private static bool IsValueLessRuleType(string matcherType)
+        {
+            return string.Equals(matcherType, "MATCH", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(matcherType, "FINAL", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static RuleActionKind ClassifyRuleActionKind(string actionTarget)
+        {
+            if (string.IsNullOrWhiteSpace(actionTarget))
+            {
+                return RuleActionKind.Other;
+            }
+
+            string normalized = actionTarget.Trim().ToUpperInvariant();
+            if (normalized == "DIRECT")
+            {
+                return RuleActionKind.Direct;
+            }
+
+            if (normalized == "PASS")
+            {
+                return RuleActionKind.Pass;
+            }
+
+            if (normalized.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase))
+            {
+                return RuleActionKind.Reject;
+            }
+
+            return RuleActionKind.Proxy;
+        }
+
+        private static string FormatMatcherTypeDisplay(string matcherType)
+        {
+            return matcherType switch
+            {
+                "DOMAIN" => "Domain",
+                "DOMAIN-SUFFIX" => "DomainSuffix",
+                "DOMAIN-KEYWORD" => "DomainKeyword",
+                "IP-CIDR" => "IPCIDR",
+                "IP-CIDR6" => "IPCIDR6",
+                "GEOIP" => "GeoIP",
+                "GEOSITE" => "GeoSite",
+                "RULE-SET" => "RuleSet",
+                "PROCESS-NAME" => "ProcessName",
+                "MATCH" => "Match",
+                "FINAL" => "Final",
+                _ => ToPascalToken(matcherType),
+            };
+        }
+
+        private static string FormatActionKindDisplay(RuleActionKind actionKind, string actionTarget)
+        {
+            return actionKind switch
+            {
+                RuleActionKind.Direct => "DIRECT",
+                RuleActionKind.Proxy => "PROXY",
+                RuleActionKind.Reject => string.IsNullOrWhiteSpace(actionTarget)
+                    ? "REJECT"
+                    : actionTarget.Trim().ToUpperInvariant(),
+                RuleActionKind.Pass => "PASS",
+                _ => string.IsNullOrWhiteSpace(actionTarget)
+                    ? "OTHER"
+                    : actionTarget.Trim().ToUpperInvariant(),
+            };
+        }
+
+        private static string ToPascalToken(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return "Unknown";
+            }
+
+            string[] segments = raw
+                .Split(['-', '_'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            return string.Concat(segments.Select(segment =>
+            {
+                if (segment.Length == 0)
+                {
+                    return string.Empty;
+                }
+
+                if (segment.Length == 1)
+                {
+                    return segment.ToUpperInvariant();
+                }
+
+                return char.ToUpperInvariant(segment[0]) + segment[1..].ToLowerInvariant();
+            }));
         }
 
         private static string NormalizeMode(string? raw)

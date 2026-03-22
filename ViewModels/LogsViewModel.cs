@@ -4,10 +4,13 @@ using ClashWinUI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using Windows.UI;
 
 namespace ClashWinUI.ViewModels
 {
@@ -24,6 +27,7 @@ namespace ClashWinUI.ViewModels
 
         private readonly LocalizedStrings _localizedStrings;
         private readonly IAppLogService _logService;
+        private readonly IThemeService _themeService;
         private readonly DispatcherQueue _dispatcherQueue;
         private readonly List<LogEntry> _allEntries = new();
 
@@ -44,14 +48,16 @@ namespace ClashWinUI.ViewModels
 
         public ObservableCollection<LogsListItem> FilteredLogEntries { get; } = new();
 
-        public LogsViewModel(LocalizedStrings localizedStrings, IAppLogService logService)
+        public LogsViewModel(LocalizedStrings localizedStrings, IAppLogService logService, IThemeService themeService)
         {
             _localizedStrings = localizedStrings;
             _logService = logService;
+            _themeService = themeService;
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
             _logService.LogAdded += OnLogAdded;
+            _themeService.ThemeChanged += OnThemeChanged;
 
             Title = _localizedStrings["PageLogs"];
             LogsText = string.Empty;
@@ -107,7 +113,7 @@ namespace ClashWinUI.ViewModels
             RefreshLogsText();
             if (MatchesCurrentFilters(entry))
             {
-                FilteredLogEntries.Add(new LogsListItem(entry.Level, FormatEntry(entry)));
+                FilteredLogEntries.Add(new LogsListItem(entry.Level, FormatEntry(entry), CreateForegroundBrush(entry.Level)));
             }
         }
 
@@ -126,7 +132,7 @@ namespace ClashWinUI.ViewModels
                     continue;
                 }
 
-                FilteredLogEntries.Add(new LogsListItem(entry.Level, FormatEntry(entry)));
+                FilteredLogEntries.Add(new LogsListItem(entry.Level, FormatEntry(entry), CreateForegroundBrush(entry.Level)));
             }
         }
 
@@ -211,17 +217,76 @@ namespace ClashWinUI.ViewModels
                 Title = _localizedStrings["PageLogs"];
             }
         }
+
+        private void OnThemeChanged(object? sender, EventArgs e)
+        {
+            if (_dispatcherQueue.HasThreadAccess)
+            {
+                RefreshLogItemBrushes();
+                return;
+            }
+
+            _dispatcherQueue.TryEnqueue(RefreshLogItemBrushes);
+        }
+
+        private void RefreshLogItemBrushes()
+        {
+            foreach (LogsListItem item in FilteredLogEntries)
+            {
+                item.ForegroundBrush = CreateForegroundBrush(item.Level);
+            }
+        }
+
+        private Brush CreateForegroundBrush(LogLevel level)
+        {
+            bool isLightTheme = GetCurrentActualTheme() == ElementTheme.Light;
+
+            Color color = level switch
+            {
+                LogLevel.Trace => isLightTheme
+                    ? Color.FromArgb(255, 104, 104, 104)
+                    : Color.FromArgb(255, 176, 176, 176),
+                LogLevel.Debug => isLightTheme
+                    ? Color.FromArgb(255, 0, 95, 184)
+                    : Color.FromArgb(255, 120, 200, 255),
+                LogLevel.Warning => isLightTheme
+                    ? Color.FromArgb(255, 151, 99, 0)
+                    : Color.FromArgb(255, 255, 196, 84),
+                LogLevel.Error => isLightTheme
+                    ? Color.FromArgb(255, 183, 28, 28)
+                    : Color.FromArgb(255, 255, 120, 120),
+                _ => isLightTheme
+                    ? Color.FromArgb(255, 17, 17, 17)
+                    : Color.FromArgb(255, 255, 255, 255),
+            };
+
+            return new SolidColorBrush(color);
+        }
+
+        private static ElementTheme GetCurrentActualTheme()
+        {
+            if (Application.Current is App app && app.ActiveWindow?.Content is FrameworkElement root)
+            {
+                return root.ActualTheme == ElementTheme.Light ? ElementTheme.Light : ElementTheme.Dark;
+            }
+
+            return ElementTheme.Dark;
+        }
     }
 
-    public sealed class LogsListItem
+    public sealed partial class LogsListItem : ObservableObject
     {
-        public LogsListItem(LogLevel level, string displayText)
+        public LogsListItem(LogLevel level, string displayText, Brush foregroundBrush)
         {
             Level = level;
             DisplayText = displayText;
+            ForegroundBrush = foregroundBrush;
         }
 
         public LogLevel Level { get; }
         public string DisplayText { get; }
+
+        [ObservableProperty]
+        public partial Brush ForegroundBrush { get; set; }
     }
 }

@@ -144,6 +144,102 @@
   <data name="PageOverview" xml:space="preserve">
     <value>Overview</value>
   </data>
+  <data name="HomeMetricConnections" xml:space="preserve">
+    <value>Current Connections</value>
+  </data>
+  <data name="HomeMetricMemoryUsage" xml:space="preserve">
+    <value>Memory Usage</value>
+  </data>
+  <data name="HomeMetricDownloadTotal" xml:space="preserve">
+    <value>Total Download</value>
+  </data>
+  <data name="HomeMetricDownloadSpeed" xml:space="preserve">
+    <value>Download Speed</value>
+  </data>
+  <data name="HomeMetricUploadTotal" xml:space="preserve">
+    <value>Total Upload</value>
+  </data>
+  <data name="HomeMetricUploadSpeed" xml:space="preserve">
+    <value>Upload Speed</value>
+  </data>
+  <data name="HomeTrafficChartTitle" xml:space="preserve">
+    <value>Upload and Download Speed</value>
+  </data>
+  <data name="HomeLegendDownload" xml:space="preserve">
+    <value>Download</value>
+  </data>
+  <data name="HomeLegendUpload" xml:space="preserve">
+    <value>Upload</value>
+  </data>
+  <data name="HomeMemoryChartTitle" xml:space="preserve">
+    <value>Memory Usage</value>
+  </data>
+  <data name="HomeLegendMemory" xml:space="preserve">
+    <value>Memory</value>
+  </data>
+  <data name="HomeSectionNetwork" xml:space="preserve">
+    <value>Network Info</value>
+  </data>
+  <data name="HomeFieldPublicIp" xml:space="preserve">
+    <value>Public IP</value>
+  </data>
+  <data name="HomeShowPublicIpTooltip" xml:space="preserve">
+    <value>Show public IP</value>
+  </data>
+  <data name="HomeHidePublicIpTooltip" xml:space="preserve">
+    <value>Hide public IP</value>
+  </data>
+  <data name="HomeCopyPublicIpTooltip" xml:space="preserve">
+    <value>Copy public IP</value>
+  </data>
+  <data name="HomeFieldLocation" xml:space="preserve">
+    <value>Location</value>
+  </data>
+  <data name="HomeFieldAsn" xml:space="preserve">
+    <value>AS Number</value>
+  </data>
+  <data name="HomeFieldServiceProvider" xml:space="preserve">
+    <value>Service Provider</value>
+  </data>
+  <data name="HomeFieldOrganization" xml:space="preserve">
+    <value>Organization</value>
+  </data>
+  <data name="HomeFieldTimeZone" xml:space="preserve">
+    <value>Time Zone</value>
+  </data>
+  <data name="HomeFieldCoordinates" xml:space="preserve">
+    <value>Coordinates</value>
+  </data>
+  <data name="HomeNetworkInfoLookupFailed" xml:space="preserve">
+    <value>Failed to load public network info.</value>
+  </data>
+  <data name="HomeSectionMihomo" xml:space="preserve">
+    <value>Mihomo Kernel</value>
+  </data>
+  <data name="HomeFieldKernelVersion" xml:space="preserve">
+    <value>Kernel Version</value>
+  </data>
+  <data name="HomeFieldSystemProxy" xml:space="preserve">
+    <value>System Proxy</value>
+  </data>
+  <data name="HomeFieldMixinPorts" xml:space="preserve">
+    <value>Mixin Ports</value>
+  </data>
+  <data name="HomeFieldRuntimeEvents" xml:space="preserve">
+    <value>Runtime Events</value>
+  </data>
+  <data name="HomeFieldRulesCount" xml:space="preserve">
+    <value>Rules Count</value>
+  </data>
+  <data name="HomeSectionSystem" xml:space="preserve">
+    <value>System Info</value>
+  </data>
+  <data name="HomeFieldOperatingSystem" xml:space="preserve">
+    <value>Operating System</value>
+  </data>
+  <data name="HomeFieldSystemVersion" xml:space="preserve">
+    <value>System Version</value>
+  </data>
   <data name="PageProfiles" xml:space="preserve">
     <value>Profiles</value>
   </data>
@@ -153,11 +249,92 @@
   <data name="PageConnections" xml:space="preserve">
     <value>Connections</value>
   </data>
+  <data name="ConnectionsActiveBadge" xml:space="preserve">
+    <value>Active</value>
+  </data>
+  <data name="ConnectionsClosedBadge" xml:space="preserve">
+    <value>Closed</value>
+  </data>
+  <data name="ConnectionsRefreshButton" xml:space="preserve">
+    <value>Refresh</value>
+  </data>
+  <data name="ConnectionsSearchPlaceholder" xml:space="preserve">
+    <value>Search multiple keywords separated by spaces</value>
+  </data>
+  <data name="ConnectionsColumnClose" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="ConnectionsColumnHost" xml:space="preserve">
+    <value>Host</value>
+  </data>
+  <data name="ConnectionsColumnType" xml:space="preserve">
+    <value>Type</value>
+  </data>
+  <data name="ConnectionsColumnRule" xml:space="preserve">
+    <value>Rule</value>
+  </data>
+  <data name="ConnectionsColumnChain" xml:space="preserve">
+    <value>Proxy Chain</value>
+  </data>
+  <data name="ConnectionsColumnDownloadSpeed" xml:space="preserve">
+    <value>Download Speed</value>
+  </data>
+  <data name="ConnectionsColumnUploadSpeed" xml:space="preserve">
+    <value>Upload Speed</value>
+  </data>
+  <data name="ConnectionsColumnDownload" xml:space="preserve">
+    <value>Download</value>
+  </data>
+  <data name="ConnectionsColumnUpload" xml:space="preserve">
+    <value>Upload</value>
+  </data>
+  <data name="ConnectionsColumnDuration" xml:space="preserve">
+    <value>Duration</value>
+  </data>
+  <data name="ConnectionsCloseTooltip" xml:space="preserve">
+    <value>Close this connection</value>
+  </data>
+  <data name="ConnectionsStatusEmpty" xml:space="preserve">
+    <value>No active connections.</value>
+  </data>
+  <data name="ConnectionsStatusLoaded" xml:space="preserve">
+    <value>Loaded {0} connections.</value>
+  </data>
+  <data name="ConnectionsStatusLoadFailed" xml:space="preserve">
+    <value>Failed to load connections: {0}</value>
+  </data>
+  <data name="ConnectionsStatusClosed" xml:space="preserve">
+    <value>Closed connection: {0}</value>
+  </data>
+  <data name="ConnectionsStatusCloseFailed" xml:space="preserve">
+    <value>Failed to close connection: {0}</value>
+  </data>
   <data name="PageLogs" xml:space="preserve">
     <value>Logs</value>
   </data>
   <data name="PageRules" xml:space="preserve">
     <value>Rules</value>
+  </data>
+  <data name="RulesSearchPlaceholder" xml:space="preserve">
+    <value>Search | Separate keywords with spaces</value>
+  </data>
+  <data name="RulesNoActiveProfile" xml:space="preserve">
+    <value>No active profile.</value>
+  </data>
+  <data name="RulesStatusEmpty" xml:space="preserve">
+    <value>No rules are available for the current profile.</value>
+  </data>
+  <data name="RulesStatusLoaded" xml:space="preserve">
+    <value>Loaded {0} rules.</value>
+  </data>
+  <data name="RulesStatusLoadFailed" xml:space="preserve">
+    <value>Failed to load rules: {0}</value>
+  </data>
+  <data name="RulesStatusApplied" xml:space="preserve">
+    <value>Rule updated and applied: {0}</value>
+  </data>
+  <data name="RulesStatusApplyFailed" xml:space="preserve">
+    <value>Failed to apply the updated rule.</value>
   </data>
   <data name="PageSettings" xml:space="preserve">
     <value>Settings</value>

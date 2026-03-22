@@ -6,5 +6,6 @@ namespace ClashWinUI.Models
         public required string SourcePath { get; init; }
         public required string MixinPath { get; init; }
         public required string RuntimePath { get; init; }
+        public required string RulesOverridePath { get; init; }
     }
 }

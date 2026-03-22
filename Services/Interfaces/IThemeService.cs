@@ -1,4 +1,5 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
+using System;
 
 namespace ClashWinUI.Services.Interfaces
 {
@@ -20,8 +21,11 @@ namespace ClashWinUI.Services.Interfaces
     {
         AppThemeMode CurrentAppTheme { get; }
         BackdropMode CurrentBackdrop { get; }
+        event EventHandler? ThemeChanged;
 
         void Initialize(Window window);
+        void RegisterWindow(Window window);
+        void UnregisterWindow(Window window);
         bool ApplyBackdrop(BackdropMode mode);
         void ApplyAppTheme(AppThemeMode mode);
     }

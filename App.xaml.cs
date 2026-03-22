@@ -42,6 +42,7 @@ namespace ClashWinUI
                     services.AddSingleton<IKernelPathService, KernelPathService>();
                     services.AddSingleton<IKernelBootstrapService, KernelBootstrapService>();
                     services.AddSingleton<IGeoDataService, GeoDataService>();
+                    services.AddSingleton<INetworkInfoService, NetworkInfoService>();
                     services.AddSingleton<IAppSettingsService, AppSettingsService>();
                     services.AddSingleton<IProcessService, ProcessService>();
                     services.AddSingleton<ISystemProxyService, SystemProxyService>();

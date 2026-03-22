@@ -13,6 +13,9 @@ namespace ClashWinUI.Services.Interfaces
         Task<bool> ApplyConfigAsync(string configPath, CancellationToken cancellationToken = default);
         Task<ProxyGroupLoadResult> GetProxyGroupsAsync(string runtimePath, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<ProxyNode>> GetProxiesAsync(CancellationToken cancellationToken = default);
+        Task<string?> GetVersionAsync(CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<ConnectionEntry>> GetConnectionsAsync(CancellationToken cancellationToken = default);
+        Task<bool> CloseConnectionAsync(string connectionId, CancellationToken cancellationToken = default);
         Task<bool> SelectProxyAsync(string groupName, string proxyName, CancellationToken cancellationToken = default);
         Task<int?> TestProxyDelayAsync(string proxyName, string testUrl, int timeoutMilliseconds = 5000, CancellationToken cancellationToken = default);
     }

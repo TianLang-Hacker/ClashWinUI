@@ -74,7 +74,7 @@ namespace ClashWinUI.Views.Pages
                 return;
             }
 
-            var window = new PortSettingsWindow(viewModel, viewModel.CreatePortSettingsDraft());
+            var window = new PortSettingsWindow(viewModel, viewModel.CreatePortSettingsDraft(), viewModel.ThemeService);
             if (Application.Current is App app && app.ActiveWindow is not null)
             {
                 window.PositionNear(app.ActiveWindow);

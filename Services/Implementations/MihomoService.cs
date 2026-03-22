@@ -60,7 +60,9 @@ namespace ClashWinUI.Services.Implementations
         private readonly Dictionary<string, DateTimeOffset> _applyFailureLoggedAt = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _applyFailureSync = new();
         private readonly object _groupCacheSync = new();
+        private readonly object _connectionStatsSync = new();
         private List<ProxyGroup> _lastRuntimeGroups = new();
+        private Dictionary<string, ConnectionTrafficSnapshot> _connectionTrafficSnapshots = new(StringComparer.OrdinalIgnoreCase);
 
         private static readonly TimeSpan ApplyFailureLogDedupeWindow = TimeSpan.FromSeconds(20);
         private static readonly TimeSpan ConfigConvergencePollDelay = TimeSpan.FromMilliseconds(250);
@@ -861,6 +863,122 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
+        public async Task<IReadOnlyList<ConnectionEntry>> GetConnectionsAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var request = CreateRequest(HttpMethod.Get, "/connections");
+                using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logService.Add($"Mihomo connections request failed: {(int)response.StatusCode} {response.ReasonPhrase}", LogLevel.Warning);
+                    return Array.Empty<ConnectionEntry>();
+                }
+
+                await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (!document.RootElement.TryGetProperty("connections", out JsonElement connectionsElement)
+                    || connectionsElement.ValueKind != JsonValueKind.Array)
+                {
+                    return Array.Empty<ConnectionEntry>();
+                }
+
+                var rawConnections = new List<ConnectionEntry>();
+                foreach (JsonElement item in connectionsElement.EnumerateArray())
+                {
+                    if (item.ValueKind != JsonValueKind.Object)
+                    {
+                        continue;
+                    }
+
+                    rawConnections.Add(ParseConnectionEntry(item));
+                }
+
+                return ComputeConnectionSpeeds(rawConnections);
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Mihomo connections request error: {ex.Message}", LogLevel.Warning);
+                return Array.Empty<ConnectionEntry>();
+            }
+        }
+
+        public async Task<string?> GetVersionAsync(CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var request = CreateRequest(HttpMethod.Get, "/version");
+                using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logService.Add($"Mihomo version request failed: {(int)response.StatusCode} {response.ReasonPhrase}", LogLevel.Warning);
+                    return null;
+                }
+
+                await using Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                using JsonDocument document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+                JsonElement root = document.RootElement;
+                if (root.ValueKind == JsonValueKind.String)
+                {
+                    return root.GetString();
+                }
+
+                if (root.ValueKind != JsonValueKind.Object)
+                {
+                    return null;
+                }
+
+                if (root.TryGetProperty("version", out JsonElement versionElement) && versionElement.ValueKind == JsonValueKind.String)
+                {
+                    return versionElement.GetString();
+                }
+
+                if (root.TryGetProperty("meta", out JsonElement metaElement)
+                    && metaElement.ValueKind == JsonValueKind.Object
+                    && metaElement.TryGetProperty("version", out JsonElement nestedVersion)
+                    && nestedVersion.ValueKind == JsonValueKind.String)
+                {
+                    return nestedVersion.GetString();
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Mihomo version request error: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+        }
+
+        public async Task<bool> CloseConnectionAsync(string connectionId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(connectionId))
+            {
+                return false;
+            }
+
+            try
+            {
+                using var request = CreateRequest(HttpMethod.Delete, $"/connections/{Uri.EscapeDataString(connectionId)}");
+                using HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return true;
+                }
+
+                string body = await SafeReadResponseBodyAsync(response, cancellationToken).ConfigureAwait(false);
+                _logService.Add(
+                    $"Mihomo close connection failed: id={connectionId}, status={(int)response.StatusCode} {response.ReasonPhrase}, body={NormalizeResponseBody(body)}",
+                    LogLevel.Warning);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Mihomo close connection error: id={connectionId}, error={ex.Message}", LogLevel.Warning);
+                return false;
+            }
+        }
+
         private HttpRequestMessage CreateRequest(HttpMethod method, string relativePath)
         {
             var request = new HttpRequestMessage(method, $"{_controllerBaseUrl}{relativePath}");
@@ -870,6 +988,164 @@ namespace ClashWinUI.Services.Implementations
             }
 
             return request;
+        }
+
+        private static ConnectionEntry ParseConnectionEntry(JsonElement connectionElement)
+        {
+            JsonElement metadataElement = TryGetObject(connectionElement, "metadata");
+            return new ConnectionEntry
+            {
+                Id = TryGetString(connectionElement, "id"),
+                HostDisplay = BuildConnectionHostDisplay(metadataElement),
+                TypeDisplay = BuildConnectionTypeDisplay(metadataElement),
+                RuleDisplay = BuildConnectionRuleDisplay(connectionElement, metadataElement),
+                ChainDisplay = BuildConnectionChainDisplay(connectionElement, metadataElement),
+                DownloadSpeed = 0,
+                UploadSpeed = 0,
+                Download = TryGetInt64(connectionElement, "download"),
+                Upload = TryGetInt64(connectionElement, "upload"),
+                StartedAt = TryGetDateTimeOffset(connectionElement, "start"),
+            };
+        }
+
+        private IReadOnlyList<ConnectionEntry> ComputeConnectionSpeeds(IReadOnlyList<ConnectionEntry> connections)
+        {
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            var computedConnections = new List<ConnectionEntry>(connections.Count);
+            var nextSnapshots = new Dictionary<string, ConnectionTrafficSnapshot>(StringComparer.OrdinalIgnoreCase);
+
+            lock (_connectionStatsSync)
+            {
+                foreach (ConnectionEntry connection in connections)
+                {
+                    long downloadSpeed = 0;
+                    long uploadSpeed = 0;
+
+                    if (_connectionTrafficSnapshots.TryGetValue(connection.Id, out ConnectionTrafficSnapshot? previous))
+                    {
+                        double elapsedSeconds = (now - previous.Timestamp).TotalSeconds;
+                        if (elapsedSeconds > 0)
+                        {
+                            long downloadDelta = Math.Max(0, connection.Download - previous.Download);
+                            long uploadDelta = Math.Max(0, connection.Upload - previous.Upload);
+                            downloadSpeed = (long)Math.Max(0, Math.Round(downloadDelta / elapsedSeconds));
+                            uploadSpeed = (long)Math.Max(0, Math.Round(uploadDelta / elapsedSeconds));
+                        }
+                    }
+
+                    computedConnections.Add(new ConnectionEntry
+                    {
+                        Id = connection.Id,
+                        HostDisplay = connection.HostDisplay,
+                        TypeDisplay = connection.TypeDisplay,
+                        RuleDisplay = connection.RuleDisplay,
+                        ChainDisplay = connection.ChainDisplay,
+                        DownloadSpeed = downloadSpeed,
+                        UploadSpeed = uploadSpeed,
+                        Download = connection.Download,
+                        Upload = connection.Upload,
+                        StartedAt = connection.StartedAt,
+                    });
+
+                    nextSnapshots[connection.Id] = new ConnectionTrafficSnapshot
+                    {
+                        Timestamp = now,
+                        Download = connection.Download,
+                        Upload = connection.Upload,
+                    };
+                }
+
+                _connectionTrafficSnapshots = nextSnapshots;
+            }
+
+            return computedConnections;
+        }
+
+        private static string BuildConnectionHostDisplay(JsonElement metadataElement)
+        {
+            string host = FirstNonEmpty(
+                TryGetString(metadataElement, "host"),
+                TryGetString(metadataElement, "destinationIP"),
+                TryGetString(metadataElement, "remoteDestination"),
+                TryGetString(metadataElement, "sniffHost"));
+            string port = FirstNonEmpty(
+                TryGetString(metadataElement, "destinationPort"),
+                TryGetString(metadataElement, "dstPort"));
+
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                host = "--";
+            }
+
+            if (string.IsNullOrWhiteSpace(port) || host.EndsWith($":{port}", StringComparison.OrdinalIgnoreCase))
+            {
+                return host;
+            }
+
+            return $"{host}:{port}";
+        }
+
+        private static string BuildConnectionTypeDisplay(JsonElement metadataElement)
+        {
+            string connectionType = NormalizeConnectionType(TryGetString(metadataElement, "type"));
+            string network = NormalizeConnectionNetwork(TryGetString(metadataElement, "network"));
+
+            if (string.IsNullOrWhiteSpace(connectionType))
+            {
+                return string.IsNullOrWhiteSpace(network) ? "--" : network;
+            }
+
+            return string.IsNullOrWhiteSpace(network)
+                ? connectionType
+                : $"{connectionType} | {network}";
+        }
+
+        private static string BuildConnectionRuleDisplay(JsonElement connectionElement, JsonElement metadataElement)
+        {
+            return FirstNonEmpty(
+                TryGetString(connectionElement, "rule"),
+                TryGetString(metadataElement, "specialRules"),
+                TryGetString(metadataElement, "rulePayload"),
+                "--");
+        }
+
+        private static string BuildConnectionChainDisplay(JsonElement connectionElement, JsonElement metadataElement)
+        {
+            IReadOnlyList<string> chains = TryGetStringArray(connectionElement, "chains");
+            if (chains.Count == 0)
+            {
+                chains = TryGetStringArray(metadataElement, "chain");
+            }
+
+            if (chains.Count == 0)
+            {
+                string singleChain = FirstNonEmpty(
+                    TryGetString(metadataElement, "specialProxy"),
+                    TryGetString(metadataElement, "proxy"),
+                    "--");
+                return singleChain;
+            }
+
+            return string.Join(" -> ", chains);
+        }
+
+        private static JsonElement TryGetObject(JsonElement element, string propertyName)
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return default;
+            }
+
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase)
+                    && property.Value.ValueKind == JsonValueKind.Object)
+                {
+                    return property.Value;
+                }
+            }
+
+            return default;
         }
 
         private List<ProxyGroup> MergeProxyGroups(List<ProxyGroup> runtimeGroups, JsonElement proxiesElement)
@@ -1118,15 +1394,130 @@ namespace ClashWinUI.Services.Implementations
 
         private static string TryGetString(JsonElement element, string propertyName)
         {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return string.Empty;
+            }
+
             foreach (JsonProperty property in element.EnumerateObject())
             {
                 if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
                 {
-                    return property.Value.GetString() ?? string.Empty;
+                    return property.Value.ValueKind switch
+                    {
+                        JsonValueKind.String => property.Value.GetString() ?? string.Empty,
+                        JsonValueKind.Number => property.Value.GetRawText(),
+                        JsonValueKind.True => bool.TrueString,
+                        JsonValueKind.False => bool.FalseString,
+                        _ => string.Empty,
+                    };
                 }
             }
 
             return string.Empty;
+        }
+
+        private static long TryGetInt64(JsonElement element, string propertyName)
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return 0;
+            }
+
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt64(out long numericValue))
+                {
+                    return numericValue;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.String
+                    && long.TryParse(property.Value.GetString(), out long parsedValue))
+                {
+                    return parsedValue;
+                }
+            }
+
+            return 0;
+        }
+
+        private static DateTimeOffset? TryGetDateTimeOffset(JsonElement element, string propertyName)
+        {
+            string value = TryGetString(element, propertyName);
+            return DateTimeOffset.TryParse(value, out DateTimeOffset parsedValue) ? parsedValue : null;
+        }
+
+        private static IReadOnlyList<string> TryGetStringArray(JsonElement element, string propertyName)
+        {
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return Array.Empty<string>();
+            }
+
+            foreach (JsonProperty property in element.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.Array)
+                {
+                    return property.Value.EnumerateArray()
+                        .Select(item => item.GetString() ?? string.Empty)
+                        .Where(value => !string.IsNullOrWhiteSpace(value))
+                        .ToList();
+                }
+
+                if (property.Value.ValueKind == JsonValueKind.String)
+                {
+                    string singleValue = property.Value.GetString() ?? string.Empty;
+                    return string.IsNullOrWhiteSpace(singleValue)
+                        ? Array.Empty<string>()
+                        : [singleValue];
+                }
+            }
+
+            return Array.Empty<string>();
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
+        }
+
+        private static string NormalizeConnectionType(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return string.Empty;
+            }
+
+            string trimmed = raw.Trim();
+            return trimmed.ToLowerInvariant() switch
+            {
+                "http" => "HTTP",
+                "https" => "HTTPS",
+                "socks5" => "Socks5",
+                "socks" => "Socks5",
+                "redir" => "Redir",
+                "tproxy" => "TProxy",
+                "tun" => "TUN",
+                _ when trimmed.Length <= 4 => trimmed.ToUpperInvariant(),
+                _ => char.ToUpperInvariant(trimmed[0]) + trimmed[1..].ToLowerInvariant(),
+            };
+        }
+
+        private static string NormalizeConnectionNetwork(string? raw)
+        {
+            return string.IsNullOrWhiteSpace(raw)
+                ? string.Empty
+                : raw.Trim().ToUpperInvariant();
         }
 
         private static string GetTransportText(string network)
@@ -1851,6 +2242,15 @@ namespace ClashWinUI.Services.Implementations
             NotConverged = 0,
             HardConverged = 1,
             SoftConvergedAfterRestart = 2,
+        }
+
+        private sealed class ConnectionTrafficSnapshot
+        {
+            public required DateTimeOffset Timestamp { get; init; }
+
+            public required long Download { get; init; }
+
+            public required long Upload { get; init; }
         }
     }
 }

@@ -26,6 +26,7 @@ namespace ClashWinUI.Views
 
         private readonly MainViewModel _viewModel;
         private readonly INavigationService _navigationService;
+        private readonly IThemeService _themeService;
         private readonly IAppSettingsService _appSettingsService;
         private readonly ITrayService _trayService;
         private readonly WndProcDelegate _windowProcDelegate;
@@ -55,6 +56,7 @@ namespace ClashWinUI.Views
         {
             _viewModel = viewModel;
             _navigationService = navigationService;
+            _themeService = themeService;
             _appSettingsService = appSettingsService;
             _trayService = trayService;
             _windowProcDelegate = WindowProc;
@@ -212,6 +214,7 @@ namespace ClashWinUI.Views
             AppWindow.Changed -= OnAppWindowChanged;
             AppWindow.Closing -= OnAppWindowClosing;
             Closed -= OnWindowClosed;
+            _themeService.UnregisterWindow(this);
 
             if (_windowHandle != IntPtr.Zero && _previousWindowProc != IntPtr.Zero)
             {
