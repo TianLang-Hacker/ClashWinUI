@@ -15,8 +15,8 @@
     ... ado.net/XML headers & schema ...
     <resheader name="resmimetype">text/microsoft-resx</resheader>
     <resheader name="version">2.0</resheader>
-    <resheader name="reader">System.Resources.ResXResourceReader, ...</resheader>
-    <resheader name="writer">System.Resources.ResXResourceWriter, ...</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
     <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
     <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
     <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
@@ -112,10 +112,10 @@
     <value>2.0</value>
   </resheader>
   <resheader name="reader">
-    <value>System.Resources.ResXResourceReader</value>
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <resheader name="writer">
-    <value>System.Resources.ResXResourceWriter</value>
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="AppTitle" xml:space="preserve">
     <value>Clash WinUI</value>
@@ -351,14 +351,44 @@
   <data name="LogsClearButton" xml:space="preserve">
     <value>清空日志</value>
   </data>
+  <data name="LogsFilterLabel" xml:space="preserve">
+    <value>Level</value>
+  </data>
+  <data name="LogsFilterAll" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="LogsFilterTrace" xml:space="preserve">
+    <value>Trace</value>
+  </data>
+  <data name="LogsFilterDebug" xml:space="preserve">
+    <value>Debug</value>
+  </data>
+  <data name="LogsFilterInfo" xml:space="preserve">
+    <value>Info</value>
+  </data>
+  <data name="LogsFilterWarning" xml:space="preserve">
+    <value>Warning</value>
+  </data>
+  <data name="LogsFilterError" xml:space="preserve">
+    <value>Error</value>
+  </data>
+  <data name="LogsSearchPlaceholder" xml:space="preserve">
+    <value>搜索日志关键字</value>
+  </data>
   <data name="LanguageLabel" xml:space="preserve">
     <value>语言</value>
   </data>
   <data name="SettingsSection1" xml:space="preserve">
-    <value>第 1 部分</value>
+    <value>通用</value>
   </data>
   <data name="SettingsSection2" xml:space="preserve">
-    <value>第 2 部分</value>
+    <value>代理设置</value>
+  </data>
+  <data name="LanguageTraditionalChinese" xml:space="preserve">
+    <value>中文（繁体）</value>
+  </data>
+  <data name="SettingsThirdPartyLibrariesHeader" xml:space="preserve">
+    <value>第三方库</value>
   </data>
   <data name="CloseBehaviorHeader" xml:space="preserve">
     <value>关闭行为</value>
@@ -555,30 +585,6 @@
   <data name="LanguageSimplifiedChinese" xml:space="preserve">
     <value>中文（简体）</value>
   </data>
-  <data name="LogsFilterLabel" xml:space="preserve">
-    <value>Level</value>
-  </data>
-  <data name="LogsFilterAll" xml:space="preserve">
-    <value>全部</value>
-  </data>
-  <data name="LogsFilterTrace" xml:space="preserve">
-    <value>Trace</value>
-  </data>
-  <data name="LogsFilterDebug" xml:space="preserve">
-    <value>Debug</value>
-  </data>
-  <data name="LogsFilterInfo" xml:space="preserve">
-    <value>Info</value>
-  </data>
-  <data name="LogsFilterWarning" xml:space="preserve">
-    <value>Warning</value>
-  </data>
-  <data name="LogsFilterError" xml:space="preserve">
-    <value>Error</value>
-  </data>
-  <data name="LogsSearchPlaceholder" xml:space="preserve">
-    <value>搜索日志关键字</value>
-  </data>
   <data name="ProfilesRefreshButton" xml:space="preserve">
     <value>刷新</value>
   </data>
@@ -631,22 +637,22 @@
     <value>配置已保存，但当前格式不可直接应用到 Mihomo。</value>
   </data>
   <data name="ProxiesRefreshButton" xml:space="preserve">
-      <value>刷新节点</value>
+    <value>刷新节点</value>
   </data>
   <data name="ProxiesTestAllButton" xml:space="preserve">
-      <value>测速全部</value>
+    <value>测速全部</value>
   </data>
   <data name="ProxiesTestGroupButton" xml:space="preserve">
-      <value>测速本组</value>
+    <value>测速本组</value>
   </data>
   <data name="ProxiesTestNodeButton" xml:space="preserve">
-      <value>测速节点</value>
+    <value>测速节点</value>
   </data>
   <data name="ProxiesCurrentProxyLabel" xml:space="preserve">
     <value>当前节点</value>
   </data>
   <data name="ProxiesTestUrlPlaceholder" xml:space="preserve">
-      <value>测速 URL</value>
+    <value>测速 URL</value>
   </data>
   <data name="ProxiesStatusNoActiveProfile" xml:space="preserve">
     <value>当前没有激活配置，请先到订阅页设置。</value>
@@ -679,24 +685,24 @@
     <value>全部节点测速完成。</value>
   </data>
   <data name="ProxiesStatusDelayAllFinishedWithSkipped" xml:space="preserve">
-      <value>测速完成，已跳过 {0} 个不可测速节点。</value>
+    <value>测速完成，已跳过 {0} 个不可测速节点。</value>
   </data>
   <data name="ProxiesStatusDelayGroupFinished" xml:space="preserve">
-      <value>代理组 {0} 测速完成。</value>
+    <value>代理组 {0} 测速完成。</value>
   </data>
   <data name="ProxiesStatusDelayGroupFinishedWithSkipped" xml:space="preserve">
-      <value>代理组 {0} 测速完成，已跳过 {1} 个不可测速节点。</value>
+    <value>代理组 {0} 测速完成，已跳过 {1} 个不可测速节点。</value>
   </data>
   <data name="ProxiesStatusProxySelected" xml:space="preserve">
-      <value>已切换代理组 {0} 到节点 {1}。</value>
+    <value>已切换代理组 {0} 到节点 {1}。</value>
   </data>
   <data name="ProxiesStatusProxySelectFailed" xml:space="preserve">
-      <value>切换代理组 {0} 到节点 {1} 失败。</value>
+    <value>切换代理组 {0} 到节点 {1} 失败。</value>
   </data>
   <data name="ProxiesStatusProxyAlreadySelected" xml:space="preserve">
-      <value>代理组 {0} 当前已使用节点 {1}。</value>
+    <value>代理组 {0} 当前已使用节点 {1}。</value>
   </data>
   <data name="ProxiesStatusNoProxyGroups" xml:space="preserve">
-      <value>当前配置未找到可展示的代理组。</value>
+    <value>当前配置未找到可展示的代理组。</value>
   </data>
 </root>

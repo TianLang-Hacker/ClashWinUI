@@ -11,7 +11,9 @@ namespace ClashWinUI.Helpers
     public class LocalizedStrings : ObservableObject
     {
         private const string DefaultLanguage = "en-US";
-        private static readonly string[] SupportedLanguages = ["en-US", "zh-Hans"];
+        private const string SimplifiedChinese = "zh-Hans";
+        private const string TraditionalChinese = "zh-Hant";
+        private static readonly string[] SupportedLanguages = ["en-US", SimplifiedChinese, TraditionalChinese];
 
         private readonly Dictionary<string, Dictionary<string, string>> _resources = new(StringComparer.OrdinalIgnoreCase);
         private string _currentLanguage = DefaultLanguage;
@@ -23,9 +25,7 @@ namespace ClashWinUI.Helpers
                 _resources[language] = LoadResourceDictionary(language);
             }
 
-            string preferredLanguage = CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
-                ? "zh-Hans"
-                : DefaultLanguage;
+            string preferredLanguage = NormalizeLanguage(CultureInfo.CurrentUICulture.Name);
 
             SetLanguage(preferredLanguage);
         }
@@ -86,6 +86,19 @@ namespace ClashWinUI.Helpers
                 {
                     return supportedLanguage;
                 }
+            }
+
+            if (languageTag.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
+            {
+                if (languageTag.Contains("hant", StringComparison.OrdinalIgnoreCase)
+                    || languageTag.Contains("tw", StringComparison.OrdinalIgnoreCase)
+                    || languageTag.Contains("hk", StringComparison.OrdinalIgnoreCase)
+                    || languageTag.Contains("mo", StringComparison.OrdinalIgnoreCase))
+                {
+                    return TraditionalChinese;
+                }
+
+                return SimplifiedChinese;
             }
 
             return DefaultLanguage;

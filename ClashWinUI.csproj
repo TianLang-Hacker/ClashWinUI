@@ -50,12 +50,19 @@
     <Content Include="i18n\zh-Hans\Resources.resw">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="i18n\zh-Hant\Resources.resw">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="Build\DownloadKernel.ps1">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="Build\DownloadGeoData.ps1">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <LocalizationResourceFiles Include="i18n\**\Resources.resw" />
   </ItemGroup>
 
   <ItemGroup>
@@ -155,4 +162,20 @@
     <AppxBundle>Never</AppxBundle>
     <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
   </PropertyGroup>
+
+  <Target Name="CopyLocalizationResources" AfterTargets="Build">
+    <MakeDir Directories="@(LocalizationResourceFiles->'$(TargetDir)%(RecursiveDir)')" />
+    <Copy
+      SourceFiles="@(LocalizationResourceFiles)"
+      DestinationFiles="@(LocalizationResourceFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyLocalizationResourcesToAppxLayout" AfterTargets="_CreatePackageLayout">
+    <MakeDir Directories="@(LocalizationResourceFiles->'$(LayoutDir)\%(RecursiveDir)')" />
+    <Copy
+      SourceFiles="@(LocalizationResourceFiles)"
+      DestinationFiles="@(LocalizationResourceFiles->'$(LayoutDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
 </Project>

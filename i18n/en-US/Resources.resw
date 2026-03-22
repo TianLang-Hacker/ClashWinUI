@@ -15,8 +15,8 @@
     ... ado.net/XML headers & schema ...
     <resheader name="resmimetype">text/microsoft-resx</resheader>
     <resheader name="version">2.0</resheader>
-    <resheader name="reader">System.Resources.ResXResourceReader, ...</resheader>
-    <resheader name="writer">System.Resources.ResXResourceWriter, ...</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
     <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
     <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
     <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
@@ -112,10 +112,10 @@
     <value>2.0</value>
   </resheader>
   <resheader name="reader">
-    <value>System.Resources.ResXResourceReader</value>
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <resheader name="writer">
-    <value>System.Resources.ResXResourceWriter</value>
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
   <data name="AppTitle" xml:space="preserve">
     <value>Clash WinUI</value>
@@ -379,10 +379,16 @@
     <value>Language</value>
   </data>
   <data name="SettingsSection1" xml:space="preserve">
-    <value>Section 1</value>
+    <value>General</value>
   </data>
   <data name="SettingsSection2" xml:space="preserve">
-    <value>Section 2</value>
+    <value>Proxy Settings</value>
+  </data>
+  <data name="LanguageTraditionalChinese" xml:space="preserve">
+    <value>中文（繁體）</value>
+  </data>
+  <data name="SettingsThirdPartyLibrariesHeader" xml:space="preserve">
+    <value>Third-Party Libraries</value>
   </data>
   <data name="CloseBehaviorHeader" xml:space="preserve">
     <value>Close behavior</value>
@@ -631,22 +637,22 @@
     <value>Profile saved, but this format cannot be applied directly to Mihomo.</value>
   </data>
   <data name="ProxiesRefreshButton" xml:space="preserve">
-      <value>Refresh Nodes</value>
+    <value>Refresh Nodes</value>
   </data>
   <data name="ProxiesTestAllButton" xml:space="preserve">
-      <value>Test All</value>
+    <value>Test All</value>
   </data>
   <data name="ProxiesTestGroupButton" xml:space="preserve">
-      <value>Test Group</value>
+    <value>Test Group</value>
   </data>
   <data name="ProxiesTestNodeButton" xml:space="preserve">
-      <value>Test Node</value>
+    <value>Test Node</value>
   </data>
   <data name="ProxiesCurrentProxyLabel" xml:space="preserve">
     <value>Current</value>
   </data>
   <data name="ProxiesTestUrlPlaceholder" xml:space="preserve">
-      <value>Latency test URL</value>
+    <value>Latency test URL</value>
   </data>
   <data name="ProxiesStatusNoActiveProfile" xml:space="preserve">
     <value>No active profile. Go to Profiles page first.</value>
@@ -679,24 +685,24 @@
     <value>All node delay tests finished.</value>
   </data>
   <data name="ProxiesStatusDelayAllFinishedWithSkipped" xml:space="preserve">
-      <value>All delay tests finished. Skipped {0} non-testable node(s).</value>
+    <value>All delay tests finished. Skipped {0} non-testable node(s).</value>
   </data>
   <data name="ProxiesStatusDelayGroupFinished" xml:space="preserve">
-      <value>Delay test finished for group {0}.</value>
+    <value>Delay test finished for group {0}.</value>
   </data>
   <data name="ProxiesStatusDelayGroupFinishedWithSkipped" xml:space="preserve">
-      <value>Delay test finished for group {0}. Skipped {1} non-testable node(s).</value>
+    <value>Delay test finished for group {0}. Skipped {1} non-testable node(s).</value>
   </data>
   <data name="ProxiesStatusProxySelected" xml:space="preserve">
-      <value>Proxy group {0} switched to {1}.</value>
+    <value>Proxy group {0} switched to {1}.</value>
   </data>
   <data name="ProxiesStatusProxySelectFailed" xml:space="preserve">
-      <value>Failed to switch proxy group {0} to {1}.</value>
+    <value>Failed to switch proxy group {0} to {1}.</value>
   </data>
   <data name="ProxiesStatusProxyAlreadySelected" xml:space="preserve">
-      <value>Proxy group {0} is already using {1}.</value>
+    <value>Proxy group {0} is already using {1}.</value>
   </data>
   <data name="ProxiesStatusNoProxyGroups" xml:space="preserve">
-      <value>No proxy groups were found in the current config.</value>
+    <value>No proxy groups were found in the current config.</value>
   </data>
 </root>

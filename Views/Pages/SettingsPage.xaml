@@ -89,6 +89,9 @@
                         <ComboBoxItem
                             Tag="zh-Hans"
                             Content="{Binding [LanguageSimplifiedChinese], Source={StaticResource L}}" />
+                        <ComboBoxItem
+                            Tag="zh-Hant"
+                            Content="{Binding [LanguageTraditionalChinese], Source={StaticResource L}}" />
                     </ComboBox>
                 </controls:SettingsCard>
 
@@ -292,26 +295,58 @@
 
                 <TextBlock
                     Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
-                    Text="About" />
+                    Text="关于" />
 
-                <controls:SettingsExpander
-                    Description="(C) 2026. All rights reserved."
-                    Header="Community Toolkit Gallery"
-                    HeaderIcon="{ui:BitmapIcon Source=ms-appx:///Assets/AppTitleBar.scale-200.png}">
+                <controls:SettingsCard Description="TianLang Hacker (C) 2026. All rights reserved."
+                                       Header="ClashWinUI"
+                                       HeaderIcon="{ui:FontIcon Glyph=&#xE716;}">
                     <TextBlock
                         win:IsTextSelectionEnabled="True"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        Text="Version 8.0.0" />
+                        Text="Version 0.0.9" />
+                </controls:SettingsCard>
+
+                <controls:SettingsExpander
+                    Header="{Binding [SettingsThirdPartyLibrariesHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE8F1;}">
                     <controls:SettingsExpander.Items>
                         <controls:SettingsCard
                             HorizontalContentAlignment="Left"
                             ContentAlignment="Left">
                             <StackPanel
                                 Margin="-12,0,0,0"
-                                Orientation="Vertical">
-                                <HyperlinkButton Content="Link 1" />
-                                <HyperlinkButton Content="Link 2" />
-                                <HyperlinkButton Content="Link 3" />
+                                Orientation="Vertical"
+                                Spacing="2">
+                                <HyperlinkButton
+                                    Content="CommunityToolkit.Mvvm"
+                                    NavigateUri="https://github.com/CommunityToolkit/dotnet" />
+                                <HyperlinkButton
+                                    Content="CommunityToolkit.WinUI.Controls.SettingsControls"
+                                    NavigateUri="https://github.com/CommunityToolkit/Windows" />
+                                <HyperlinkButton
+                                    Content="H.NotifyIcon.WinUI"
+                                    NavigateUri="https://github.com/HavenDV/H.NotifyIcon" />
+                                <HyperlinkButton
+                                    Content="LiveChartsCore.SkiaSharpView.WinUI"
+                                    NavigateUri="https://github.com/beto-rodriguez/LiveCharts2" />
+                                <HyperlinkButton
+                                    Content="Microsoft.Extensions.DependencyInjection"
+                                    NavigateUri="https://github.com/dotnet/runtime" />
+                                <HyperlinkButton
+                                    Content="Microsoft.Extensions.Hosting"
+                                    NavigateUri="https://github.com/dotnet/runtime" />
+                                <HyperlinkButton
+                                    Content="Microsoft.Windows.SDK.BuildTools"
+                                    NavigateUri="https://github.com/microsoft/WindowsAppSDK" />
+                                <HyperlinkButton
+                                    Content="Microsoft.WindowsAppSDK"
+                                    NavigateUri="https://github.com/microsoft/WindowsAppSDK" />
+                                <HyperlinkButton
+                                    Content="Microsoft.WindowsAppSDK.WinUI"
+                                    NavigateUri="https://github.com/microsoft/WindowsAppSDK" />
+                                <HyperlinkButton
+                                    Content="YamlDotNet"
+                                    NavigateUri="https://github.com/aaubry/YamlDotNet" />
                             </StackPanel>
                         </controls:SettingsCard>
                     </controls:SettingsExpander.Items>
