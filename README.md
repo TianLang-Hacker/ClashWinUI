@@ -46,4 +46,28 @@ Welcome to participate in the development and maintenance of this project! Pleas
     * Windows 11 SDK (10.0.22621.0)
     * Universal C Runtime
 
+1. **Clone the repository locally**
+
+```bash
+git clone https://github.com/TianLang-Hacker/ClashWinUI.git
+```
+
+---
+
+2. **Compile the Project**
+
+You can open the ClashWinUI.slnx solution file with Visual Studio 2026 and press F5 to start compiling, or compile directly using the command line:
+
+X86_64：
+
+```bash
+dotnet build -c Release -p:Platform=x64
+```
+
+ARM64：
+
+```bash
+dotnet build -c Release -p:Platform=arm64
+```
+
 Here is the complete [development documentation](./i18n/en-US/ClashWinUIhelp%20en.md), welcome to participate.

@@ -44,4 +44,28 @@ ClashWinUI 是一款基於 WinUI 3 構建的現代化本地網路流量管理與
     * Windows 11 SDK (10.0.22621.0)
     * Windows 通用 C 執行階段 (Universal C Runtime)
 
+1. **將專案 Clone 到本機**
+
+```bash
+git clone https://github.com/TianLang-Hacker/ClashWinUI.git
+```
+
+---
+
+2. **編譯專案**
+
+您可以使用 Visual Studio 2026 開啟 ClashWinUI.sln 解決方案檔案後按 F5 啟動編譯，或者直接使用命令列進行編譯：
+
+X86_64：
+
+```bash
+dotnet build -c Release -p:Platform=x64
+```
+
+ARM64：
+
+```bash
+dotnet build -c Release -p:Platform=arm64
+```
+
 這裡有完整的[開發文檔](ClashWinUIhelp%20zh-Hant.md)，歡迎參與
