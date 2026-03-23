@@ -4,7 +4,7 @@
 
 ClashWinUI is a modern local network traffic management and routing console built on WinUI 3. This project adopts a strictly decoupled frontend-backend architecture, allowing users to load custom third-party network processing cores (such as Mihomo) to provide a transparent, efficient, and safe network rule configuration experience.
 
-[Core Features](#-core-features) • [Installation Guide](#-installation-guide) • [Documentation](#-documentation)
+[Core Features](#-core-features) • [Installation Guide](#-installation-guide) • [Localization](#-Localization) • [Developer Guide](#-developer-guide)
 
 ---
 
@@ -45,3 +45,5 @@ Welcome to participate in the development and maintenance of this project! Pleas
     * Windows 11 SDK (10.0.26100.7705)
     * Windows 11 SDK (10.0.22621.0)
     * Universal C Runtime
+
+Here is the complete [development documentation](./i18n/en-US/ClashWinUIhelp%20en.md), welcome to participate.
