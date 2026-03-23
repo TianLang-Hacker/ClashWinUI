@@ -5,6 +5,8 @@ namespace ClashWinUI.Services.Interfaces
 {
     public interface IConfigService
     {
+        event System.EventHandler? ConfigurationChanged;
+
         ProfileConfigWorkspace GetWorkspace(ProfileItem profile);
         ProfileConfigWorkspace EnsureWorkspace(ProfileItem profile);
         MixinSettings LoadMixin(ProfileItem profile);

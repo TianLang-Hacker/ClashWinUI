@@ -1,13 +1,15 @@
+using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Navigation;
 using System.Threading.Tasks;
 
 namespace ClashWinUI.Views.Pages
 {
-    public sealed partial class RulesPage : Page
+    public sealed partial class RulesPage : Page, IShellFreezablePage
     {
         private RulesViewModel? _viewModel;
 
@@ -18,14 +20,24 @@ namespace ClashWinUI.Views.Pages
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.Parameter is RulesViewModel viewModel)
+            RulesViewModel viewModel = ResolveViewModel();
+            if (!ReferenceEquals(_viewModel, viewModel))
             {
+                ReleaseViewModel();
                 _viewModel = viewModel;
                 DataContext = viewModel;
-                await viewModel.InitializeAsync();
             }
 
+            RebindRulesList();
+            await viewModel.InitializeAsync();
+
             base.OnNavigatedTo(e);
+        }
+
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            ReleaseViewModel();
+            base.OnNavigatedFrom(e);
         }
 
         private async void RuleToggleSwitch_Toggled(object sender, RoutedEventArgs e)
@@ -54,6 +66,45 @@ namespace ClashWinUI.Views.Pages
             toggleSwitch.IsOn = rule.IsEnabled;
             rule.IsToggleSynchronizing = false;
             return Task.CompletedTask;
+        }
+
+        private void ReleaseViewModel()
+        {
+            RulesListView.ItemsSource = null;
+
+            if (_viewModel is null)
+            {
+                DataContext = null;
+                return;
+            }
+
+            DataContext = null;
+            _viewModel.Dispose();
+            _viewModel = null;
+            PageMemoryTrimHelper.RequestTrim();
+        }
+
+        private static RulesViewModel ResolveViewModel()
+        {
+            return ((App)Application.Current).GetRequiredService<RulesViewModel>();
+        }
+
+        private void RebindRulesList()
+        {
+            if (RulesListView.ItemsSource is not null)
+            {
+                return;
+            }
+
+            RulesListView.SetBinding(ItemsControl.ItemsSourceProperty, new Binding
+            {
+                Path = new PropertyPath(nameof(RulesViewModel.Rules)),
+            });
+        }
+
+        public void PrepareForShellFreeze()
+        {
+            ReleaseViewModel();
         }
     }
 }

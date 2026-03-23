@@ -96,6 +96,10 @@
     </Page.Resources>
 
     <Grid Padding="24" RowSpacing="16">
+        <Grid.ChildrenTransitions>
+            <EntranceThemeTransition FromVerticalOffset="50" />
+            <RepositionThemeTransition IsStaggeringEnabled="False" />
+        </Grid.ChildrenTransitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -232,6 +236,7 @@
                     VerticalScrollBarVisibility="Auto"
                     ViewChanged="BodyScrollViewer_ViewChanged">
                     <ListView
+                        x:Name="ConnectionsListView"
                         ItemsSource="{Binding Connections}"
                         SelectionMode="None"
                         IsItemClickEnabled="False"

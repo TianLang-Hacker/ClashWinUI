@@ -19,6 +19,8 @@ namespace ClashWinUI.Views
         private const int GwlWndProc = -4;
         private const uint WmGetMinMaxInfo = 0x0024;
 
+        private static int _openWindowCount;
+
         private readonly SettingsViewModel _settingsViewModel;
         private readonly IThemeService _themeService;
         private readonly WndProcDelegate _windowProcDelegate;
@@ -27,6 +29,10 @@ namespace ClashWinUI.Views
         private IntPtr _previousWindowProc;
 
         public PortSettingsDraft Draft { get; }
+        public SettingsViewModel SettingsViewModel => _settingsViewModel;
+        public static bool IsAnyOpen => _openWindowCount > 0;
+
+        public static event EventHandler? OpenWindowsChanged;
 
         public PortSettingsWindow(SettingsViewModel settingsViewModel, PortSettingsDraft draft, IThemeService themeService)
         {
@@ -49,6 +55,9 @@ namespace ClashWinUI.Views
             AppWindow.SetIcon("Assets/ClashWinUI.ico");
             Activated += OnActivated;
             Closed += OnWindowClosed;
+
+            _openWindowCount++;
+            OpenWindowsChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void PositionNear(Window referenceWindow)
@@ -127,6 +136,12 @@ namespace ClashWinUI.Views
             Activated -= OnActivated;
             Closed -= OnWindowClosed;
             _themeService.UnregisterWindow(this);
+
+            if (_openWindowCount > 0)
+            {
+                _openWindowCount--;
+                OpenWindowsChanged?.Invoke(this, EventArgs.Empty);
+            }
 
             if (_windowHandle != IntPtr.Zero && _previousWindowProc != IntPtr.Zero)
             {

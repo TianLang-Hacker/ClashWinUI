@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace ClashWinUI.Views.Pages
 {
-    public sealed partial class HomePage : Page
+    public sealed partial class HomePage : Page, IShellFreezablePage
     {
         private HomeViewModel? _viewModel;
         private CancellationTokenSource? _chartLoadCancellation;
@@ -21,26 +21,27 @@ namespace ClashWinUI.Views.Pages
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.Parameter is HomeViewModel viewModel)
+            HomeViewModel viewModel = ResolveViewModel();
+            if (!ReferenceEquals(_viewModel, viewModel))
             {
+                ReleaseViewModel(clearChartHosts: false);
                 ActualThemeChanged -= OnActualThemeChanged;
                 _viewModel = viewModel;
                 DataContext = viewModel;
                 viewModel.ApplyChartTheme(ActualTheme);
                 ActualThemeChanged += OnActualThemeChanged;
-                await viewModel.InitializeAsync();
-                viewModel.StartAutoRefresh();
-                QueueChartsLoad(viewModel);
             }
+
+            await viewModel.InitializeAsync();
+            viewModel.StartAutoRefresh();
+            QueueChartsLoad(viewModel);
 
             base.OnNavigatedTo(e);
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            ActualThemeChanged -= OnActualThemeChanged;
-            _chartLoadCancellation?.Cancel();
-            _viewModel?.StopAutoRefresh();
+            ReleaseViewModel(clearChartHosts: true);
             base.OnNavigatedFrom(e);
         }
 
@@ -94,6 +95,43 @@ namespace ClashWinUI.Views.Pages
                 _chartsLoaded = true;
                 viewModel.ApplyChartTheme(ActualTheme);
             });
+        }
+
+        private void ReleaseViewModel(bool clearChartHosts)
+        {
+            ActualThemeChanged -= OnActualThemeChanged;
+
+            _chartLoadCancellation?.Cancel();
+            _chartLoadCancellation?.Dispose();
+            _chartLoadCancellation = null;
+
+            if (clearChartHosts)
+            {
+                TrafficChartHost.Content = null;
+                MemoryChartHost.Content = null;
+                _chartsLoaded = false;
+            }
+
+            if (_viewModel is null)
+            {
+                DataContext = null;
+                return;
+            }
+
+            _viewModel.StopAutoRefresh();
+            _viewModel.Dispose();
+            _viewModel = null;
+            DataContext = null;
+        }
+
+        private static HomeViewModel ResolveViewModel()
+        {
+            return ((App)Application.Current).GetRequiredService<HomeViewModel>();
+        }
+
+        public void PrepareForShellFreeze()
+        {
+            ReleaseViewModel(clearChartHosts: true);
         }
     }
 }

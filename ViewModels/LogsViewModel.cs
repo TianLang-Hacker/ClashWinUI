@@ -10,11 +10,12 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Threading.Tasks;
 using Windows.UI;
 
 namespace ClashWinUI.ViewModels
 {
-    public partial class LogsViewModel : ObservableObject
+    public partial class LogsViewModel : ObservableObject, IDisposable
     {
         public const string LevelAllTag = "all";
         public const string LevelTraceTag = "trace";
@@ -30,6 +31,7 @@ namespace ClashWinUI.ViewModels
         private readonly IThemeService _themeService;
         private readonly DispatcherQueue _dispatcherQueue;
         private readonly List<LogEntry> _allEntries = new();
+        private bool _isDisposed;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -65,13 +67,34 @@ namespace ClashWinUI.ViewModels
             SearchKeyword = string.Empty;
             IsAutoScrollEnabled = true;
 
-            foreach (LogEntry entry in _logService.GetLogs())
+            ReloadEntries();
+        }
+
+        public Task InitializeAsync()
+        {
+            if (_isDisposed)
             {
-                _allEntries.Add(entry);
+                return Task.CompletedTask;
             }
 
-            RefreshLogsText();
-            ApplyFilters();
+            ReloadEntries();
+            return Task.CompletedTask;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
+            _logService.LogAdded -= OnLogAdded;
+            _themeService.ThemeChanged -= OnThemeChanged;
+            _allEntries.Clear();
+            FilteredLogEntries.Clear();
+            LogsText = string.Empty;
         }
 
         partial void OnSelectedLevelFilterTagChanged(string value)
@@ -86,6 +109,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLogAdded(object? sender, LogEntry entry)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (_dispatcherQueue.HasThreadAccess)
             {
                 AppendEntry(entry);
@@ -120,6 +148,18 @@ namespace ClashWinUI.ViewModels
         private void RefreshLogsText()
         {
             LogsText = string.Join(Environment.NewLine, _allEntries.ConvertAll(FormatEntry));
+        }
+
+        private void ReloadEntries()
+        {
+            _allEntries.Clear();
+            foreach (LogEntry entry in _logService.GetLogs())
+            {
+                _allEntries.Add(entry);
+            }
+
+            RefreshLogsText();
+            ApplyFilters();
         }
 
         private void ApplyFilters()
@@ -212,6 +252,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (e.PropertyName == nameof(LocalizedStrings.CurrentLanguage) || e.PropertyName == "Item[]")
             {
                 Title = _localizedStrings["PageLogs"];
@@ -220,6 +265,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnThemeChanged(object? sender, EventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (_dispatcherQueue.HasThreadAccess)
             {
                 RefreshLogItemBrushes();

@@ -1,7 +1,6 @@
 ﻿using ClashWinUI.Services.Interfaces;
 using ClashWinUI.ViewModels;
 using ClashWinUI.Views.Pages;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
@@ -10,24 +9,18 @@ namespace ClashWinUI.Services.Implementations
 {
     public class NavigationService : INavigationService
     {
-        private readonly IServiceProvider _serviceProvider;
         private Frame? _frame;
 
-        private readonly Dictionary<string, RouteDefinition> _routes = new(StringComparer.OrdinalIgnoreCase)
+        private readonly Dictionary<string, Type> _routes = new(StringComparer.OrdinalIgnoreCase)
         {
-            [MainViewModel.HomeRouteKey] = new(typeof(HomePage), typeof(HomeViewModel)),
-            [MainViewModel.ProfilesRouteKey] = new(typeof(ProfilesPage), typeof(ProfilesViewModel)),
-            [MainViewModel.ProxiesRouteKey] = new(typeof(ProxiesPage), typeof(ProxiesViewModel)),
-            [MainViewModel.ConnectionsRouteKey] = new(typeof(ConnectionsPage), typeof(ConnectionsViewModel)),
-            [MainViewModel.LogsRouteKey] = new(typeof(LogsPage), typeof(LogsViewModel)),
-            [MainViewModel.RulesRouteKey] = new(typeof(RulesPage), typeof(RulesViewModel)),
-            [MainViewModel.SettingsRouteKey] = new(typeof(SettingsPage), typeof(SettingsViewModel)),
+            [MainViewModel.HomeRouteKey] = typeof(HomePage),
+            [MainViewModel.ProfilesRouteKey] = typeof(ProfilesPage),
+            [MainViewModel.ProxiesRouteKey] = typeof(ProxiesPage),
+            [MainViewModel.ConnectionsRouteKey] = typeof(ConnectionsPage),
+            [MainViewModel.LogsRouteKey] = typeof(LogsPage),
+            [MainViewModel.RulesRouteKey] = typeof(RulesPage),
+            [MainViewModel.SettingsRouteKey] = typeof(SettingsPage),
         };
-
-        public NavigationService(IServiceProvider serviceProvider)
-        {
-            _serviceProvider = serviceProvider;
-        }
 
         public void Initialize(Frame frame)
         {
@@ -43,25 +36,14 @@ namespace ClashWinUI.Services.Implementations
                 throw new InvalidOperationException("Navigation frame has not been initialized.");
             }
 
-            if (!_routes.TryGetValue(routeKey, out RouteDefinition? route))
+            if (!_routes.TryGetValue(routeKey, out Type? pageType))
             {
                 throw new ArgumentException($"Unknown route key: {routeKey}", nameof(routeKey));
             }
 
-            object viewModel = _serviceProvider.GetRequiredService(route.ViewModelType);
-            _frame.Navigate(route.PageType, viewModel);
+            _frame.Navigate(pageType);
+            _frame.BackStack.Clear();
+            _frame.ForwardStack.Clear();
         }
-
-        public void GoBack()
-        {
-            if (CanGoBack)
-            {
-                _frame!.GoBack();
-            }
-        }
-
-        public bool CanGoBack => _frame?.CanGoBack ?? false;
-
-        private sealed record RouteDefinition(Type PageType, Type ViewModelType);
     }
 }

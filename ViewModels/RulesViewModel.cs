@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace ClashWinUI.ViewModels
 {
-    public partial class RulesViewModel : ObservableObject
+    public partial class RulesViewModel : ObservableObject, IDisposable
     {
         private readonly LocalizedStrings _localizedStrings;
         private readonly IProfileService _profileService;
@@ -23,9 +23,11 @@ namespace ClashWinUI.ViewModels
         private readonly IProcessService _processService;
         private readonly ISystemProxyService _systemProxyService;
         private readonly SemaphoreSlim _applySemaphore = new(1, 1);
+        private readonly CancellationTokenSource _disposeCancellation = new();
         private readonly List<RuntimeRuleItem> _allRules = new();
 
         private ProfileItem? _activeProfile;
+        private bool _isDisposed;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -65,6 +67,23 @@ namespace ClashWinUI.ViewModels
             SearchKeyword = string.Empty;
         }
 
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            _disposeCancellation.Cancel();
+            _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
+            _allRules.Clear();
+            Rules.Clear();
+            _activeProfile = null;
+            _applySemaphore.Dispose();
+            _disposeCancellation.Dispose();
+        }
+
         public Task InitializeAsync()
         {
             return RefreshRulesAsync(showStatus: true);
@@ -73,6 +92,11 @@ namespace ClashWinUI.ViewModels
         public async Task<bool> SetRuleEnabledAsync(RuntimeRuleItem? rule, bool isEnabled)
         {
             if (rule is null)
+            {
+                return false;
+            }
+
+            if (_isDisposed || _disposeCancellation.IsCancellationRequested)
             {
                 return false;
             }
@@ -89,14 +113,20 @@ namespace ClashWinUI.ViewModels
                 return true;
             }
 
-            await _applySemaphore.WaitAsync();
+            await _applySemaphore.WaitAsync(_disposeCancellation.Token);
             rule.IsApplying = true;
 
             try
             {
+                CancellationToken cancellationToken = _disposeCancellation.Token;
                 _configService.SetRuleEnabled(_activeProfile, rule.StableId, isEnabled);
                 string runtimePath = _configService.BuildRuntime(_activeProfile);
-                bool applied = await _mihomoService.ApplyConfigAsync(runtimePath);
+                bool applied = await _mihomoService.ApplyConfigAsync(runtimePath, cancellationToken);
+                if (_isDisposed || cancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+
                 if (!applied)
                 {
                     RollbackRuleOverride(rule.StableId, previousState);
@@ -112,10 +142,23 @@ namespace ClashWinUI.ViewModels
 
                 int proxyPort = _processService.ResolveProxyPort(runtimePath);
                 await _systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+                if (_isDisposed || cancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
 
                 await RefreshRulesAsync(showStatus: false);
+                if (_isDisposed || cancellationToken.IsCancellationRequested)
+                {
+                    return false;
+                }
+
                 StatusMessage = string.Format(_localizedStrings["RulesStatusApplied"], rule.MatcherValueDisplay);
                 return true;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
             }
             catch (Exception ex)
             {
@@ -137,9 +180,15 @@ namespace ClashWinUI.ViewModels
 
         private async Task RefreshRulesAsync(bool showStatus)
         {
+            if (_isDisposed || _disposeCancellation.IsCancellationRequested)
+            {
+                return;
+            }
+
             IsLoading = true;
             try
             {
+                CancellationToken cancellationToken = _disposeCancellation.Token;
                 _activeProfile = _profileService.GetActiveProfile();
                 if (_activeProfile is null)
                 {
@@ -150,7 +199,11 @@ namespace ClashWinUI.ViewModels
                 }
 
                 IReadOnlyList<RuntimeRuleItem> items = _configService.GetRuntimeRules(_activeProfile);
-                await PopulateProxyTargetsAsync(_activeProfile, items);
+                await PopulateProxyTargetsAsync(_activeProfile, items, cancellationToken);
+                if (_isDisposed || cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
 
                 _allRules.Clear();
                 _allRules.AddRange(items);
@@ -162,6 +215,10 @@ namespace ClashWinUI.ViewModels
                         ? _localizedStrings["RulesStatusEmpty"]
                         : string.Format(_localizedStrings["RulesStatusLoaded"], _allRules.Count);
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when the page leaves and the ViewModel is disposed.
             }
             catch (Exception ex)
             {
@@ -178,10 +235,10 @@ namespace ClashWinUI.ViewModels
             }
         }
 
-        private async Task PopulateProxyTargetsAsync(ProfileItem profile, IReadOnlyList<RuntimeRuleItem> items)
+        private async Task PopulateProxyTargetsAsync(ProfileItem profile, IReadOnlyList<RuntimeRuleItem> items, CancellationToken cancellationToken)
         {
             string runtimePath = _configService.GetRuntimePath(profile);
-            ProxyGroupLoadResult proxyLoadResult = await _mihomoService.GetProxyGroupsAsync(runtimePath);
+            ProxyGroupLoadResult proxyLoadResult = await _mihomoService.GetProxyGroupsAsync(runtimePath, cancellationToken);
             var groupLookup = new Dictionary<string, ProxyGroup>(StringComparer.OrdinalIgnoreCase);
 
             foreach (ProxyGroup group in proxyLoadResult.Groups)
@@ -199,6 +256,8 @@ namespace ClashWinUI.ViewModels
 
             foreach (RuntimeRuleItem item in items)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 if (item.ActionKind != RuleActionKind.Proxy)
                 {
                     item.ActionTargetDisplay = string.Empty;
@@ -256,6 +315,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (e.PropertyName != nameof(LocalizedStrings.CurrentLanguage) && e.PropertyName != "Item[]")
             {
                 return;

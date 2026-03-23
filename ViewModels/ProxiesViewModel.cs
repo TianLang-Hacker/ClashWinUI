@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 
 namespace ClashWinUI.ViewModels
 {
-    public partial class ProxiesViewModel : ObservableObject
+    public partial class ProxiesViewModel : ObservableObject, IDisposable
     {
         private static readonly HashSet<string> NonTestableNodeNames = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -44,6 +44,7 @@ namespace ClashWinUI.ViewModels
         private readonly IAppSettingsService _appSettingsService;
         private readonly DispatcherQueue? _dispatcherQueue;
         private bool _isWatchingRuntimeChanges;
+        private bool _isDisposed;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -84,6 +85,18 @@ namespace ClashWinUI.ViewModels
             Title = _localizedStrings["PageProxies"];
             TestUrl = "https://www.gstatic.com/generate_204";
             StatusMessage = string.Empty;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            StopWatchingRuntimeChanges();
+            _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
         }
 
         public Task InitializeAsync()
@@ -263,7 +276,7 @@ namespace ClashWinUI.ViewModels
 
         private void OnMihomoConfigApplied(object? sender, string configPath)
         {
-            if (_dispatcherQueue is null)
+            if (_isDisposed || _dispatcherQueue is null)
             {
                 return;
             }
@@ -417,6 +430,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (e.PropertyName == nameof(LocalizedStrings.CurrentLanguage) || e.PropertyName == "Item[]")
             {
                 Title = _localizedStrings["PageProxies"];

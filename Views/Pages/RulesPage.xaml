@@ -28,6 +28,10 @@
         Background="Transparent"
         Padding="24"
         RowSpacing="16">
+        <Grid.ChildrenTransitions>
+            <EntranceThemeTransition FromVerticalOffset="50" />
+            <RepositionThemeTransition IsStaggeringEnabled="False" />
+        </Grid.ChildrenTransitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -55,6 +59,7 @@
             BorderThickness="1"
             CornerRadius="18">
             <ListView
+                x:Name="RulesListView"
                 ItemsSource="{Binding Rules}"
                 SelectionMode="None"
                 IsItemClickEnabled="False"

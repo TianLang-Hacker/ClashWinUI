@@ -50,6 +50,8 @@ namespace ClashWinUI
                     services.AddSingleton<IMihomoService, MihomoService>();
                     services.AddSingleton<IProfileService, ProfileService>();
                     services.AddSingleton<INavigationService, NavigationService>();
+                    services.AddSingleton<IHomeChartStateService, HomeChartStateService>();
+                    services.AddSingleton<IHomeOverviewSamplerService, HomeOverviewSamplerService>();
                     services.AddSingleton<IUpdateService, UpdateService>();
                     services.AddSingleton<MainWindow>();
 
@@ -69,8 +71,14 @@ namespace ClashWinUI
         }
 
         public Window? ActiveWindow => _window;
+        public IServiceProvider Services => _host.Services;
 
         public bool IsShuttingDown => Interlocked.CompareExchange(ref _shutdownRequested, 0, 0) == 1;
+
+        public T GetRequiredService<T>() where T : notnull
+        {
+            return _host.Services.GetRequiredService<T>();
+        }
 
         protected override async void OnLaunched(LaunchActivatedEventArgs args)
         {
@@ -80,6 +88,7 @@ namespace ClashWinUI
                 _window.Activate();
 
                 await _host.StartAsync();
+                _host.Services.GetRequiredService<IHomeOverviewSamplerService>().Start();
                 await InitializeStartupPipelineAsync();
                 _ = RunStartupUpdateCheckAsync();
             }
@@ -101,6 +110,15 @@ namespace ClashWinUI
             try
             {
                 IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+                try
+                {
+                    _host.Services.GetRequiredService<IHomeOverviewSamplerService>().FlushState();
+                }
+                catch (Exception ex)
+                {
+                    logService.Add($"Flush home overview state failed during exit: {ex.Message}", LogLevel.Warning);
+                }
+
                 try
                 {
                     await CleanupRuntimeAsync();
@@ -305,6 +323,12 @@ namespace ClashWinUI
                 return;
             }
 
+            if (_window is MainWindow mainWindow)
+            {
+                _ = mainWindow.RestoreFromBackgroundAsync();
+                return;
+            }
+
             WindowExtensions.Show(_window);
             _window.Activate();
         }
@@ -438,6 +462,7 @@ namespace ClashWinUI
             try
             {
                 _trayService?.Shutdown();
+                _host.Services.GetRequiredService<IHomeOverviewSamplerService>().FlushState();
                 CleanupRuntimeAsync().GetAwaiter().GetResult();
             }
             catch

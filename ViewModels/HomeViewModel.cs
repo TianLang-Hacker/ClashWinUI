@@ -1,4 +1,4 @@
-using ClashWinUI.Helpers;
+﻿using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -17,36 +17,24 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace ClashWinUI.ViewModels
 {
-    public partial class HomeViewModel : ObservableObject
+    public partial class HomeViewModel : ObservableObject, IDisposable
     {
         private const string UnavailableText = "--";
         private const string MaskedPublicIpText = "***.***.***.***";
         private const int ChartCapacity = 60;
-        private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
-        private static readonly TimeSpan ChartRefreshInterval = TimeSpan.FromSeconds(1);
-        private static readonly TimeSpan KernelVersionRefreshInterval = TimeSpan.FromSeconds(30);
         private static readonly double TimeAxisMidpoint = (ChartCapacity - 1d) / 2d;
-        private static readonly double MemoryChartDefaultAxisMax = 10d * 1024d * 1024d;
         private static readonly string[] SpeedUnits = ["B/s", "KB/s", "MB/s", "GB/s"];
         private static readonly string[] MemoryUnits = ["B", "KiB", "MiB", "GiB"];
 
         private readonly LocalizedStrings _localizedStrings;
-        private readonly IMihomoService _mihomoService;
-        private readonly IProcessService _processService;
-        private readonly IProfileService _profileService;
-        private readonly IConfigService _configService;
-        private readonly IAppLogService _logService;
         private readonly INetworkInfoService _networkInfoService;
+        private readonly IHomeOverviewSamplerService _homeOverviewSamplerService;
         private readonly DispatcherQueue? _dispatcherQueue;
-        private readonly Queue<double> _downloadSpeedSamples = CreateInitialSampleQueue();
-        private readonly Queue<double> _uploadSpeedSamples = CreateInitialSampleQueue();
-        private readonly Queue<double> _memoryUsageSamples = CreateInitialSampleQueue();
         private readonly ObservableCollection<double> _downloadSpeedValues = CreateInitialChartValues();
         private readonly ObservableCollection<double> _uploadSpeedValues = CreateInitialChartValues();
         private readonly ObservableCollection<double> _memoryUsageValues = CreateInitialChartValues();
@@ -58,11 +46,10 @@ namespace ClashWinUI.ViewModels
         private readonly Axis _memoryXAxis;
         private readonly Axis _memoryYAxis;
 
-        private CancellationTokenSource? _refreshLoopCancellation;
-        private Task? _refreshLoopTask;
         private bool _networkInfoRequested;
         private bool _networkInfoFailed;
-        private DateTimeOffset _lastKernelVersionRefresh = DateTimeOffset.MinValue;
+        private bool _isDisposed;
+        private bool _isSubscribedToSampler;
         private ElementTheme _currentChartTheme = ElementTheme.Dark;
 
         private int _connectionsCount;
@@ -180,20 +167,12 @@ namespace ClashWinUI.ViewModels
 
         public HomeViewModel(
             LocalizedStrings localizedStrings,
-            IMihomoService mihomoService,
-            IProcessService processService,
-            IProfileService profileService,
-            IConfigService configService,
-            IAppLogService logService,
-            INetworkInfoService networkInfoService)
+            INetworkInfoService networkInfoService,
+            IHomeOverviewSamplerService homeOverviewSamplerService)
         {
             _localizedStrings = localizedStrings;
-            _mihomoService = mihomoService;
-            _processService = processService;
-            _profileService = profileService;
-            _configService = configService;
-            _logService = logService;
             _networkInfoService = networkInfoService;
+            _homeOverviewSamplerService = homeOverviewSamplerService;
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
@@ -202,9 +181,9 @@ namespace ClashWinUI.ViewModels
             _uploadSeries = CreateTrafficSeries(_uploadSpeedValues, _localizedStrings["HomeLegendUpload"]);
             _memorySeries = CreateMemorySeries(_memoryUsageValues, _localizedStrings["HomeLegendMemory"]);
             _trafficXAxis = CreateTimeAxis();
-            _trafficYAxis = CreateTrafficYAxis(GetTrafficAxisMax());
+            _trafficYAxis = CreateTrafficYAxis(1d);
             _memoryXAxis = CreateTimeAxis();
-            _memoryYAxis = CreateMemoryYAxis(GetMemoryAxisMax());
+            _memoryYAxis = CreateMemoryYAxis(10d * 1024d * 1024d);
 
             Title = _localizedStrings["PageOverview"];
             ConnectionsCountText = "0";
@@ -240,6 +219,7 @@ namespace ClashWinUI.ViewModels
             RulesCountText = UnavailableText;
             IsChartsReady = false;
 
+            ApplyOverviewState(_homeOverviewSamplerService.GetState());
             (OperatingSystemInfoText, SystemVersionText) = LoadSystemInformation();
         }
 
@@ -251,8 +231,8 @@ namespace ClashWinUI.ViewModels
                 _ = LoadNetworkInfoAsync();
             }
 
-            HomeOverviewSnapshot snapshot = await CollectOverviewSnapshotAsync(includeChartUpdate: true, forceKernelVersionRefresh: true, CancellationToken.None).ConfigureAwait(false);
-            await ApplyOverviewSnapshotAsync(snapshot).ConfigureAwait(false);
+            HomeOverviewState state = _homeOverviewSamplerService.GetState();
+            await ApplyOverviewStateAsync(state).ConfigureAwait(false);
         }
 
         public void ApplyChartTheme(ElementTheme theme)
@@ -271,119 +251,65 @@ namespace ClashWinUI.ViewModels
             if (IsChartsReady)
             {
                 ApplyChartTheme(_currentChartTheme);
-                RefreshChartAxes(GetTrafficAxisMax(), GetMemoryAxisMax());
+                RefreshChartAxes(_trafficYAxis.MaxLimit ?? 1d, _memoryYAxis.MaxLimit ?? (10d * 1024d * 1024d));
                 return;
             }
 
             LiveChartsBootstrapper.EnsureInitialized();
             IsChartsReady = true;
             RefreshChartAppearance();
-            RefreshChartAxes(GetTrafficAxisMax(), GetMemoryAxisMax());
+            RefreshChartAxes(_trafficYAxis.MaxLimit ?? 1d, _memoryYAxis.MaxLimit ?? (10d * 1024d * 1024d));
         }
 
         public void StartAutoRefresh()
         {
-            if (_dispatcherQueue is null || _refreshLoopCancellation is not null)
+            if (_isDisposed || _isSubscribedToSampler)
             {
                 return;
             }
 
-            _refreshLoopCancellation = new CancellationTokenSource();
-            _refreshLoopTask = RunRefreshLoopAsync(_refreshLoopCancellation.Token);
+            _homeOverviewSamplerService.StateChanged += OnSamplerStateChanged;
+            _isSubscribedToSampler = true;
         }
 
         public void StopAutoRefresh()
         {
-            CancellationTokenSource? cancellation = _refreshLoopCancellation;
-            _refreshLoopCancellation = null;
-            _refreshLoopTask = null;
-            cancellation?.Cancel();
+            if (!_isSubscribedToSampler)
+            {
+                return;
+            }
+
+            _homeOverviewSamplerService.StateChanged -= OnSamplerStateChanged;
+            _isSubscribedToSampler = false;
         }
 
-        private async Task RunRefreshLoopAsync(CancellationToken cancellationToken)
+        public void Dispose()
         {
-            try
+            if (_isDisposed)
             {
-                using var timer = new PeriodicTimer(RefreshInterval);
-                DateTimeOffset lastChartRefreshAt = DateTimeOffset.UtcNow;
+                return;
+            }
 
-                while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
-                {
-                    DateTimeOffset now = DateTimeOffset.UtcNow;
-                    bool includeChartUpdate = now - lastChartRefreshAt >= ChartRefreshInterval;
-                    HomeOverviewSnapshot snapshot = await CollectOverviewSnapshotAsync(includeChartUpdate, forceKernelVersionRefresh: false, cancellationToken).ConfigureAwait(false);
-                    await ApplyOverviewSnapshotAsync(snapshot).ConfigureAwait(false);
-                    if (includeChartUpdate)
-                    {
-                        lastChartRefreshAt = now;
-                    }
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when the page leaves and auto-refresh is stopped.
-            }
+            _isDisposed = true;
+            StopAutoRefresh();
+            _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
         }
 
-        private async Task<HomeOverviewSnapshot> CollectOverviewSnapshotAsync(bool includeChartUpdate, bool forceKernelVersionRefresh, CancellationToken cancellationToken)
+        private void OnSamplerStateChanged(object? sender, EventArgs e)
         {
-            ProfileItem? activeProfile = _profileService.GetActiveProfile();
-            string runtimePath = activeProfile is not null
-                ? _configService.GetRuntimePath(activeProfile)
-                : _processService.EnsureStartupConfigPath();
-
-            IReadOnlyList<ConnectionEntry> connections = await _mihomoService.GetConnectionsAsync(cancellationToken).ConfigureAwait(false);
-            int connectionsCount = connections.Count;
-            long downloadSpeedBytes = connections.Sum(item => item.DownloadSpeed);
-            long uploadSpeedBytes = connections.Sum(item => item.UploadSpeed);
-            long downloadTotalBytes = connections.Sum(item => item.Download);
-            long uploadTotalBytes = connections.Sum(item => item.Upload);
-            int runtimeEventsCount = _logService.GetLogs().Count;
-            long? memoryUsageBytes = _processService.GetMihomoMemoryUsageBytes();
-
-            string systemProxyAddressText = $"127.0.0.1:{_processService.ResolveProxyPort(runtimePath).ToString(CultureInfo.InvariantCulture)}";
-            string runtimeEventsText = runtimeEventsCount.ToString("N0", CultureInfo.CurrentCulture);
-
-            string mixinPortsText;
-            string rulesCountText;
-            if (activeProfile is not null)
+            if (_isDisposed)
             {
-                MixinSettings mixin = _configService.LoadMixin(activeProfile);
-                mixinPortsText = BuildMixinPortsSummary(mixin);
-                rulesCountText = _configService.GetRuntimeRules(activeProfile).Count.ToString("N0", CultureInfo.CurrentCulture);
-            }
-            else
-            {
-                mixinPortsText = UnavailableText;
-                rulesCountText = UnavailableText;
+                return;
             }
 
-            string kernelVersionText = await ResolveKernelVersionTextAsync(forceKernelVersionRefresh, cancellationToken).ConfigureAwait(false);
-            HomeChartUpdate? chartUpdate = BuildChartUpdate(downloadSpeedBytes, uploadSpeedBytes, memoryUsageBytes, includeChartUpdate);
-
-            return new HomeOverviewSnapshot
-            {
-                ConnectionsCount = connectionsCount,
-                MemoryUsageBytes = memoryUsageBytes,
-                DownloadTotalBytes = downloadTotalBytes,
-                DownloadSpeedBytes = downloadSpeedBytes,
-                UploadTotalBytes = uploadTotalBytes,
-                UploadSpeedBytes = uploadSpeedBytes,
-                RuntimeEventsCount = runtimeEventsCount,
-                RuntimeEventsText = runtimeEventsText,
-                SystemProxyAddressText = systemProxyAddressText,
-                MixinPortsText = mixinPortsText,
-                RulesCountText = rulesCountText,
-                KernelVersionText = kernelVersionText,
-                ChartUpdate = chartUpdate,
-            };
+            _ = ApplyOverviewStateAsync(_homeOverviewSamplerService.GetState());
         }
 
-        private async Task ApplyOverviewSnapshotAsync(HomeOverviewSnapshot snapshot)
+        private async Task ApplyOverviewStateAsync(HomeOverviewState state)
         {
             if (_dispatcherQueue is null || _dispatcherQueue.HasThreadAccess)
             {
-                ApplyOverviewSnapshot(snapshot);
+                ApplyOverviewState(state);
                 return;
             }
 
@@ -392,7 +318,7 @@ namespace ClashWinUI.ViewModels
                 {
                     try
                     {
-                        ApplyOverviewSnapshot(snapshot);
+                        ApplyOverviewState(state);
                         completion.SetResult(null);
                     }
                     catch (Exception ex)
@@ -407,31 +333,28 @@ namespace ClashWinUI.ViewModels
             await completion.Task.ConfigureAwait(false);
         }
 
-        private void ApplyOverviewSnapshot(HomeOverviewSnapshot snapshot)
+        private void ApplyOverviewState(HomeOverviewState state)
         {
-            _connectionsCount = snapshot.ConnectionsCount;
-            _memoryUsageBytes = snapshot.MemoryUsageBytes;
-            _downloadTotalBytes = snapshot.DownloadTotalBytes;
-            _downloadSpeedBytes = snapshot.DownloadSpeedBytes;
-            _uploadTotalBytes = snapshot.UploadTotalBytes;
-            _uploadSpeedBytes = snapshot.UploadSpeedBytes;
-            _runtimeEventsCount = snapshot.RuntimeEventsCount;
+            _connectionsCount = state.ConnectionsCount;
+            _memoryUsageBytes = state.MemoryUsageBytes;
+            _downloadTotalBytes = state.DownloadTotalBytes;
+            _downloadSpeedBytes = state.DownloadSpeedBytes;
+            _uploadTotalBytes = state.UploadTotalBytes;
+            _uploadSpeedBytes = state.UploadSpeedBytes;
+            _runtimeEventsCount = state.RuntimeEventsCount;
 
             UpdateMetricTexts();
 
-            SystemProxyAddressText = snapshot.SystemProxyAddressText;
-            RuntimeEventsText = snapshot.RuntimeEventsText;
-            MixinPortsText = snapshot.MixinPortsText;
-            RulesCountText = snapshot.RulesCountText;
-            KernelVersionText = snapshot.KernelVersionText;
+            SystemProxyAddressText = state.SystemProxyAddressText;
+            RuntimeEventsText = _runtimeEventsCount.ToString("N0", CultureInfo.CurrentCulture);
+            MixinPortsText = state.MixinPortsText;
+            RulesCountText = state.RulesCountText;
+            KernelVersionText = state.KernelVersionText;
 
-            if (snapshot.ChartUpdate is not null)
-            {
-                ReplaceChartValues(_downloadSpeedValues, snapshot.ChartUpdate.DownloadValues);
-                ReplaceChartValues(_uploadSpeedValues, snapshot.ChartUpdate.UploadValues);
-                ReplaceChartValues(_memoryUsageValues, snapshot.ChartUpdate.MemoryValues);
-                RefreshChartAxes(snapshot.ChartUpdate.TrafficAxisMax, snapshot.ChartUpdate.MemoryAxisMax);
-            }
+            ReplaceChartValues(_downloadSpeedValues, state.DownloadValues);
+            ReplaceChartValues(_uploadSpeedValues, state.UploadValues);
+            ReplaceChartValues(_memoryUsageValues, state.MemoryValues);
+            RefreshChartAxes(state.TrafficAxisMax, state.MemoryAxisMax);
         }
 
         private async Task LoadNetworkInfoAsync()
@@ -484,33 +407,6 @@ namespace ClashWinUI.ViewModels
             Clipboard.SetContent(dataPackage);
         }
 
-        private async Task<string> ResolveKernelVersionTextAsync(bool forceRefresh, CancellationToken cancellationToken)
-        {
-            if (!_processService.IsRunning)
-            {
-                return UnavailableText;
-            }
-
-            DateTimeOffset now = DateTimeOffset.UtcNow;
-            if (!forceRefresh
-                && !string.Equals(KernelVersionText, UnavailableText, StringComparison.Ordinal)
-                && now - _lastKernelVersionRefresh < KernelVersionRefreshInterval)
-            {
-                return KernelVersionText;
-            }
-
-            string? version = await _mihomoService.GetVersionAsync(cancellationToken).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(version))
-            {
-                _lastKernelVersionRefresh = now;
-                return version.Trim();
-            }
-
-            return string.Equals(KernelVersionText, UnavailableText, StringComparison.Ordinal)
-                ? UnavailableText
-                : KernelVersionText;
-        }
-
         private void UpdateMetricTexts()
         {
             ConnectionsCountText = _connectionsCount.ToString("N0", CultureInfo.CurrentCulture);
@@ -519,27 +415,6 @@ namespace ClashWinUI.ViewModels
             DownloadSpeedText = $"{FormatBytes(_downloadSpeedBytes)}/s";
             UploadTotalText = FormatBytes(_uploadTotalBytes);
             UploadSpeedText = $"{FormatBytes(_uploadSpeedBytes)}/s";
-        }
-
-        private HomeChartUpdate? BuildChartUpdate(long downloadSpeedBytes, long uploadSpeedBytes, long? memoryUsageBytes, bool includeChartUpdate)
-        {
-            EnqueueSample(_downloadSpeedSamples, downloadSpeedBytes);
-            EnqueueSample(_uploadSpeedSamples, uploadSpeedBytes);
-            EnqueueSample(_memoryUsageSamples, memoryUsageBytes ?? 0);
-
-            if (!includeChartUpdate)
-            {
-                return null;
-            }
-
-            return new HomeChartUpdate
-            {
-                DownloadValues = _downloadSpeedSamples.ToArray(),
-                UploadValues = _uploadSpeedSamples.ToArray(),
-                MemoryValues = _memoryUsageSamples.ToArray(),
-                TrafficAxisMax = GetTrafficAxisMax(),
-                MemoryAxisMax = GetMemoryAxisMax(),
-            };
         }
 
         private void RefreshChartAppearance()
@@ -608,38 +483,9 @@ namespace ClashWinUI.ViewModels
             OnPropertyChanged(nameof(MemoryYAxes));
         }
 
-        private static void EnqueueSample(Queue<double> queue, double value)
-        {
-            queue.Enqueue(value);
-            while (queue.Count > ChartCapacity)
-            {
-                queue.Dequeue();
-            }
-        }
-
-        private double GetTrafficAxisMax()
-        {
-            double maxValue = Math.Max(
-                _downloadSpeedSamples.Count == 0 ? 0 : _downloadSpeedSamples.Max(),
-                _uploadSpeedSamples.Count == 0 ? 0 : _uploadSpeedSamples.Max());
-
-            return maxValue <= 0 ? 1 : GetNiceSpeedAxisMax(maxValue);
-        }
-
-        private double GetMemoryAxisMax()
-        {
-            double maxValue = _memoryUsageSamples.Count == 0 ? 0 : _memoryUsageSamples.Max();
-            return maxValue <= 0 ? MemoryChartDefaultAxisMax : GetNiceMemoryAxisMax(maxValue);
-        }
-
         private static ObservableCollection<double> CreateInitialChartValues()
         {
             return new ObservableCollection<double>(Enumerable.Repeat(0d, ChartCapacity));
-        }
-
-        private static Queue<double> CreateInitialSampleQueue()
-        {
-            return new Queue<double>(Enumerable.Repeat(0d, ChartCapacity));
         }
 
         private static void ReplaceChartValues(ObservableCollection<double> target, IReadOnlyList<double> source)
@@ -787,38 +633,6 @@ namespace ClashWinUI.ViewModels
             axis.ForceStepToMin = true;
         }
 
-        private static double GetNiceSpeedAxisMax(double value)
-        {
-            return GetNiceAxisMax(Math.Max(1, value * 1.1));
-        }
-
-        private static double GetNiceMemoryAxisMax(double value)
-        {
-            double mebiBytes = Math.Max(1, value * 1.1) / (1024d * 1024d);
-            double roundedMebiBytes = Math.Max(10, Math.Ceiling(mebiBytes / 10d) * 10d);
-            return roundedMebiBytes * 1024d * 1024d;
-        }
-
-        private static double GetNiceAxisMax(double value)
-        {
-            if (value <= 0)
-            {
-                return 1;
-            }
-
-            double exponent = Math.Floor(Math.Log10(value));
-            double fraction = value / Math.Pow(10, exponent);
-            double niceFraction = fraction switch
-            {
-                <= 1 => 1,
-                <= 2 => 2,
-                <= 5 => 5,
-                _ => 10,
-            };
-
-            return niceFraction * Math.Pow(10, exponent);
-        }
-
         private static string FormatSpeedAxisValue(double value)
         {
             return FormatScaledValue(value, SpeedUnits, 1000d);
@@ -851,29 +665,16 @@ namespace ClashWinUI.ViewModels
                 $"{size.ToString(format, CultureInfo.InvariantCulture)} {units[unitIndex]}");
         }
 
-        private static string BuildSecondsAxisLabel(int seconds)
-        {
-            bool isChinese = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase);
-            return isChinese ? $"{seconds}秒" : $"{seconds}s";
-        }
-
-        private static string BuildNowAxisLabel()
-        {
-            return CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase)
-                ? "现在"
-                : "Now";
-        }
-
         private static string BuildLocalizedSecondsAxisLabel(int seconds)
         {
             bool isChinese = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase);
-            return isChinese ? $"{seconds}\u79D2" : $"{seconds}s";
+            return isChinese ? $"{seconds}\u79d2" : $"{seconds}s";
         }
 
         private static string BuildLocalizedNowAxisLabel()
         {
             return CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("zh", StringComparison.OrdinalIgnoreCase)
-                ? "\u73B0\u5728"
+                ? "\u73b0\u5728"
                 : "Now";
         }
 
@@ -902,27 +703,6 @@ namespace ClashWinUI.ViewModels
             int index = (int)Math.Round(Math.Clamp(value, 0, ChartCapacity - 1));
             int secondsAgo = ChartCapacity - 1 - index;
             return secondsAgo <= 0 ? BuildLocalizedNowAxisLabel() : BuildLocalizedSecondsAxisLabel(secondsAgo);
-        }
-
-        private static string BuildMixinPortsSummary(MixinSettings settings)
-        {
-            var parts = new List<string>();
-
-            AddPortSummary(parts, "mixed", settings.MixedPort);
-            AddPortSummary(parts, "http", settings.HttpPort);
-            AddPortSummary(parts, "socks", settings.SocksPort);
-            AddPortSummary(parts, "redir", settings.RedirPort);
-            AddPortSummary(parts, "tproxy", settings.TProxyPort);
-
-            return parts.Count == 0 ? UnavailableText : string.Join(", ", parts);
-        }
-
-        private static void AddPortSummary(List<string> parts, string label, int? port)
-        {
-            if (port.HasValue && port.Value > 0)
-            {
-                parts.Add($"{label}:{port.Value.ToString(CultureInfo.InvariantCulture)}");
-            }
         }
 
         private static (string OperatingSystemInfo, string SystemVersion) LoadSystemInformation()
@@ -1020,6 +800,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (e.PropertyName != nameof(LocalizedStrings.CurrentLanguage) && e.PropertyName != "Item[]")
             {
                 return;
@@ -1028,9 +813,6 @@ namespace ClashWinUI.ViewModels
             Title = _localizedStrings["PageOverview"];
             UpdateMetricTexts();
             RuntimeEventsText = _runtimeEventsCount.ToString("N0", CultureInfo.CurrentCulture);
-            RulesCountText = RulesCountText == UnavailableText
-                ? UnavailableText
-                : RulesCountText;
 
             if (_networkInfoFailed)
             {
@@ -1040,51 +822,10 @@ namespace ClashWinUI.ViewModels
             if (IsChartsReady)
             {
                 RefreshChartAppearance();
-                RefreshChartAxes(GetTrafficAxisMax(), GetMemoryAxisMax());
+                RefreshChartAxes(_trafficYAxis.MaxLimit ?? 1d, _memoryYAxis.MaxLimit ?? (10d * 1024d * 1024d));
             }
+
             UpdatePublicIpPresentation();
-        }
-
-        private sealed class HomeOverviewSnapshot
-        {
-            public required int ConnectionsCount { get; init; }
-
-            public required long? MemoryUsageBytes { get; init; }
-
-            public required long DownloadTotalBytes { get; init; }
-
-            public required long DownloadSpeedBytes { get; init; }
-
-            public required long UploadTotalBytes { get; init; }
-
-            public required long UploadSpeedBytes { get; init; }
-
-            public required int RuntimeEventsCount { get; init; }
-
-            public required string RuntimeEventsText { get; init; }
-
-            public required string SystemProxyAddressText { get; init; }
-
-            public required string MixinPortsText { get; init; }
-
-            public required string RulesCountText { get; init; }
-
-            public required string KernelVersionText { get; init; }
-
-            public required HomeChartUpdate? ChartUpdate { get; init; }
-        }
-
-        private sealed class HomeChartUpdate
-        {
-            public required double[] DownloadValues { get; init; }
-
-            public required double[] UploadValues { get; init; }
-
-            public required double[] MemoryValues { get; init; }
-
-            public required double TrafficAxisMax { get; init; }
-
-            public required double MemoryAxisMax { get; init; }
         }
     }
 }

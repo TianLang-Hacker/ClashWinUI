@@ -6,7 +6,5 @@ namespace ClashWinUI.Services.Interfaces
     {
         void Initialize(Frame frame);
         void Navigate(string routeKey);
-        void GoBack();
-        bool CanGoBack { get; }
     }
 }

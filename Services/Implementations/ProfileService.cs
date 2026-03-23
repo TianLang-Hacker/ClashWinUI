@@ -51,6 +51,8 @@ namespace ClashWinUI.Services.Implementations
         private readonly string _indexFilePath;
         private ProfileStoreState _store;
 
+        public event EventHandler? ActiveProfileChanged;
+
         public ProfileService(IConfigService configService, IAppLogService logService)
         {
             _configService = configService;
@@ -110,6 +112,7 @@ namespace ClashWinUI.Services.Implementations
 
             byte[] normalizedContent = NormalizeImportedContent(content, isSubscription: true);
 
+            string? previousActiveProfileId = _store.ActiveProfileId;
             ProfileItem? existing = _store.Profiles.FirstOrDefault(item =>
                 string.Equals(item.SourceType, "subscription", StringComparison.OrdinalIgnoreCase)
                 && string.Equals(item.Source, subscriptionUrl, StringComparison.OrdinalIgnoreCase));
@@ -147,6 +150,7 @@ namespace ClashWinUI.Services.Implementations
             _configService.EnsureWorkspace(profile);
             _configService.BuildRuntime(profile);
             SaveStore();
+            NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
             _logService.Add($"Subscription saved: {MaskSensitiveQuery(uri)}");
             return profile;
         }
@@ -159,6 +163,7 @@ namespace ClashWinUI.Services.Implementations
                 throw new FileNotFoundException("Profile file not found.", localFilePath);
             }
 
+            string? previousActiveProfileId = _store.ActiveProfileId;
             string sourceExtension = Path.GetExtension(localFilePath);
             string extension = string.IsNullOrWhiteSpace(sourceExtension) ? ".yaml" : sourceExtension;
             byte[] importedContent = await File.ReadAllBytesAsync(localFilePath, cancellationToken).ConfigureAwait(false);
@@ -192,6 +197,7 @@ namespace ClashWinUI.Services.Implementations
             _configService.EnsureWorkspace(profile);
             _configService.BuildRuntime(profile);
             SaveStore();
+            NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
             _logService.Add($"Local profile imported: {localFilePath}");
             return profile;
         }
@@ -209,11 +215,13 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
+            string? previousActiveProfileId = _store.ActiveProfileId;
             _ = TryRefreshSubscriptionSource(profile);
             _store.ActiveProfileId = profileId;
             _configService.EnsureWorkspace(profile);
             _configService.BuildRuntime(profile);
             SaveStore();
+            NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
             _logService.Add($"Active profile switched: {profile.DisplayName}");
             return true;
         }
@@ -231,6 +239,7 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
+            string? previousActiveProfileId = _store.ActiveProfileId;
             _store.Profiles.Remove(profile);
             if (!string.IsNullOrWhiteSpace(profile.WorkspaceDirectory) && Directory.Exists(profile.WorkspaceDirectory))
             {
@@ -261,8 +270,19 @@ namespace ClashWinUI.Services.Implementations
             }
 
             SaveStore();
+            NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
             _logService.Add($"Profile deleted: {profile.DisplayName}");
             return true;
+        }
+
+        private void NotifyActiveProfileChangedIfNeeded(string? previousActiveProfileId, string? currentActiveProfileId)
+        {
+            if (string.Equals(previousActiveProfileId, currentActiveProfileId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            ActiveProfileChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private ProfileStoreState LoadStore()

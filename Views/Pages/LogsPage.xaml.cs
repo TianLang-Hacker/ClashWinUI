@@ -1,6 +1,8 @@
+using ClashWinUI.Helpers;
 using ClashWinUI.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
@@ -13,7 +15,7 @@ using WinRT.Interop;
 
 namespace ClashWinUI.Views.Pages
 {
-    public sealed partial class LogsPage : Page
+    public sealed partial class LogsPage : Page, IShellFreezablePage
     {
         private LogsViewModel? _viewModel;
 
@@ -22,12 +24,12 @@ namespace ClashWinUI.Views.Pages
             InitializeComponent();
         }
 
-        protected override void OnNavigatedTo(NavigationEventArgs e)
+        protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.Parameter is LogsViewModel viewModel)
-            {
-                AttachViewModel(viewModel);
-            }
+            LogsViewModel viewModel = ResolveViewModel();
+            AttachViewModel(viewModel);
+            RebindLogsList();
+            await viewModel.InitializeAsync();
 
             base.OnNavigatedTo(e);
         }
@@ -100,14 +102,39 @@ namespace ClashWinUI.Views.Pages
 
         private void DetachViewModel()
         {
+            LogsListView.ItemsSource = null;
+
             if (_viewModel is null)
+            {
+                DataContext = null;
+                return;
+            }
+
+            LogsViewModel viewModel = _viewModel;
+            _viewModel.FilteredLogEntries.CollectionChanged -= OnFilteredLogEntriesCollectionChanged;
+            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _viewModel = null;
+            DataContext = null;
+            viewModel.Dispose();
+            PageMemoryTrimHelper.RequestTrim();
+        }
+
+        private static LogsViewModel ResolveViewModel()
+        {
+            return ((App)Application.Current).GetRequiredService<LogsViewModel>();
+        }
+
+        private void RebindLogsList()
+        {
+            if (LogsListView.ItemsSource is not null)
             {
                 return;
             }
 
-            _viewModel.FilteredLogEntries.CollectionChanged -= OnFilteredLogEntriesCollectionChanged;
-            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
-            _viewModel = null;
+            LogsListView.SetBinding(ItemsControl.ItemsSourceProperty, new Binding
+            {
+                Path = new PropertyPath(nameof(LogsViewModel.FilteredLogEntries)),
+            });
         }
 
         private void OnFilteredLogEntriesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -135,6 +162,11 @@ namespace ClashWinUI.Views.Pages
 
             object lastItem = _viewModel.FilteredLogEntries[_viewModel.FilteredLogEntries.Count - 1];
             _ = DispatcherQueue.TryEnqueue(() => LogsListView.ScrollIntoView(lastItem));
+        }
+
+        public void PrepareForShellFreeze()
+        {
+            DetachViewModel();
         }
     }
 }

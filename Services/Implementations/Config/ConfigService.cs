@@ -27,6 +27,8 @@ namespace ClashWinUI.Services.Implementations.Config
         private readonly IAppLogService _logService;
         private readonly string _profilesRoot;
 
+        public event EventHandler? ConfigurationChanged;
+
         public ConfigService(IAppLogService logService)
         {
             _logService = logService;
@@ -99,12 +101,14 @@ namespace ClashWinUI.Services.Implementations.Config
 
             ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
             WriteMixinSettings(workspace.MixinPath, settings);
+            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public string BuildRuntime(ProfileItem profile)
         {
             ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
             BuildRuntimeInternal(workspace);
+            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
             return workspace.RuntimePath;
         }
 
@@ -148,6 +152,7 @@ namespace ClashWinUI.Services.Implementations.Config
             }
 
             SaveRulesOverrideState(workspace, disabledRuleIds);
+            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private bool UpdateProfilePaths(ProfileItem profile, ProfileConfigWorkspace workspace)

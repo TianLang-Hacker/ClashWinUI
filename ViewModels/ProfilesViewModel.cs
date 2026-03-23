@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace ClashWinUI.ViewModels
 {
-    public partial class ProfilesViewModel : ObservableObject
+    public partial class ProfilesViewModel : ObservableObject, IDisposable
     {
         private readonly LocalizedStrings _localizedStrings;
         private readonly IProfileService _profileService;
@@ -23,6 +23,7 @@ namespace ClashWinUI.ViewModels
         private readonly ISystemProxyService _systemProxyService;
         private bool _suppressSelectionActivation;
         private string? _pendingSelectedProfileId;
+        private bool _isDisposed;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -66,6 +67,17 @@ namespace ClashWinUI.ViewModels
             SubscriptionUrl = string.Empty;
             ActiveProfileText = string.Empty;
             StatusMessage = string.Empty;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
         }
 
         public Task InitializeAsync()
@@ -310,6 +322,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (e.PropertyName != nameof(LocalizedStrings.CurrentLanguage) && e.PropertyName != "Item[]")
             {
                 return;

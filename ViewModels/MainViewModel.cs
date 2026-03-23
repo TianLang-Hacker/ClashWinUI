@@ -72,8 +72,8 @@ namespace ClashWinUI.ViewModels
                 return;
             }
 
-            _navigationService.GoBack();
             SelectedRoute = _navigationHistory.Pop();
+            _navigationService.Navigate(SelectedRoute);
             RefreshLocalizedText();
             CanGoBack = _navigationHistory.Count > 0;
         }

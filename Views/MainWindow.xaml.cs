@@ -1,14 +1,14 @@
+using ClashWinUI.Common;
+using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using ClashWinUI.ViewModels;
 using H.NotifyIcon;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using System;
-using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Windows.Graphics;
 using WinRT.Interop;
 
@@ -29,44 +29,38 @@ namespace ClashWinUI.Views
         private readonly IThemeService _themeService;
         private readonly IAppSettingsService _appSettingsService;
         private readonly ITrayService _trayService;
+        private readonly IHomeOverviewSamplerService _homeOverviewSamplerService;
         private readonly WndProcDelegate _windowProcDelegate;
 
-        private bool _isSynchronizingSelection;
+        private MainShellControl? _shellControl;
+        private bool _isHiddenToTray;
+        private bool _isShellFrozen;
+        private bool _isShellTransitioning;
+        private bool _isWindowMinimized;
+        private bool _pendingFreezeDueToSecondaryWindow;
+        private bool _isBackdropSuspended;
         private IntPtr _windowHandle;
         private IntPtr _previousWindowProc;
         private int _minimumTrackWidth;
         private int _minimumTrackHeight;
-
-        private void SettingsNavItem_PointerEntered(object sender, PointerRoutedEventArgs e)
-        {
-            AnimatedIcon.SetState(SettingsAnimatedIcon, "PointerOver");
-        }
-
-        private void SettingsNavItem_PointerExited(object sender, PointerRoutedEventArgs e)
-        {
-            AnimatedIcon.SetState(SettingsAnimatedIcon, "Normal");
-        }
 
         public MainWindow(
             MainViewModel viewModel,
             INavigationService navigationService,
             IThemeService themeService,
             IAppSettingsService appSettingsService,
-            ITrayService trayService)
+            ITrayService trayService,
+            IHomeOverviewSamplerService homeOverviewSamplerService)
         {
             _viewModel = viewModel;
             _navigationService = navigationService;
             _themeService = themeService;
             _appSettingsService = appSettingsService;
             _trayService = trayService;
+            _homeOverviewSamplerService = homeOverviewSamplerService;
             _windowProcDelegate = WindowProc;
 
             InitializeComponent();
-
-            if (Content is FrameworkElement root)
-            {
-                root.DataContext = _viewModel;
-            }
 
             ExtendsContentIntoTitleBar = true;
             AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
@@ -75,58 +69,188 @@ namespace ClashWinUI.Views
             AppWindow.Changed += OnAppWindowChanged;
             AppWindow.Closing += OnAppWindowClosing;
             Closed += OnWindowClosed;
+            PortSettingsWindow.OpenWindowsChanged += OnPortSettingsWindowsChanged;
 
-            themeService.Initialize(this);
-            _navigationService.Initialize(contentFrame);
-            _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-            _viewModel.Initialize();
-
-            SyncNavigationSelection();
+            _themeService.Initialize(this);
+            CreateShell(resetNavigation: true);
+            SyncMinimizedState();
         }
 
-        private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+        public async Task RestoreFromBackgroundAsync()
         {
-            if (_isSynchronizingSelection)
+            _isHiddenToTray = false;
+            WindowExtensions.Show(this);
+
+            if (_isShellFrozen)
+            {
+                await ThawShellAsync();
+            }
+
+            Activate();
+        }
+
+        private void CreateShell(bool resetNavigation)
+        {
+            _shellControl?.Dispose();
+            _shellControl = new MainShellControl(_viewModel, _navigationService);
+            ShellHost.Content = _shellControl;
+            _shellControl.InitializeNavigation(resetNavigation);
+            _isShellFrozen = false;
+        }
+
+        private async Task FreezeShellAsync()
+        {
+            if (_isShellFrozen || _isShellTransitioning)
             {
                 return;
             }
 
-            if (args.SelectedItemContainer?.Tag is string routeKey)
+            if (PortSettingsWindow.IsAnyOpen)
             {
-                _viewModel.NavigateCommand.Execute(routeKey);
+                _pendingFreezeDueToSecondaryWindow = true;
+                return;
+            }
+
+            if (_shellControl is null)
+            {
+                _isShellFrozen = true;
+                return;
+            }
+
+            _isShellTransitioning = true;
+            try
+            {
+                _pendingFreezeDueToSecondaryWindow = false;
+                _shellControl.PrepareForFreeze();
+                await Task.Yield();
+
+                MainShellControl shell = _shellControl;
+                _shellControl = null;
+                ShellHost.Content = null;
+                shell.Dispose();
+
+                _homeOverviewSamplerService.FlushState();
+                SuspendBackdrop();
+                _isShellFrozen = true;
+                PageMemoryTrimHelper.RequestTrim();
+            }
+            finally
+            {
+                _isShellTransitioning = false;
             }
         }
 
-        private void NavigationView_BackRequested(NavigationView sender, NavigationViewBackRequestedEventArgs args)
+        private async Task ThawShellAsync()
         {
-            if (_viewModel.GoBackCommand.CanExecute(null))
+            if (!_isShellFrozen || _isShellTransitioning)
             {
-                _viewModel.GoBackCommand.Execute(null);
+                return;
+            }
+
+            _isShellTransitioning = true;
+            try
+            {
+                CreateShell(resetNavigation: false);
+                ResumeBackdrop();
+                await Task.Yield();
+            }
+            finally
+            {
+                _isShellTransitioning = false;
             }
         }
 
-        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        private void SuspendBackdrop()
         {
-            if (e.PropertyName == nameof(MainViewModel.SelectedRoute))
+            if (_isBackdropSuspended)
             {
-                SyncNavigationSelection();
+                return;
+            }
+
+            SystemBackdrop = null;
+            _isBackdropSuspended = true;
+        }
+
+        private void ResumeBackdrop()
+        {
+            if (!_isBackdropSuspended)
+            {
+                return;
+            }
+
+            _themeService.ApplyBackdrop(_themeService.CurrentBackdrop);
+            _isBackdropSuspended = false;
+        }
+
+        private async void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+        {
+            UpdateMinimumTrackSize();
+            await SyncMinimizedStateAsync();
+        }
+
+        private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+        {
+            if (Application.Current is not App app || app.IsShuttingDown)
+            {
+                return;
+            }
+
+            if (_appSettingsService.CloseBehavior == CloseBehavior.MinimizeToTray)
+            {
+                args.Cancel = true;
+                _isHiddenToTray = true;
+                await FreezeShellAsync();
+                WindowExtensions.Hide(this);
+                _trayService.Show();
+                return;
+            }
+
+            args.Cancel = true;
+            await app.RequestExitAsync();
+        }
+
+        private async void OnPortSettingsWindowsChanged(object? sender, EventArgs e)
+        {
+            if (!_pendingFreezeDueToSecondaryWindow || PortSettingsWindow.IsAnyOpen)
+            {
+                return;
+            }
+
+            if (_isHiddenToTray || IsWindowMinimized())
+            {
+                await FreezeShellAsync();
             }
         }
 
-        private void SyncNavigationSelection()
+        private async Task SyncMinimizedStateAsync()
         {
-            _isSynchronizingSelection = true;
-            RootNavigationView.SelectedItem = _viewModel.SelectedRoute switch
+            bool isMinimized = IsWindowMinimized();
+            if (isMinimized == _isWindowMinimized)
             {
-                MainViewModel.ProfilesRouteKey => ProfilesNavItem,
-                MainViewModel.ProxiesRouteKey => ProxiesNavItem,
-                MainViewModel.ConnectionsRouteKey => ConnectionsNavItem,
-                MainViewModel.LogsRouteKey => LogsNavItem,
-                MainViewModel.RulesRouteKey => RulesNavItem,
-                MainViewModel.SettingsRouteKey => SettingsNavItem,
-                _ => HomeNavItem,
-            };
-            _isSynchronizingSelection = false;
+                return;
+            }
+
+            _isWindowMinimized = isMinimized;
+            if (isMinimized)
+            {
+                await FreezeShellAsync();
+                return;
+            }
+
+            if (!_isHiddenToTray)
+            {
+                await ThawShellAsync();
+            }
+        }
+
+        private void SyncMinimizedState()
+        {
+            _isWindowMinimized = IsWindowMinimized();
+        }
+
+        private bool IsWindowMinimized()
+        {
+            return _windowHandle != IntPtr.Zero && IsIconic(_windowHandle);
         }
 
         private void InitializeMinimumWindowSize()
@@ -142,30 +266,6 @@ namespace ClashWinUI.Views
 
             IntPtr newWindowProc = Marshal.GetFunctionPointerForDelegate(_windowProcDelegate);
             _previousWindowProc = SetWindowLongPtr(_windowHandle, GwlWndProc, newWindowProc);
-        }
-
-        private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
-        {
-            UpdateMinimumTrackSize();
-        }
-
-        private async void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
-        {
-            if (Application.Current is not App app || app.IsShuttingDown)
-            {
-                return;
-            }
-
-            if (_appSettingsService.CloseBehavior == CloseBehavior.MinimizeToTray)
-            {
-                args.Cancel = true;
-                WindowExtensions.Hide(this);
-                _trayService.Show();
-                return;
-            }
-
-            args.Cancel = true;
-            await app.RequestExitAsync();
         }
 
         private void EnsureWindowMeetsMinimumSize()
@@ -210,11 +310,15 @@ namespace ClashWinUI.Views
 
         private void OnWindowClosed(object sender, WindowEventArgs args)
         {
-            _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             AppWindow.Changed -= OnAppWindowChanged;
             AppWindow.Closing -= OnAppWindowClosing;
             Closed -= OnWindowClosed;
+            PortSettingsWindow.OpenWindowsChanged -= OnPortSettingsWindowsChanged;
             _themeService.UnregisterWindow(this);
+
+            _shellControl?.Dispose();
+            _shellControl = null;
+            ShellHost.Content = null;
 
             if (_windowHandle != IntPtr.Zero && _previousWindowProc != IntPtr.Zero)
             {
@@ -233,6 +337,10 @@ namespace ClashWinUI.Views
 
         [DllImport("user32.dll", EntryPoint = "DefWindowProcW")]
         private static extern IntPtr DefWindowProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool IsIconic(IntPtr hWnd);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MINMAXINFO

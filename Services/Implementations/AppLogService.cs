@@ -13,6 +13,17 @@ namespace ClashWinUI.Services.Implementations
 
         public event EventHandler<LogEntry>? LogAdded;
 
+        public int Count
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _entries.Count;
+                }
+            }
+        }
+
         public IReadOnlyList<LogEntry> GetLogs()
         {
             lock (_gate)

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="ClashWinUI.Views.MainShellControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:animatedvisuals="using:Microsoft.UI.Xaml.Controls.AnimatedVisuals"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    HorizontalAlignment="Stretch"
+    VerticalAlignment="Stretch"
+    mc:Ignorable="d">
+
+    <NavigationView
+        x:Name="RootNavigationView"
+        HorizontalAlignment="Stretch"
+        VerticalAlignment="Stretch"
+        IsSettingsVisible="False"
+        IsBackButtonVisible="Visible"
+        IsBackEnabled="{Binding CanGoBack, Mode=OneWay}"
+        SelectionChanged="NavigationView_SelectionChanged"
+        BackRequested="NavigationView_BackRequested"
+        Header="{Binding HeaderText, Mode=OneWay}"
+        AlwaysShowHeader="True"
+        PaneDisplayMode="Left">
+        <NavigationView.MenuItems>
+            <NavigationViewItem
+                x:Name="HomeNavItem"
+                Content="{Binding [NavOverview], Source={StaticResource L}}"
+                Tag="home">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Home" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                x:Name="ProfilesNavItem"
+                Content="{Binding [NavProfiles], Source={StaticResource L}}"
+                Tag="profiles">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Library" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                x:Name="ProxiesNavItem"
+                Content="{Binding [NavProxies], Source={StaticResource L}}"
+                Tag="proxies">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Globe" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                x:Name="ConnectionsNavItem"
+                Content="{Binding [NavConnections], Source={StaticResource L}}"
+                Tag="connections">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Switch" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                x:Name="LogsNavItem"
+                Content="{Binding [NavLogs], Source={StaticResource L}}"
+                Tag="logs">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Document" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                x:Name="RulesNavItem"
+                Content="{Binding [NavRules], Source={StaticResource L}}"
+                Tag="rules">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Bullets" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+            <NavigationViewItem
+                x:Name="SettingsNavItem"
+                Content="{Binding [NavSettings], Source={StaticResource L}}"
+                PointerEntered="SettingsNavItem_PointerEntered"
+                PointerExited="SettingsNavItem_PointerExited"
+                Tag="settings">
+                <NavigationViewItem.Icon>
+                    <AnimatedIcon x:Name="SettingsAnimatedIcon">
+                        <AnimatedIcon.Source>
+                            <animatedvisuals:AnimatedSettingsVisualSource />
+                        </AnimatedIcon.Source>
+                        <AnimatedIcon.FallbackIconSource>
+                            <SymbolIconSource Symbol="Setting" />
+                        </AnimatedIcon.FallbackIconSource>
+                    </AnimatedIcon>
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.MenuItems>
+
+        <Frame x:Name="contentFrame" />
+    </NavigationView>
+</UserControl>

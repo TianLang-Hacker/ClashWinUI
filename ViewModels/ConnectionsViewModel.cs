@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 
 namespace ClashWinUI.ViewModels
 {
-    public partial class ConnectionsViewModel : ObservableObject
+    public partial class ConnectionsViewModel : ObservableObject, IDisposable
     {
         private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
 
@@ -24,6 +24,7 @@ namespace ClashWinUI.ViewModels
         private readonly List<ConnectionEntry> _allConnections = new();
         private DispatcherQueueTimer? _refreshTimer;
         private int _refreshingFlag;
+        private bool _isDisposed;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -62,7 +63,7 @@ namespace ClashWinUI.ViewModels
 
         public void StartAutoRefresh()
         {
-            if (_dispatcherQueue is null || _refreshTimer is not null)
+            if (_isDisposed || _dispatcherQueue is null || _refreshTimer is not null)
             {
                 return;
             }
@@ -84,6 +85,20 @@ namespace ClashWinUI.ViewModels
             _refreshTimer.Stop();
             _refreshTimer.Tick -= OnRefreshTimerTick;
             _refreshTimer = null;
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            StopAutoRefresh();
+            _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
+            _allConnections.Clear();
+            Connections.Clear();
         }
 
         [RelayCommand]
@@ -129,6 +144,11 @@ namespace ClashWinUI.ViewModels
 
         private async Task RefreshConnectionsAsync(bool showStatus)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (Interlocked.Exchange(ref _refreshingFlag, 1) == 1)
             {
                 return;
@@ -166,6 +186,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (e.PropertyName == nameof(LocalizedStrings.CurrentLanguage) || e.PropertyName == "Item[]")
             {
                 Title = _localizedStrings["PageConnections"];

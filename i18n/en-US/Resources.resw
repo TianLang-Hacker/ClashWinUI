@@ -255,9 +255,6 @@
   <data name="ConnectionsClosedBadge" xml:space="preserve">
     <value>Closed</value>
   </data>
-  <data name="ConnectionsRefreshButton" xml:space="preserve">
-    <value>Refresh</value>
-  </data>
   <data name="ConnectionsSearchPlaceholder" xml:space="preserve">
     <value>Search multiple keywords separated by spaces</value>
   </data>
@@ -374,9 +371,6 @@
   </data>
   <data name="LogsSearchPlaceholder" xml:space="preserve">
     <value>Search log message keyword</value>
-  </data>
-  <data name="LanguageLabel" xml:space="preserve">
-    <value>Language</value>
   </data>
   <data name="SettingsSection1" xml:space="preserve">
     <value>General</value>

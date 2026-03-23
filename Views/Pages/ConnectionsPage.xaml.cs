@@ -1,8 +1,10 @@
-﻿using ClashWinUI.Models;
+using ClashWinUI.Helpers;
+using ClashWinUI.Models;
 using ClashWinUI.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
@@ -11,7 +13,7 @@ using System.Runtime.CompilerServices;
 
 namespace ClashWinUI.Views.Pages
 {
-    public sealed partial class ConnectionsPage : Page, INotifyPropertyChanged
+    public sealed partial class ConnectionsPage : Page, INotifyPropertyChanged, IShellFreezablePage
     {
         private const double PageHorizontalPadding = 48;
         private const double TableInnerHorizontalPadding = 24;
@@ -136,13 +138,17 @@ namespace ClashWinUI.Views.Pages
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.Parameter is ConnectionsViewModel viewModel)
+            ConnectionsViewModel viewModel = ResolveViewModel();
+            if (!ReferenceEquals(_viewModel, viewModel))
             {
+                ReleaseViewModel();
                 _viewModel = viewModel;
                 DataContext = viewModel;
-                await viewModel.InitializeAsync();
-                viewModel.StartAutoRefresh();
             }
+
+            RebindConnectionsList();
+            await viewModel.InitializeAsync();
+            viewModel.StartAutoRefresh();
 
             ApplySessionOrResponsiveWidths(ActualWidth);
             SyncHeaderScrollToBody();
@@ -151,8 +157,43 @@ namespace ClashWinUI.Views.Pages
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            _viewModel?.StopAutoRefresh();
+            ReleaseViewModel();
             base.OnNavigatedFrom(e);
+        }
+
+        private void ReleaseViewModel()
+        {
+            ConnectionsListView.ItemsSource = null;
+
+            if (_viewModel is null)
+            {
+                DataContext = null;
+                return;
+            }
+
+            DataContext = null;
+            _viewModel.StopAutoRefresh();
+            _viewModel.Dispose();
+            _viewModel = null;
+            PageMemoryTrimHelper.RequestTrim();
+        }
+
+        private static ConnectionsViewModel ResolveViewModel()
+        {
+            return ((App)Application.Current).GetRequiredService<ConnectionsViewModel>();
+        }
+
+        private void RebindConnectionsList()
+        {
+            if (ConnectionsListView.ItemsSource is not null)
+            {
+                return;
+            }
+
+            ConnectionsListView.SetBinding(ItemsControl.ItemsSourceProperty, new Binding
+            {
+                Path = new PropertyPath(nameof(ConnectionsViewModel.Connections)),
+            });
         }
 
         private async void CloseConnectionButton_Click(object sender, RoutedEventArgs e)
@@ -171,6 +212,11 @@ namespace ClashWinUI.Views.Pages
             {
                 await _viewModel.CloseConnectionCommand.ExecuteAsync(connection);
             }
+        }
+
+        public void PrepareForShellFreeze()
+        {
+            ReleaseViewModel();
         }
 
         private void ResizeThumb_DragStarted(object sender, DragStartedEventArgs e)
@@ -424,3 +470,4 @@ namespace ClashWinUI.Views.Pages
         }
     }
 }
+

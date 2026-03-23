@@ -9,7 +9,7 @@
     xmlns:lvc="using:LiveChartsCore.SkiaSharpView.WinUI"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:viewModels="using:ClashWinUI.ViewModels"
-    NavigationCacheMode="Enabled"
+    NavigationCacheMode="Disabled"
     Background="Transparent"
     mc:Ignorable="d">
 

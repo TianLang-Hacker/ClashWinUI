@@ -11,9 +11,10 @@ using WinRT.Interop;
 
 namespace ClashWinUI.Views.Pages
 {
-    public sealed partial class SettingsPage : Page
+    public sealed partial class SettingsPage : Page, IShellFreezablePage
     {
         private static PortSettingsWindow? _portSettingsWindow;
+        private SettingsViewModel? _viewModel;
 
         public SettingsPage()
         {
@@ -22,13 +23,25 @@ namespace ClashWinUI.Views.Pages
 
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.Parameter is SettingsViewModel viewModel)
+            SettingsViewModel viewModel = ResolveViewModel();
+            if (!ReferenceEquals(_viewModel, viewModel))
             {
+                ReleaseViewModel(disposeImmediately: true);
+                _viewModel = viewModel;
                 DataContext = viewModel;
-                viewModel.RefreshActiveProfileState();
             }
 
+            viewModel.RefreshActiveProfileState();
+
             base.OnNavigatedTo(e);
+        }
+
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            bool canDisposeImmediately = _portSettingsWindow is null
+                || !ReferenceEquals(_portSettingsWindow.SettingsViewModel, _viewModel);
+            ReleaseViewModel(canDisposeImmediately);
+            base.OnNavigatedFrom(e);
         }
 
         private async void BrowseKernelPathButton_Click(object sender, RoutedEventArgs e)
@@ -86,6 +99,11 @@ namespace ClashWinUI.Views.Pages
                 {
                     _portSettingsWindow = null;
                 }
+
+                if (!ReferenceEquals(_viewModel, viewModel))
+                {
+                    viewModel.Dispose();
+                }
             };
 
             _portSettingsWindow = window;
@@ -103,6 +121,39 @@ namespace ClashWinUI.Views.Pages
             {
                 viewModel.UpdateGeoDataCommand.Execute(null);
             }
+        }
+
+        private void ReleaseViewModel(bool disposeImmediately)
+        {
+            if (_viewModel is null)
+            {
+                DataContext = null;
+                return;
+            }
+
+            SettingsViewModel viewModel = _viewModel;
+            _viewModel = null;
+            DataContext = null;
+
+            if (disposeImmediately)
+            {
+                viewModel.Dispose();
+            }
+        }
+
+        private static SettingsViewModel ResolveViewModel()
+        {
+            if (_portSettingsWindow is not null)
+            {
+                return _portSettingsWindow.SettingsViewModel;
+            }
+
+            return ((App)Application.Current).GetRequiredService<SettingsViewModel>();
+        }
+
+        public void PrepareForShellFreeze()
+        {
+            ReleaseViewModel(disposeImmediately: _portSettingsWindow is null);
         }
     }
 }

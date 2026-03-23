@@ -9,7 +9,7 @@ using WinRT.Interop;
 
 namespace ClashWinUI.Views.Pages
 {
-    public sealed partial class ProfilesPage : Page
+    public sealed partial class ProfilesPage : Page, IShellFreezablePage
     {
         private ProfilesViewModel? _viewModel;
 
@@ -20,14 +20,41 @@ namespace ClashWinUI.Views.Pages
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            if (e.Parameter is ProfilesViewModel viewModel)
+            ProfilesViewModel viewModel = ResolveViewModel();
+            if (!ReferenceEquals(_viewModel, viewModel))
             {
+                ReleaseViewModel();
                 _viewModel = viewModel;
                 DataContext = viewModel;
-                await viewModel.InitializeAsync();
             }
 
+            await viewModel.InitializeAsync();
+
             base.OnNavigatedTo(e);
+        }
+
+        protected override void OnNavigatedFrom(NavigationEventArgs e)
+        {
+            ReleaseViewModel();
+            base.OnNavigatedFrom(e);
+        }
+
+        private void ReleaseViewModel()
+        {
+            if (_viewModel is null)
+            {
+                DataContext = null;
+                return;
+            }
+
+            _viewModel.Dispose();
+            _viewModel = null;
+            DataContext = null;
+        }
+
+        private static ProfilesViewModel ResolveViewModel()
+        {
+            return ((App)Application.Current).GetRequiredService<ProfilesViewModel>();
         }
 
         private async void ImportLocalFileButton_Click(object sender, RoutedEventArgs e)
@@ -60,6 +87,11 @@ namespace ClashWinUI.Views.Pages
             }
 
             await _viewModel.ImportLocalFileAsync(file.Path);
+        }
+
+        public void PrepareForShellFreeze()
+        {
+            ReleaseViewModel();
         }
     }
 }

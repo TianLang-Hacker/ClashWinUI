@@ -5,23 +5,15 @@
 | File/Folder | Description |
 | - | - |
 | `App.xaml` | Application entry XAML that defines global resources, styles, and theme resources. |
-| `App.xaml.cs` | Application startup code that builds the Host/DI container, runs the startup pipeline, handles unhandled exceptions, initializes the tray icon, and boots Mihomo/GeoData. |
+| `App.xaml.cs` | Application startup code that builds the Host/DI container, runs the startup pipeline, handles unhandled exceptions, initializes the tray icon, starts update checks, and boots Mihomo/GeoData. |
 | `Package.appxmanifest` | WinUI 3 package manifest that defines package identity, capabilities, icons, and launch behavior. |
-| `Properties/` | Project property folder; currently mainly contains `launchSettings.json`. |
+| `Properties/` | Project property folder containing `launchSettings.json` and publish profiles. |
 | `Assets/` | Packaged icons, splash screen assets, and Store images. |
 | `Build/` | Build-related scripts, including Mihomo kernel and GeoData download helpers. |
-| `i18n/` | Localization resources and localized help documents. |
+| `i18n/` | Localization resources, localized READMEs, and localized help documents. |
 | `Kernels/` | Placeholder kernel folder kept in the repo; currently only contains `.gitkeep`. |
 | `bin/`, `obj/` | Local build output folders. |
 | `AppPackages/`, `BundleArtifacts/` | Packaging outputs and packaging helper artifacts. |
-
-### Assets/
-
-| File | Description |
-| - | - |
-| `ClashWinUI.ico` | Main application icon. |
-| `SplashScreen.scale-200.png` | Splash screen asset. |
-| `Square150x150Logo.scale-200.png` and related files | Windows package icons and tile assets. |
 
 ## Common/
 
@@ -33,8 +25,6 @@
 ## Converters/
 
 `Converters/` contains page binding converters that translate booleans, strings, and delay levels into UI-facing types such as `Brush` and `Visibility`.
-
-Representative files include:
 
 | File | Description |
 | - | - |
@@ -65,12 +55,14 @@ Representative files include:
 
 | File | Description |
 | - | - |
+| `AppPackageInfoHelper.cs` | Resolves package identity, version, publisher, and architecture for settings and update flows. |
 | `FileHelper.cs` | File IO and path handling helper. |
 | `GeoDataStatusTextHelper.cs` | Builds user-facing GeoData status text. |
 | `JsonHelper.cs` | JSON read/write helper. |
 | `LiveChartsBootstrapper.cs` | Lazy initialization entry point for HomePage LiveCharts charts. |
 | `LocalizedStrings.cs` | Localized string access wrapper. |
 | `LogLevelToBrushConverter.cs` | Maps log levels to text colors. |
+| `PageMemoryTrimHelper.cs` | Triggers GC and working-set trimming after heavy pages unload or the shell freezes. |
 | `ProfileCompatibilityChecker.cs` | Checks whether a profile/config is compatible with the current runtime environment. |
 | `ProxyConfigParser.cs` | Parses proxy node configuration. |
 | `ProxyGroupParser.cs` | Parses proxy groups and members. |
@@ -92,12 +84,14 @@ Representative files include:
 | `AppConfig.cs`, `CloseBehavior.cs` | Application settings and close-behavior definitions. |
 | `ConnectionEntry.cs`, `ConnectionsColumnLayout.cs` | Connection page row model and column layout state. |
 | `GeoDataAssetStatus.cs`, `GeoDataFailureKind.cs`, `GeoDataOperationKind.cs`, `GeoDataOperationResult.cs` | GeoData download and verification result models. |
-| `HomeChartSample.cs`, `PublicNetworkInfo.cs` | Home dashboard chart samples and public network information. |
+| `HomeChartSample.cs`, `HomeChartState.cs`, `HomeOverviewState.cs` | Home chart samples, chart history cache, and dashboard snapshot models. |
 | `LogEntry.cs` | Single log item model for the logs page. |
 | `MihomoFailureDiagnostic.cs`, `MihomoFailureKind.cs`, `MihomoStatus.cs` | Mihomo runtime status and failure diagnostics. |
 | `MixinSettings.cs`, `PortSettingsDraft.cs`, `ProfileConfigWorkspace.cs`, `ProfileItem.cs` | Profile workspace, mixin settings, and subscription metadata models. |
 | `ProxyGroup.cs`, `ProxyGroupLoadResult.cs`, `ProxyGroupMember.cs`, `ProxyNode.cs` | Proxy groups, members, nodes, and load result models. |
+| `PublicNetworkInfo.cs` | Public network information model used by the Home dashboard. |
 | `RuntimeRuleItem.cs` | Runtime rule model used by the rules page. |
+| `UpdateState.cs`, `UpdateStatus.cs` | State models for update check, download, and installation flows. |
 
 ## Serialization/
 
@@ -116,6 +110,8 @@ Representative files include:
 | `IConfigService.cs` | Interface for subscription config, mixin, runtime, and rule-toggle management. |
 | `IDialogService.cs` | Dialog display abstraction. |
 | `IGeoDataService.cs` | GeoData prepare/refresh/status interface. |
+| `IHomeChartStateService.cs` | Home dashboard chart history cache interface. |
+| `IHomeOverviewSamplerService.cs` | Background sampler interface that maintains Home metrics and chart history. |
 | `IKernelBootstrapService.cs` | Entry point for Mihomo kernel preparation and download. |
 | `IKernelPathService.cs` | Kernel path resolution interface. |
 | `ILoggerService.cs` | Logging abstraction interface. |
@@ -127,7 +123,7 @@ Representative files include:
 | `ISystemProxyService.cs` | Windows system proxy enable/disable/sync interface. |
 | `IThemeService.cs` | Theme switching and multi-window theme synchronization interface. |
 | `ITrayService.cs` | System tray abstraction. |
-| `IUpdateService.cs` | Update check and download interface. |
+| `IUpdateService.cs` | Update check, download, and installation interface. |
 
 ### Implementations/
 
@@ -137,6 +133,8 @@ Representative files include:
 | `AppSettingsService.cs` | Local app settings persistence implementation. |
 | `DialogService.cs` | WinUI dialog implementation. |
 | `GeoDataService.cs` | Calls the GeoData download script and validates GeoData availability. |
+| `HomeChartStateService.cs` | Stores recent Home chart samples and axis cache. |
+| `HomeOverviewSamplerService.cs` | Background Home sampler that aggregates Mihomo connections, memory usage, and chart samples. |
 | `KernelBootstrapService.cs` | Ensures the Mihomo kernel is available at startup. |
 | `KernelPathService.cs` | Resolves the Mihomo kernel path used by the app. |
 | `MihomoApiClient.cs` | Low-level Mihomo controller API communication component. |
@@ -146,9 +144,9 @@ Representative files include:
 | `ProcessService.cs` | Mihomo process startup, shutdown, reuse, and failure diagnostic implementation. |
 | `ProfileService.cs` | Subscription/profile load, save, delete, and activation implementation. |
 | `SystemProxyService.cs` | System proxy registry synchronization implementation. |
-| `ThemeService.cs` | Theme synchronization for the main window and auxiliary windows. |
+| `ThemeService.cs` | Theme synchronization and backdrop application for the main window and auxiliary windows. |
 | `TrayService.cs` | System tray icon and menu implementation. |
-| `UpdateService.cs` | Update checking and download implementation. |
+| `UpdateService.cs` | Checks GitHub Releases, downloads `.msix`, and launches App Installer. |
 
 ### Implementations/Config/
 
@@ -163,27 +161,28 @@ Representative files include:
 | File | Description |
 | - | - |
 | `ViewModelBase.cs` | Shared base capabilities for view models. |
-| `MainViewModel.cs` | Main window navigation state and sidebar routes. |
+| `MainViewModel.cs` | Main window navigation state, route history, and sidebar selection logic. |
 | `HomeViewModel.cs` | Home dashboard logic for metrics, charts, network info, and system info. |
 | `ProfilesViewModel.cs` | Subscription/profile management and switching logic. |
 | `ProxiesViewModel.cs` | Proxy groups, nodes, delay testing, and selection logic. |
 | `ConnectionsViewModel.cs` | Connections page list, close connection, search, and refresh logic. |
 | `LogsViewModel.cs` | Logs page filtering, copying, and theme-aware coloring logic. |
 | `RulesViewModel.cs` | Runtime rule listing, search, toggle, and immediate-apply logic. |
-| `SettingsViewModel.cs` | Settings page logic for GeoData updates, port settings, themes, and app configuration. |
+| `SettingsViewModel.cs` | Settings page logic for GeoData updates, port settings, themes, updates, and app configuration. |
 
 ## Views/
 
-### Main windows
+### Main window and auxiliary windows
 
 | File | Description |
 | - | - |
-| `MainWindow.xaml` / `MainWindow.xaml.cs` | Main application window and navigation host. |
+| `MainWindow.xaml` / `MainWindow.xaml.cs` | Lightweight main-window host that manages the window lifecycle, minimize-time freeze, restore, and shell rebuild. |
+| `MainShellControl.xaml` / `MainShellControl.xaml.cs` | Main navigation shell that owns `NavigationView + Frame` and top-level page routing. |
 | `PortSettingsWindow.xaml` / `PortSettingsWindow.xaml.cs` | Standalone port settings window. |
 
 ### Views/Pages/
 
-| Page | Description |
+| Page/File | Description |
 | - | - |
 | `HomePage.xaml` / `HomePage.xaml.cs` | Home dashboard that shows connection metrics, traffic charts, network info, and system info. |
 | `ProfilesPage.xaml` / `ProfilesPage.xaml.cs` | Subscription/profile management page. |
@@ -191,7 +190,8 @@ Representative files include:
 | `ConnectionsPage.xaml` / `ConnectionsPage.xaml.cs` | Connection list, search, close-connection, and traffic summary page. |
 | `LogsPage.xaml` / `LogsPage.xaml.cs` | Runtime log viewer page. |
 | `RulesPage.xaml` / `RulesPage.xaml.cs` | Runtime rules list, search, and enable/disable page. |
-| `SettingsPage.xaml` / `SettingsPage.xaml.cs` | App settings, GeoData, kernel, and runtime configuration page. |
+| `SettingsPage.xaml` / `SettingsPage.xaml.cs` | App settings, GeoData, kernel, updates, and runtime configuration page. |
+| `IShellFreezablePage.cs` | Interface that lets pages release UI and data references before the shell freezes. |
 
 > The current repo does not have a dedicated `Dialogs/` folder. Dialog behavior is mainly organized through `IDialogService` and page-level `ContentDialog` usage.
 
@@ -200,8 +200,8 @@ Representative files include:
 | Folder | Description |
 | - | - |
 | `en-US/` | English resource folder containing `Resources.resw` and the English help document. |
-| `zh-Hans/` | Simplified Chinese resource folder containing `Resources.resw` and the Simplified Chinese help document. |
-| `zh-Hant/` | Traditional Chinese resource folder containing `Resources.resw` and the Traditional Chinese help document. |
+| `zh-Hans/` | Simplified Chinese resource folder containing `Resources.resw`, README, and the Simplified Chinese help document. |
+| `zh-Hant/` | Traditional Chinese resource folder containing `Resources.resw`, README, and the Traditional Chinese help document. |
 
 ## Build/
 
@@ -215,3 +215,4 @@ Representative files include:
 - The repo layout mainly describes the **source structure** and **packaging structure**.
 - Runtime-generated profiles, kernel copies, GeoData, logs, and user settings live under user directories and are not all committed to the repo.
 - The UI follows a `Views + ViewModels + Services + Models` MVVM split, while config orchestration and Mihomo runtime flows are concentrated in `Services`, `Helpers`, and `Background`.
+- The current main-window architecture uses a lightweight host plus an unloadable shell: when minimized, the WinUI shell can be unloaded while the background Home sampler continues to maintain chart history and dashboard state.

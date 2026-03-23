@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 
 namespace ClashWinUI.ViewModels
 {
-    public partial class SettingsViewModel : ObservableObject
+    public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         public const string ThemeSystem = "system";
         public const string ThemeLight = "light";
@@ -54,6 +54,7 @@ namespace ClashWinUI.ViewModels
         private int _mixinApplyRequestVersion;
         private ProfileItem? _activeMixinProfile;
         private MixinSettings _currentMixinSettings = new();
+        private bool _isDisposed;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -210,6 +211,20 @@ namespace ClashWinUI.ViewModels
 
             RefreshActiveProfileState();
             RefreshUpdateState();
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
+            _appSettingsService.SettingsChanged -= OnAppSettingsChanged;
+            _updateService.StateChanged -= OnUpdateServiceStateChanged;
+            _mixinApplySemaphore.Dispose();
         }
 
         [RelayCommand]
@@ -704,6 +719,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             if (e.PropertyName != nameof(LocalizedStrings.CurrentLanguage) && e.PropertyName != "Item[]")
             {
                 return;
@@ -728,6 +748,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnAppSettingsChanged(object? sender, EventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             string behaviorTag = MapCloseBehaviorToTag(_appSettingsService.CloseBehavior);
             bool closeBehaviorMatches = string.Equals(
                 SelectedCloseBehaviorTag,
@@ -748,6 +773,11 @@ namespace ClashWinUI.ViewModels
 
         private void OnUpdateServiceStateChanged(object? sender, EventArgs e)
         {
+            if (_isDisposed)
+            {
+                return;
+            }
+
             RefreshUpdateState();
         }
 
