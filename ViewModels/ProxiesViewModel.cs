@@ -41,6 +41,8 @@ namespace ClashWinUI.ViewModels
         private readonly IMihomoService _mihomoService;
         private readonly IGeoDataService _geoDataService;
         private readonly IProcessService _processService;
+        private readonly ITunService _tunService;
+        private readonly ISystemProxyService _systemProxyService;
         private readonly IAppSettingsService _appSettingsService;
         private readonly DispatcherQueue? _dispatcherQueue;
         private bool _isWatchingRuntimeChanges;
@@ -70,6 +72,8 @@ namespace ClashWinUI.ViewModels
             IMihomoService mihomoService,
             IGeoDataService geoDataService,
             IProcessService processService,
+            ITunService tunService,
+            ISystemProxyService systemProxyService,
             IAppSettingsService appSettingsService)
         {
             _localizedStrings = localizedStrings;
@@ -78,6 +82,8 @@ namespace ClashWinUI.ViewModels
             _mihomoService = mihomoService;
             _geoDataService = geoDataService;
             _processService = processService;
+            _tunService = tunService;
+            _systemProxyService = systemProxyService;
             _appSettingsService = appSettingsService;
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
@@ -373,6 +379,14 @@ namespace ClashWinUI.ViewModels
                     if (reapplyRuntime)
                     {
                         applied = await _mihomoService.ApplyConfigAsync(runtimePath);
+                        if (applied || PathsEqual(_processService.CurrentConfigPath, runtimePath))
+                        {
+                            await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                                _systemProxyService,
+                                _processService,
+                                _tunService,
+                                runtimePath);
+                        }
                     }
                 }
                 catch
@@ -391,7 +405,7 @@ namespace ClashWinUI.ViewModels
                     }
 
                     int nodeCount = GetUniqueNodes().Count;
-                    bool hasGeoDataFailure = TryGetGeoDataFailureStatus(out string geoDataFailureMessage);
+                    bool hasGeoDataFailure = TryGetControllerFailureStatus(runtimePath, out string controllerFailureMessage);
                     if (isIncompatibleProfile)
                     {
                         StatusMessage = loadResult.Source == ProxyGroupLoadSource.MihomoController
@@ -400,7 +414,7 @@ namespace ClashWinUI.ViewModels
                     }
                     else if (reapplyRuntime && !applied && hasGeoDataFailure)
                     {
-                        StatusMessage = geoDataFailureMessage;
+                        StatusMessage = controllerFailureMessage;
                     }
                     else
                     {
@@ -498,11 +512,32 @@ namespace ClashWinUI.ViewModels
 
         private bool TryGetGeoDataFailureStatus(out string message)
         {
-            return GeoDataStatusTextHelper.TryBuildControllerFailureMessage(
+            string? runtimePath = ActiveProfile is null ? null : _configService.GetRuntimePath(ActiveProfile);
+            return TryGetControllerFailureStatus(runtimePath, out message);
+        }
+
+        private bool TryGetControllerFailureStatus(string? runtimePath, out string message)
+        {
+            return MihomoFailureTextHelper.TryBuildControllerFailureMessage(
                 _localizedStrings,
                 _processService,
                 _geoDataService,
+                _tunService,
+                runtimePath,
                 out message);
+        }
+
+        private static bool PathsEqual(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                System.IO.Path.GetFullPath(left.Trim()),
+                System.IO.Path.GetFullPath(right.Trim()),
+                StringComparison.OrdinalIgnoreCase);
         }
     }
 }

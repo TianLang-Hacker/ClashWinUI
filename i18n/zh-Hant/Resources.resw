@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -220,7 +220,7 @@
     <value>核心版本</value>
   </data>
   <data name="HomeFieldSystemProxy" xml:space="preserve">
-    <value>系統代理位址</value>
+    <value>系統代理</value>
   </data>
   <data name="HomeFieldMixinPorts" xml:space="preserve">
     <value>Mixin 連接埠</value>
@@ -230,6 +230,12 @@
   </data>
   <data name="HomeFieldRulesCount" xml:space="preserve">
     <value>規則数量</value>
+  </data>
+  <data name="HomeFieldTunStatus" xml:space="preserve">
+    <value>TUN 狀態</value>
+  </data>
+  <data name="HomeFieldTunSummary" xml:space="preserve">
+    <value>TUN 摘要</value>
   </data>
   <data name="HomeSectionSystem" xml:space="preserve">
     <value>系統資訊</value>
@@ -443,6 +449,60 @@
   </data>
   <data name="GeoDataStatusUnknownReason" xml:space="preserve">
     <value>未知原因</value>
+  </data>
+  <data name="MihomoStatusUnknownReason" xml:space="preserve">
+    <value>未知原因</value>
+  </data>
+  <data name="SystemProxyStatusEnabledFormat" xml:space="preserve">
+    <value>已啟用（{0}）</value>
+  </data>
+  <data name="SystemProxyStatusEnabledWithoutAddress" xml:space="preserve">
+    <value>已啟用</value>
+  </data>
+  <data name="SystemProxyStatusDisabled" xml:space="preserve">
+    <value>已關閉</value>
+  </data>
+  <data name="TunStatusDependencyFailureFormat" xml:space="preserve">
+    <value>TUN 依賴準備失敗：{0}</value>
+  </data>
+  <data name="TunStatusPermissionFailureFormat" xml:space="preserve">
+    <value>啟用 TUN 需要系統管理員權限或更高存取權限：{0}</value>
+  </data>
+  <data name="TunStatusAdapterMissingFormat" xml:space="preserve">
+    <value>TUN 已設定，但介面卡未建立：{0}</value>
+  </data>
+  <data name="TunStatusRouteMissingFormat" xml:space="preserve">
+    <value>TUN 介面卡已存在，但路由未附著：{0}</value>
+  </data>
+  <data name="TunStatusDnsUnmanagedFormat" xml:space="preserve">
+    <value>TUN 路由已接管，但 DNS 未受控：{0}</value>
+  </data>
+  <data name="TunStatusFirewallBlockedFormat" xml:space="preserve">
+    <value>TUN 介面卡已存在，但 Windows 防火牆可能阻擋了目前的堆疊：{0}</value>
+  </data>
+  <data name="TunStatusControllerFailureFormat" xml:space="preserve">
+    <value>目前已啟用 TUN，但 Mihomo 無法啟動控制器：{0}</value>
+  </data>
+  <data name="TunRuntimeStatusDisabled" xml:space="preserve">
+    <value>未啟用</value>
+  </data>
+  <data name="TunRuntimeStatusActive" xml:space="preserve">
+    <value>已生效</value>
+  </data>
+  <data name="TunRuntimeStatusPending" xml:space="preserve">
+    <value>已設定，但目前未生效</value>
+  </data>
+  <data name="TunRuntimeSummaryFallbackProxyFormat" xml:space="preserve">
+    <value>TUN 未生效，目前仍依賴系統代理 {0}。</value>
+  </data>
+  <data name="TunRuntimeSummaryFallbackProxyNoAddress" xml:space="preserve">
+    <value>TUN 未生效，目前仍依賴系統代理。</value>
+  </data>
+  <data name="TunRuntimeSummaryUnprotected" xml:space="preserve">
+    <value>TUN 未生效，且系統代理已關閉，目前流量不會被代理。</value>
+  </data>
+  <data name="TunRuntimeSummaryDnsUnmanaged" xml:space="preserve">
+    <value>TUN 路由已接管，但目前的 profile 未託管 DNS。關閉系統代理後，網站解析可能失敗。</value>
   </data>
   <data name="SettingsMixinHeader" xml:space="preserve">
     <value>執行設定</value>

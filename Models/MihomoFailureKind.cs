@@ -5,6 +5,12 @@ namespace ClashWinUI.Models
         None = 0,
         GeoData,
         PortBindConflict,
+        TunDependency,
+        TunPermission,
+        TunAdapterMissing,
+        TunRouteMissing,
+        TunDnsUnmanaged,
+        TunFirewallBlocked,
         Unknown,
     }
 }

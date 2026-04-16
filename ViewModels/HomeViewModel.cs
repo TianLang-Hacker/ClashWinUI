@@ -1,4 +1,4 @@
-﻿using ClashWinUI.Helpers;
+using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -59,6 +59,8 @@ namespace ClashWinUI.ViewModels
         private long _uploadTotalBytes;
         private long _uploadSpeedBytes;
         private int _runtimeEventsCount;
+        private SystemProxyState _systemProxyState = SystemProxyState.Disabled();
+        private TunRuntimeStatus _tunRuntimeStatus = TunRuntimeStatus.Disabled();
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -148,6 +150,12 @@ namespace ClashWinUI.ViewModels
         public partial string SystemProxyAddressText { get; set; }
 
         [ObservableProperty]
+        public partial string TunStatusText { get; set; }
+
+        [ObservableProperty]
+        public partial string TunSummaryText { get; set; }
+
+        [ObservableProperty]
         public partial string MixinPortsText { get; set; }
 
         [ObservableProperty]
@@ -214,6 +222,8 @@ namespace ClashWinUI.ViewModels
             NetworkInfoStatusMessage = string.Empty;
             KernelVersionText = UnavailableText;
             SystemProxyAddressText = UnavailableText;
+            TunStatusText = UnavailableText;
+            TunSummaryText = string.Empty;
             MixinPortsText = UnavailableText;
             RuntimeEventsText = "0";
             RulesCountText = UnavailableText;
@@ -345,7 +355,9 @@ namespace ClashWinUI.ViewModels
 
             UpdateMetricTexts();
 
-            SystemProxyAddressText = state.SystemProxyAddressText;
+            _systemProxyState = state.SystemProxyState;
+            _tunRuntimeStatus = state.TunRuntimeStatus;
+            UpdateRuntimeStatusTexts();
             RuntimeEventsText = _runtimeEventsCount.ToString("N0", CultureInfo.CurrentCulture);
             MixinPortsText = state.MixinPortsText;
             RulesCountText = state.RulesCountText;
@@ -415,6 +427,15 @@ namespace ClashWinUI.ViewModels
             DownloadSpeedText = $"{FormatBytes(_downloadSpeedBytes)}/s";
             UploadTotalText = FormatBytes(_uploadTotalBytes);
             UploadSpeedText = $"{FormatBytes(_uploadSpeedBytes)}/s";
+        }
+
+        private void UpdateRuntimeStatusTexts()
+        {
+            SystemProxyAddressText = RuntimeNetworkStatusTextHelper.BuildSystemProxyStatusText(_localizedStrings, _systemProxyState);
+            (TunStatusText, TunSummaryText) = RuntimeNetworkStatusTextHelper.BuildTunPresentation(
+                _localizedStrings,
+                _tunRuntimeStatus,
+                _systemProxyState);
         }
 
         private void RefreshChartAppearance()
@@ -812,6 +833,7 @@ namespace ClashWinUI.ViewModels
 
             Title = _localizedStrings["PageOverview"];
             UpdateMetricTexts();
+            UpdateRuntimeStatusTexts();
             RuntimeEventsText = _runtimeEventsCount.ToString("N0", CultureInfo.CurrentCulture);
 
             if (_networkInfoFailed)

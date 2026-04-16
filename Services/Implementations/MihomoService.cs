@@ -1,4 +1,4 @@
-﻿
+
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using ClashWinUI.Helpers;
@@ -51,7 +51,9 @@ namespace ClashWinUI.Services.Implementations
 
         private readonly IAppLogService _logService;
         private readonly IGeoDataService _geoDataService;
+        private readonly IKernelPathService _kernelPathService;
         private readonly IProcessService _processService;
+        private readonly ITunService _tunService;
         private readonly HttpClient _httpClient;
         private readonly string _controllerBaseUrl;
         private readonly string? _controllerSecret;
@@ -81,11 +83,18 @@ namespace ClashWinUI.Services.Implementations
 
         public event EventHandler<string>? ConfigApplied;
 
-        public MihomoService(IAppLogService logService, IGeoDataService geoDataService, IProcessService processService)
+        public MihomoService(
+            IAppLogService logService,
+            IGeoDataService geoDataService,
+            IKernelPathService kernelPathService,
+            IProcessService processService,
+            ITunService tunService)
         {
             _logService = logService;
             _geoDataService = geoDataService;
+            _kernelPathService = kernelPathService;
             _processService = processService;
+            _tunService = tunService;
             _httpClient = new HttpClient();
             _controllerBaseUrl = Environment.GetEnvironmentVariable("MIHOMO_CONTROLLER")?.TrimEnd('/')
                 ?? "http://127.0.0.1:9090";
@@ -118,7 +127,9 @@ namespace ClashWinUI.Services.Implementations
             }
 
             DateTimeOffset operationStartedAt = DateTimeOffset.UtcNow;
-            bool applied = await ApplyConfigCoreAsync(configPath, cancellationToken).ConfigureAwait(false);
+            bool applied = ShouldRestartForTun(configPath)
+                ? await ApplyConfigWithRestartAsync(configPath, cancellationToken).ConfigureAwait(false)
+                : await ApplyConfigCoreAsync(configPath, cancellationToken).ConfigureAwait(false);
             if (applied)
             {
                 return true;
@@ -130,6 +141,60 @@ namespace ClashWinUI.Services.Implementations
             }
 
             return false;
+        }
+
+        private bool ShouldRestartForTun(string configPath)
+        {
+            if (_tunService.IsTunEnabled(configPath))
+            {
+                return true;
+            }
+
+            string? currentConfigPath = _processService.CurrentConfigPath;
+            return !string.IsNullOrWhiteSpace(currentConfigPath) && _tunService.IsTunEnabled(currentConfigPath);
+        }
+
+        private async Task<bool> ApplyConfigWithRestartAsync(string configPath, CancellationToken cancellationToken)
+        {
+            try
+            {
+                bool restarted = await _processService.RestartAsync(configPath, cancellationToken).ConfigureAwait(false);
+                if (!restarted)
+                {
+                    _logService.Add($"Mihomo restart apply failed for config: {configPath}", LogLevel.Warning);
+                    return false;
+                }
+
+                ControllerConvergenceResult convergence = await WaitForControllerConvergenceAsync(
+                    configPath,
+                    "restart",
+                    RestartConvergenceAttempts,
+                    cancellationToken).ConfigureAwait(false);
+                if (!convergence.IsConverged)
+                {
+                    _logService.Add(
+                        $"Mihomo controller still not converged after restart apply: {configPath}. {BuildConvergenceSummary(convergence)}",
+                        LogLevel.Warning);
+                    return false;
+                }
+
+                return await CompleteSuccessfulApplyAsync(
+                    configPath,
+                    convergence.ControllerBackedGroups,
+                    $"Mihomo config applied with restart: {configPath}",
+                    "restart apply",
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                string key = $"{configPath}|RESTART|{ex.GetType().Name}";
+                if (ShouldLogApplyFailure(key))
+                {
+                    _logService.Add($"Mihomo restart apply unexpected error: {ex.Message}", LogLevel.Warning);
+                }
+
+                return false;
+            }
         }
 
         private async Task<bool> ApplyConfigCoreAsync(string configPath, CancellationToken cancellationToken)
@@ -222,12 +287,12 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
-            CacheRuntimeGroups(convergence.ControllerBackedGroups);
-            ClearApplyFailureHistory(configPath);
-            _processService.ResetFailureDiagnostic();
-            _logService.Add($"Mihomo config applied after GeoData refresh: {configPath}");
-            ConfigApplied?.Invoke(this, configPath);
-            return true;
+            return await CompleteSuccessfulApplyAsync(
+                configPath,
+                convergence.ControllerBackedGroups,
+                $"Mihomo config applied after GeoData refresh: {configPath}",
+                "GeoData recovery",
+                cancellationToken).ConfigureAwait(false);
         }
 
         private bool TryMarkIncompatibleWarned(string configPath)
@@ -408,6 +473,46 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
+        private async Task<bool> CompleteSuccessfulApplyAsync(
+            string configPath,
+            IReadOnlyList<ProxyGroup> controllerBackedGroups,
+            string successMessage,
+            string stage,
+            CancellationToken cancellationToken)
+        {
+            if (!await ValidateTunRuntimeOrMarkFailureAsync(configPath, stage, cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+
+            CacheRuntimeGroups(controllerBackedGroups);
+            ClearApplyFailureHistory(configPath);
+            _processService.ResetFailureDiagnostic();
+            _logService.Add(successMessage);
+            ConfigApplied?.Invoke(this, configPath);
+            return true;
+        }
+
+        private async Task<bool> ValidateTunRuntimeOrMarkFailureAsync(string configPath, string stage, CancellationToken cancellationToken)
+        {
+            TunRuntimeValidationOutcome validation = await TunRuntimeValidationHelper.ValidateAsync(
+                _tunService,
+                _kernelPathService,
+                _processService,
+                configPath,
+                cancellationToken).ConfigureAwait(false);
+            if (validation.Success)
+            {
+                return true;
+            }
+
+            _processService.UpdateFailureDiagnostic(validation.FailureKind, validation.Message);
+            _logService.Add(
+                $"Mihomo controller converged, but TUN runtime is unhealthy after {stage}: {validation.Message}",
+                LogLevel.Warning);
+            return false;
+        }
+
         private async Task<bool> CompleteConfigApplyAsync(string configPath, string stage, CancellationToken cancellationToken)
         {
             ControllerConvergenceResult convergence = await WaitForControllerConvergenceAsync(
@@ -417,12 +522,12 @@ namespace ClashWinUI.Services.Implementations
                 cancellationToken).ConfigureAwait(false);
             if (convergence.IsConverged)
             {
-                CacheRuntimeGroups(convergence.ControllerBackedGroups);
-                ClearApplyFailureHistory(configPath);
-                _processService.ResetFailureDiagnostic();
-                _logService.Add($"Mihomo config applied: {configPath}");
-                ConfigApplied?.Invoke(this, configPath);
-                return true;
+                return await CompleteSuccessfulApplyAsync(
+                    configPath,
+                    convergence.ControllerBackedGroups,
+                    $"Mihomo config applied: {configPath}",
+                    $"{stage} hot apply",
+                    cancellationToken).ConfigureAwait(false);
             }
 
             _logService.Add(
@@ -449,12 +554,12 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
-            CacheRuntimeGroups(restartedConvergence.ControllerBackedGroups);
-            ClearApplyFailureHistory(configPath);
-            _processService.ResetFailureDiagnostic();
-            _logService.Add($"Mihomo config applied after restart fallback: {configPath}");
-            ConfigApplied?.Invoke(this, configPath);
-            return true;
+            return await CompleteSuccessfulApplyAsync(
+                configPath,
+                restartedConvergence.ControllerBackedGroups,
+                $"Mihomo config applied after restart fallback: {configPath}",
+                "restart fallback",
+                cancellationToken).ConfigureAwait(false);
         }
 
         private async Task<ControllerConvergenceResult> WaitForControllerConvergenceAsync(

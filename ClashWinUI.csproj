@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
@@ -6,13 +6,20 @@
     <RootNamespace>ClashWinUI</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64;ARM64</Platforms>
+    <Platform Condition="'$(Platform)' == '' or '$(Platform)' == 'AnyCPU'">x64</Platform>
+    <PlatformTarget Condition="'$(PlatformTarget)' == '' or '$(PlatformTarget)' == 'AnyCPU'">$(Platform)</PlatformTarget>
     <RuntimeIdentifiers>win-x64;win-arm64</RuntimeIdentifiers>
-    <PublishProfile>win-$(Platform).pubxml</PublishProfile>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' and '$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <PublishProfile Condition="Exists('Properties\\PublishProfiles\\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <PublishProfile Condition="'$(PublishProfile)' == '' and Exists('win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
     <UseWinUI>true</UseWinUI>
     <WinUISDKReferences>false</WinUISDKReferences>
     <EnableMsixTooling>true</EnableMsixTooling>
     <Nullable>enable</Nullable>
     <LangVersion>preview</LangVersion>
+    <!-- Prevent custom output/intermediate folders from being globbed as source items. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**;bin_*\**;obj_*\**</DefaultItemExcludes>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
@@ -59,10 +66,14 @@
     <Content Include="Build\DownloadGeoData.ps1">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="Tun\**\wintun.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
     <LocalizationResourceFiles Include="i18n\**\Resources.resw" />
+    <TunResourceFiles Include="Tun\**\wintun.dll" />
   </ItemGroup>
 
   <ItemGroup>
@@ -84,6 +95,7 @@
     <PackageReference Include="LiveChartsCore.SkiaSharpView.WinUI" Version="2.0.0-rc6.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
+    <PackageReference Include="System.Management" Version="10.0.0" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
     <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260224000" />
@@ -148,7 +160,7 @@
   </PropertyGroup>
 
   <!-- Publish Properties -->
-  <PropertyGroup>
+  <PropertyGroup Condition="'$(GenerateAppxPackageOnBuild)' == 'true' or '$(PublishAppxPackage)' == 'true'">
     <!-- WinUI + DI + runtime JSON serialization is not trim-safe yet.
          Keep Release behavior consistent with Debug until trim-safe contexts are implemented. -->
     <PublishReadyToRun>false</PublishReadyToRun>
@@ -176,6 +188,22 @@
     <Copy
       SourceFiles="@(LocalizationResourceFiles)"
       DestinationFiles="@(LocalizationResourceFiles->'$(LayoutDir)\%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyTunResources" AfterTargets="Build">
+    <MakeDir Directories="@(TunResourceFiles->'$(TargetDir)%(RecursiveDir)')" />
+    <Copy
+      SourceFiles="@(TunResourceFiles)"
+      DestinationFiles="@(TunResourceFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')"
+      SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CopyTunResourcesToAppxLayout" AfterTargets="_CreatePackageLayout">
+    <MakeDir Directories="@(TunResourceFiles->'$(LayoutDir)\%(RecursiveDir)')" />
+    <Copy
+      SourceFiles="@(TunResourceFiles)"
+      DestinationFiles="@(TunResourceFiles->'$(LayoutDir)\%(RecursiveDir)%(Filename)%(Extension)')"
       SkipUnchangedFiles="true" />
   </Target>
 </Project>

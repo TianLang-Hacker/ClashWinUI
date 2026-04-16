@@ -22,16 +22,26 @@ namespace ClashWinUI.Services.Implementations
         private static readonly Regex PortRegex = new(@"^\uFEFF?port\s*:\s*(?<value>\d+)\s*(#.*)?$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private readonly IKernelPathService _kernelPathService;
+        private readonly IKernelBootstrapService _kernelBootstrapService;
+        private readonly ITunService _tunService;
         private readonly IAppLogService _logService;
         private readonly HttpClient _controllerProbeClient = new();
         private readonly SemaphoreSlim _sync = new(1, 1);
 
         private Process? _mihomoProcess;
+        private string? _currentConfigPath;
         private MihomoFailureDiagnostic _lastFailureDiagnostic = MihomoFailureDiagnostic.None;
+        private MihomoFailureDiagnostic _lastTunKernelFailureDiagnostic = MihomoFailureDiagnostic.None;
 
-        public ProcessService(IKernelPathService kernelPathService, IAppLogService logService)
+        public ProcessService(
+            IKernelPathService kernelPathService,
+            IKernelBootstrapService kernelBootstrapService,
+            ITunService tunService,
+            IAppLogService logService)
         {
             _kernelPathService = kernelPathService;
+            _kernelBootstrapService = kernelBootstrapService;
+            _tunService = tunService;
             _logService = logService;
         }
 
@@ -40,6 +50,8 @@ namespace ClashWinUI.Services.Implementations
         public int ControllerPort => 9090;
 
         public string ControllerHost => "127.0.0.1";
+
+        public string? CurrentConfigPath => _currentConfigPath;
 
         public MihomoFailureDiagnostic LastFailureDiagnostic => _lastFailureDiagnostic;
 
@@ -146,12 +158,31 @@ namespace ClashWinUI.Services.Implementations
                 string kernelPath = _kernelPathService.ResolveKernelPath();
                 if (!File.Exists(kernelPath))
                 {
-                    _logService.Add($"Cannot start Mihomo, kernel missing: {kernelPath}", LogLevel.Error);
-                    return false;
+                    bool kernelReady = await _kernelBootstrapService.EnsureKernelReadyAsync(cancellationToken).ConfigureAwait(false);
+                    kernelPath = _kernelPathService.ResolveKernelPath();
+                    if (!kernelReady || !File.Exists(kernelPath))
+                    {
+                        _currentConfigPath = null;
+                        _logService.Add($"Cannot start Mihomo, kernel missing: {kernelPath}", LogLevel.Error);
+                        return false;
+                    }
+                }
+
+                if (_tunService.IsTunEnabled(effectiveConfigPath))
+                {
+                    TunPreparationResult tunPreparation = _tunService.ValidateEnvironment(kernelPath);
+                    if (!tunPreparation.Success)
+                    {
+                        _currentConfigPath = null;
+                        UpdateFailureDiagnostic(tunPreparation.FailureKind, tunPreparation.Message);
+                        _logService.Add($"TUN preparation failed before Mihomo startup: {tunPreparation.Message}", LogLevel.Error);
+                        return false;
+                    }
                 }
 
                 if (IsRunning)
                 {
+                    _currentConfigPath = effectiveConfigPath;
                     ResetFailureDiagnostic();
                     _logService.Add("Mihomo process already running. Reuse existing instance.");
                     return true;
@@ -165,6 +196,7 @@ namespace ClashWinUI.Services.Implementations
                     {
                         Process keepProcess = SelectProcessToKeep(existingOwnedProcesses);
                         _mihomoProcess = keepProcess;
+                        _currentConfigPath = effectiveConfigPath;
                         ResetFailureDiagnostic();
                         _logService.Add($"Detected existing Mihomo process (PID={keepProcess.Id}). Reuse existing instance.");
 
@@ -219,14 +251,15 @@ namespace ClashWinUI.Services.Implementations
                     if (!string.IsNullOrWhiteSpace(e.Data))
                     {
                         _logService.Add($"[MIHOMO] {e.Data}");
-                        if (LooksLikePortBindConflict(e.Data))
+                        if (TryClassifyMihomoDiagnostic(e.Data, out MihomoFailureKind diagnosticKind))
                         {
-                            Interlocked.Exchange(ref bindConflictDetected, 1);
-                            UpdateFailureDiagnostic(MihomoFailureKind.PortBindConflict, e.Data);
-                        }
-                        else if (LooksLikeGeoDataIssue(e.Data))
-                        {
-                            UpdateFailureDiagnostic(MihomoFailureKind.GeoData, e.Data);
+                            if (diagnosticKind == MihomoFailureKind.PortBindConflict)
+                            {
+                                Interlocked.Exchange(ref bindConflictDetected, 1);
+                            }
+
+                            TrackTunKernelFailureDiagnostic(diagnosticKind, e.Data);
+                            UpdateFailureDiagnostic(diagnosticKind, e.Data);
                         }
                     }
                 };
@@ -236,20 +269,22 @@ namespace ClashWinUI.Services.Implementations
                     if (!string.IsNullOrWhiteSpace(e.Data))
                     {
                         _logService.Add($"[MIHOMO] {e.Data}", LogLevel.Warning);
-                        if (LooksLikePortBindConflict(e.Data))
+                        if (TryClassifyMihomoDiagnostic(e.Data, out MihomoFailureKind diagnosticKind))
                         {
-                            Interlocked.Exchange(ref bindConflictDetected, 1);
-                            UpdateFailureDiagnostic(MihomoFailureKind.PortBindConflict, e.Data);
-                        }
-                        else if (LooksLikeGeoDataIssue(e.Data))
-                        {
-                            UpdateFailureDiagnostic(MihomoFailureKind.GeoData, e.Data);
+                            if (diagnosticKind == MihomoFailureKind.PortBindConflict)
+                            {
+                                Interlocked.Exchange(ref bindConflictDetected, 1);
+                            }
+
+                            TrackTunKernelFailureDiagnostic(diagnosticKind, e.Data);
+                            UpdateFailureDiagnostic(diagnosticKind, e.Data);
                         }
                     }
                 };
 
                 process.Exited += (_, _) =>
                 {
+                    _currentConfigPath = null;
                     _logService.Add("Mihomo process exited.", LogLevel.Warning);
                 };
 
@@ -260,6 +295,7 @@ namespace ClashWinUI.Services.Implementations
                 }
                 catch (Exception ex)
                 {
+                    _currentConfigPath = null;
                     process.Dispose();
                     _logService.Add($"Mihomo start failed: {ex.Message}", LogLevel.Error);
                     return false;
@@ -267,6 +303,7 @@ namespace ClashWinUI.Services.Implementations
 
                 if (!started)
                 {
+                    _currentConfigPath = null;
                     process.Dispose();
                     _logService.Add("Mihomo start failed: process.Start returned false.", LogLevel.Error);
                     return false;
@@ -281,6 +318,7 @@ namespace ClashWinUI.Services.Implementations
                     if (process.HasExited)
                     {
                         int exitCode = process.ExitCode;
+                        _currentConfigPath = null;
                         process.Dispose();
                         _logService.Add($"Mihomo exited immediately after start. ExitCode={exitCode}", LogLevel.Error);
                         return false;
@@ -288,6 +326,7 @@ namespace ClashWinUI.Services.Implementations
 
                     if (Interlocked.CompareExchange(ref bindConflictDetected, 0, 0) == 1)
                     {
+                        _currentConfigPath = null;
                         TryTerminateProcess(process, "port bind conflict during startup");
                         _logService.Add("Mihomo startup failed due to port bind conflict.", LogLevel.Error);
                         return false;
@@ -298,12 +337,14 @@ namespace ClashWinUI.Services.Implementations
 
                 if (Interlocked.CompareExchange(ref bindConflictDetected, 0, 0) == 1)
                 {
+                    _currentConfigPath = null;
                     TryTerminateProcess(process, "port bind conflict during startup");
                     _logService.Add("Mihomo startup failed due to port bind conflict.", LogLevel.Error);
                     return false;
                 }
 
                 _mihomoProcess = process;
+                _currentConfigPath = effectiveConfigPath;
                 _logService.Add($"Mihomo started with config: {effectiveConfigPath}");
 
                 return true;
@@ -328,6 +369,7 @@ namespace ClashWinUI.Services.Implementations
                 string kernelPath = _kernelPathService.ResolveKernelPath();
                 Process? trackedProcess = _mihomoProcess;
                 _mihomoProcess = null;
+                _currentConfigPath = null;
 
                 if (trackedProcess is not null)
                 {
@@ -375,6 +417,31 @@ namespace ClashWinUI.Services.Implementations
         public void ResetFailureDiagnostic()
         {
             _lastFailureDiagnostic = MihomoFailureDiagnostic.None;
+            _lastTunKernelFailureDiagnostic = MihomoFailureDiagnostic.None;
+        }
+
+        internal bool TryGetRecentTunFailureDiagnostic(TimeSpan freshnessWindow, out MihomoFailureDiagnostic diagnostic)
+        {
+            DateTimeOffset cutoff = DateTimeOffset.UtcNow - freshnessWindow;
+
+            if (MihomoFailureKindHelper.IsTunFailure(_lastTunKernelFailureDiagnostic.Kind)
+                && _lastTunKernelFailureDiagnostic.OccurredAt >= cutoff
+                && !string.IsNullOrWhiteSpace(_lastTunKernelFailureDiagnostic.Message))
+            {
+                diagnostic = _lastTunKernelFailureDiagnostic;
+                return true;
+            }
+
+            if (MihomoFailureKindHelper.IsTunFailure(_lastFailureDiagnostic.Kind)
+                && _lastFailureDiagnostic.OccurredAt >= cutoff
+                && !string.IsNullOrWhiteSpace(_lastFailureDiagnostic.Message))
+            {
+                diagnostic = _lastFailureDiagnostic;
+                return true;
+            }
+
+            diagnostic = MihomoFailureDiagnostic.None;
+            return false;
         }
 
         private List<Process> FindOwnedMihomoProcesses(string kernelPath)
@@ -519,6 +586,125 @@ namespace ClashWinUI.Services.Implementations
                     && line.Contains("bind:", StringComparison.OrdinalIgnoreCase));
         }
 
+        private static bool TryClassifyMihomoDiagnostic(string line, out MihomoFailureKind kind)
+        {
+            kind = MihomoFailureKind.None;
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return false;
+            }
+
+            if (LooksLikePortBindConflict(line))
+            {
+                kind = MihomoFailureKind.PortBindConflict;
+                return true;
+            }
+
+            if (LooksLikeTunPermissionIssue(line))
+            {
+                kind = MihomoFailureKind.TunPermission;
+                return true;
+            }
+
+            if (LooksLikeTunDependencyIssue(line))
+            {
+                kind = MihomoFailureKind.TunDependency;
+                return true;
+            }
+
+            if (LooksLikeTunRouteIssue(line))
+            {
+                kind = MihomoFailureKind.TunRouteMissing;
+                return true;
+            }
+
+            if (LooksLikeGeoDataIssue(line))
+            {
+                kind = MihomoFailureKind.GeoData;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool LooksLikeTunPermissionIssue(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line) || !LooksLikeTunContext(line))
+            {
+                return false;
+            }
+
+            return line.Contains("access is denied", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("permission denied", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("requires elevation", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("required privilege is not held", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("operation not permitted", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool LooksLikeTunDependencyIssue(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return false;
+            }
+
+            if (line.Contains("wintun.dll", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return LooksLikeTunContext(line)
+                && (line.Contains("not found", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("not exist", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("load", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("initialize", StringComparison.OrdinalIgnoreCase)
+                    || line.Contains("driver", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool LooksLikeTunRouteIssue(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return false;
+            }
+
+            bool hasRouteOrInterfaceContext =
+                LooksLikeTunContext(line)
+                || line.Contains("route", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("interface", StringComparison.OrdinalIgnoreCase);
+
+            if (!hasRouteOrInterfaceContext)
+            {
+                return false;
+            }
+
+            bool hasFailureSignal =
+                line.Contains("fail", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("error", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("unable", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("cannot", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("can't", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("not attached", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("not found", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("missing", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("already exists", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("file exists", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("conflict", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("in use", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("occupied", StringComparison.OrdinalIgnoreCase);
+
+            if (!hasFailureSignal)
+            {
+                return false;
+            }
+
+            return line.Contains("route", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("interface", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("adapter", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("create adapter", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("createadapter", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool LooksLikeGeoDataIssue(string line)
         {
             if (string.IsNullOrWhiteSpace(line))
@@ -535,9 +721,31 @@ namespace ClashWinUI.Services.Implementations
                         || line.Contains("MMDB", StringComparison.OrdinalIgnoreCase)));
         }
 
-        private void UpdateFailureDiagnostic(MihomoFailureKind kind, string message)
+        private static bool LooksLikeTunContext(string line)
+        {
+            return line.Contains("tun", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("wintun", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("adapter", StringComparison.OrdinalIgnoreCase);
+        }
+
+        public void UpdateFailureDiagnostic(MihomoFailureKind kind, string message)
         {
             _lastFailureDiagnostic = new MihomoFailureDiagnostic
+            {
+                Kind = kind,
+                Message = message,
+                OccurredAt = DateTimeOffset.UtcNow,
+            };
+        }
+
+        private void TrackTunKernelFailureDiagnostic(MihomoFailureKind kind, string message)
+        {
+            if (!MihomoFailureKindHelper.IsTunFailure(kind) || string.IsNullOrWhiteSpace(message))
+            {
+                return;
+            }
+
+            _lastTunKernelFailureDiagnostic = new MihomoFailureDiagnostic
             {
                 Kind = kind,
                 Message = message,

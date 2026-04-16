@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -231,6 +231,12 @@
   <data name="HomeFieldRulesCount" xml:space="preserve">
     <value>Rules Count</value>
   </data>
+  <data name="HomeFieldTunStatus" xml:space="preserve">
+    <value>TUN Status</value>
+  </data>
+  <data name="HomeFieldTunSummary" xml:space="preserve">
+    <value>TUN Summary</value>
+  </data>
   <data name="HomeSectionSystem" xml:space="preserve">
     <value>System Info</value>
   </data>
@@ -443,6 +449,60 @@
   </data>
   <data name="GeoDataStatusUnknownReason" xml:space="preserve">
     <value>Unknown reason</value>
+  </data>
+  <data name="MihomoStatusUnknownReason" xml:space="preserve">
+    <value>Unknown reason</value>
+  </data>
+  <data name="SystemProxyStatusEnabledFormat" xml:space="preserve">
+    <value>Enabled ({0})</value>
+  </data>
+  <data name="SystemProxyStatusEnabledWithoutAddress" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="SystemProxyStatusDisabled" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="TunStatusDependencyFailureFormat" xml:space="preserve">
+    <value>TUN dependency preparation failed: {0}</value>
+  </data>
+  <data name="TunStatusPermissionFailureFormat" xml:space="preserve">
+    <value>TUN requires administrator privileges or elevated access: {0}</value>
+  </data>
+  <data name="TunStatusAdapterMissingFormat" xml:space="preserve">
+    <value>TUN is configured, but the adapter is missing: {0}</value>
+  </data>
+  <data name="TunStatusRouteMissingFormat" xml:space="preserve">
+    <value>TUN adapter exists, but routes were not attached: {0}</value>
+  </data>
+  <data name="TunStatusDnsUnmanagedFormat" xml:space="preserve">
+    <value>TUN routes are attached, but DNS is not managed: {0}</value>
+  </data>
+  <data name="TunStatusFirewallBlockedFormat" xml:space="preserve">
+    <value>TUN adapter exists, but Windows Firewall may be blocking the current stack: {0}</value>
+  </data>
+  <data name="TunStatusControllerFailureFormat" xml:space="preserve">
+    <value>TUN is enabled, but Mihomo could not start the controller: {0}</value>
+  </data>
+  <data name="TunRuntimeStatusDisabled" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="TunRuntimeStatusActive" xml:space="preserve">
+    <value>Active</value>
+  </data>
+  <data name="TunRuntimeStatusPending" xml:space="preserve">
+    <value>Configured, but currently not active</value>
+  </data>
+  <data name="TunRuntimeSummaryFallbackProxyFormat" xml:space="preserve">
+    <value>TUN is not active. Traffic is still using system proxy {0}.</value>
+  </data>
+  <data name="TunRuntimeSummaryFallbackProxyNoAddress" xml:space="preserve">
+    <value>TUN is not active. Traffic is still using the system proxy.</value>
+  </data>
+  <data name="TunRuntimeSummaryUnprotected" xml:space="preserve">
+    <value>TUN is not active and system proxy is off. Current traffic will not be proxied.</value>
+  </data>
+  <data name="TunRuntimeSummaryDnsUnmanaged" xml:space="preserve">
+    <value>TUN routes are attached, but DNS is not managed for this profile. Website resolution may fail when system proxy is off.</value>
   </data>
   <data name="SettingsMixinHeader" xml:space="preserve">
     <value>Runtime Config</value>

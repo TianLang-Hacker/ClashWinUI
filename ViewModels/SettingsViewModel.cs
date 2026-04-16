@@ -43,6 +43,7 @@ namespace ClashWinUI.ViewModels
         private readonly IMihomoService _mihomoService;
         private readonly IGeoDataService _geoDataService;
         private readonly IProcessService _processService;
+        private readonly ITunService _tunService;
         private readonly ISystemProxyService _systemProxyService;
         private readonly IUpdateService _updateService;
         private readonly SemaphoreSlim _mixinApplySemaphore = new(1, 1);
@@ -88,6 +89,12 @@ namespace ClashWinUI.ViewModels
 
         [ObservableProperty]
         public partial string MixinStatusMessage { get; set; }
+
+        [ObservableProperty]
+        public partial string TunRuntimeStatusText { get; set; }
+
+        [ObservableProperty]
+        public partial string TunRuntimeSummaryText { get; set; }
 
         [ObservableProperty]
         public partial bool IsUpdatingGeoData { get; set; }
@@ -161,6 +168,7 @@ namespace ClashWinUI.ViewModels
             IMihomoService mihomoService,
             IGeoDataService geoDataService,
             IProcessService processService,
+            ITunService tunService,
             ISystemProxyService systemProxyService,
             IUpdateService updateService)
         {
@@ -173,6 +181,7 @@ namespace ClashWinUI.ViewModels
             _mihomoService = mihomoService;
             _geoDataService = geoDataService;
             _processService = processService;
+            _tunService = tunService;
             _systemProxyService = systemProxyService;
             _updateService = updateService;
 
@@ -192,6 +201,8 @@ namespace ClashWinUI.ViewModels
             CurrentMixinProfileName = string.Empty;
             CurrentMixinWorkspacePath = string.Empty;
             MixinStatusMessage = string.Empty;
+            TunRuntimeStatusText = string.Empty;
+            TunRuntimeSummaryText = string.Empty;
             GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
             MixedPortInput = "0";
             HttpPortInput = "0";
@@ -261,6 +272,8 @@ namespace ClashWinUI.ViewModels
                 CurrentMixinProfileName = _localizedStrings["ProfilesNoActive"];
                 CurrentMixinWorkspacePath = string.Empty;
                 MixinStatusMessage = _localizedStrings["SettingsMixinNoActiveProfile"];
+                TunRuntimeStatusText = string.Empty;
+                TunRuntimeSummaryText = string.Empty;
                 ResetMixinInputs();
                 return;
             }
@@ -275,6 +288,7 @@ namespace ClashWinUI.ViewModels
                 MixinStatusMessage = string.Empty;
                 _currentMixinSettings = CloneMixinSettings(settings);
                 ApplyMixinSettings(settings);
+                RefreshTunRuntimeStatus();
             }
             catch (Exception ex)
             {
@@ -283,6 +297,7 @@ namespace ClashWinUI.ViewModels
                 MixinStatusMessage = string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message);
                 _currentMixinSettings = new MixinSettings();
                 ResetMixinInputs();
+                RefreshTunRuntimeStatus();
             }
         }
 
@@ -616,10 +631,28 @@ namespace ClashWinUI.ViewModels
 
             if (MixinSettingsEquals(_currentMixinSettings, nextSettings))
             {
+                RefreshTunRuntimeStatus();
                 return (true, string.Empty);
             }
 
             MixinSettings previousSettings = CloneMixinSettings(_currentMixinSettings);
+            if (nextSettings.TunEnabled)
+            {
+                TunPreparationResult tunPreparation = _tunService.ValidateEnvironment(_kernelPathService.ResolveKernelPath());
+                if (!tunPreparation.Success)
+                {
+                    if (rollbackVisibleInputsOnFailure)
+                    {
+                        ApplyMixinSettings(previousSettings);
+                    }
+
+                    string failedMessage = BuildTunPreparationFailureMessage(tunPreparation);
+                    MixinStatusMessage = failedMessage;
+                    RefreshTunRuntimeStatus();
+                    return (false, failedMessage);
+                }
+            }
+
             try
             {
                 _configService.SaveMixin(_activeMixinProfile, nextSettings);
@@ -627,36 +660,53 @@ namespace ClashWinUI.ViewModels
                 bool applied = await _mihomoService.ApplyConfigAsync(runtimePath);
                 if (!applied)
                 {
-                    RestorePersistedMixinSettings(previousSettings);
+                    bool currentRuntimeUsesTarget = PathsEqual(_processService.CurrentConfigPath, runtimePath);
+                    if (currentRuntimeUsesTarget)
+                    {
+                        await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                            _systemProxyService,
+                            _processService,
+                            _tunService,
+                            runtimePath);
+                    }
+
+                    RestorePersistedMixinSettings(previousSettings, rebuildRuntime: !currentRuntimeUsesTarget);
                     if (rollbackVisibleInputsOnFailure)
                     {
                         ApplyMixinSettings(previousSettings);
                     }
 
-                    string failedMessage = GeoDataStatusTextHelper.TryBuildControllerFailureMessage(
+                    string failedMessage = MihomoFailureTextHelper.TryBuildControllerFailureMessage(
                         _localizedStrings,
                         _processService,
                         _geoDataService,
-                        out string geoDataMessage)
-                        ? geoDataMessage
+                        _tunService,
+                        runtimePath,
+                        out string controllerMessage)
+                        ? controllerMessage
                         : _localizedStrings["SettingsMixinStatusApplyFailed"];
                     MixinStatusMessage = failedMessage;
+                    RefreshTunRuntimeStatus();
                     return (false, failedMessage);
                 }
 
-                int proxyPort = _processService.ResolveProxyPort(runtimePath);
-                await _systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+                await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                    _systemProxyService,
+                    _processService,
+                    _tunService,
+                    runtimePath);
 
                 _currentMixinSettings = CloneMixinSettings(nextSettings);
                 ApplyMixinSettings(_currentMixinSettings);
 
                 string successMessage = _localizedStrings["SettingsMixinStatusApplied"];
                 MixinStatusMessage = successMessage;
+                RefreshTunRuntimeStatus();
                 return (true, successMessage);
             }
             catch (Exception ex)
             {
-                RestorePersistedMixinSettings(previousSettings);
+                RestorePersistedMixinSettings(previousSettings, rebuildRuntime: true);
                 if (rollbackVisibleInputsOnFailure)
                 {
                     ApplyMixinSettings(previousSettings);
@@ -664,11 +714,12 @@ namespace ClashWinUI.ViewModels
 
                 string failedMessage = string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message);
                 MixinStatusMessage = failedMessage;
+                RefreshTunRuntimeStatus();
                 return (false, failedMessage);
             }
         }
 
-        private void RestorePersistedMixinSettings(MixinSettings settings)
+        private void RestorePersistedMixinSettings(MixinSettings settings, bool rebuildRuntime)
         {
             if (_activeMixinProfile is null)
             {
@@ -678,7 +729,10 @@ namespace ClashWinUI.ViewModels
             try
             {
                 _configService.SaveMixin(_activeMixinProfile, settings);
-                _configService.BuildRuntime(_activeMixinProfile);
+                if (rebuildRuntime)
+                {
+                    _configService.BuildRuntime(_activeMixinProfile);
+                }
             }
             catch
             {
@@ -717,6 +771,100 @@ namespace ClashWinUI.ViewModels
                 && string.Equals(NormalizeLogLevelTag(left.LogLevel), NormalizeLogLevelTag(right.LogLevel), StringComparison.OrdinalIgnoreCase);
         }
 
+        private void RefreshTunRuntimeStatus()
+        {
+            if (!HasActiveMixinProfile)
+            {
+                TunRuntimeStatusText = string.Empty;
+                TunRuntimeSummaryText = string.Empty;
+                return;
+            }
+
+            SystemProxyState systemProxyState = _systemProxyService.GetCurrentState();
+            TunRuntimeStatus runtimeStatus = ResolveTunRuntimeStatus();
+
+            (TunRuntimeStatusText, TunRuntimeSummaryText) = RuntimeNetworkStatusTextHelper.BuildTunPresentation(
+                _localizedStrings,
+                runtimeStatus,
+                systemProxyState);
+        }
+
+        private TunRuntimeStatus ResolveTunRuntimeStatus()
+        {
+            try
+            {
+                string? currentConfigPath = _processService.CurrentConfigPath;
+                if (!string.IsNullOrWhiteSpace(currentConfigPath) && _tunService.IsTunEnabled(currentConfigPath))
+                {
+                    return TunRuntimeDiagnosticHelper.ApplyPreferredKernelDiagnostic(
+                        _processService,
+                        _tunService.GetRuntimeStatus(currentConfigPath, _kernelPathService.ResolveKernelPath()));
+                }
+
+                if (_activeMixinProfile is null)
+                {
+                    return TunRuntimeStatus.Disabled();
+                }
+
+                string runtimePath = _configService.GetRuntimePath(_activeMixinProfile);
+                if (!_tunService.IsTunEnabled(runtimePath))
+                {
+                    return TunRuntimeStatus.Disabled();
+                }
+
+                return TunRuntimeDiagnosticHelper.ApplyPreferredKernelDiagnostic(
+                    _processService,
+                    _tunService.GetRuntimeStatus(runtimePath, _kernelPathService.ResolveKernelPath()));
+            }
+            catch (Exception ex)
+            {
+                return new TunRuntimeStatus
+                {
+                    IsConfigured = true,
+                    IsHealthy = false,
+                    DriverLoaded = false,
+                    DriverVersion = string.Empty,
+                    AdapterPresent = false,
+                    AdapterName = string.Empty,
+                    RouteAttached = false,
+                    EffectiveStack = string.Empty,
+                    FirewallEnabled = WindowsFirewallHelper.IsAnyProfileEnabled(),
+                    DnsHijackConfigured = false,
+                    DnsManaged = false,
+                    DnsAutoGenerated = false,
+                    FailureKind = MihomoFailureKind.TunDependency,
+                    Message = ex.Message,
+                };
+            }
+        }
+
+        private static bool PathsEqual(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                System.IO.Path.GetFullPath(left.Trim()),
+                System.IO.Path.GetFullPath(right.Trim()),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string BuildTunPreparationFailureMessage(TunPreparationResult preparation)
+        {
+            string detail = string.IsNullOrWhiteSpace(preparation.Message)
+                ? _localizedStrings["MihomoStatusUnknownReason"]
+                : preparation.Message.Trim();
+
+            return preparation.FailureKind switch
+            {
+                MihomoFailureKind.TunPermission => string.Format(_localizedStrings["TunStatusPermissionFailureFormat"], detail),
+                MihomoFailureKind.TunDependency => string.Format(_localizedStrings["TunStatusDependencyFailureFormat"], detail),
+                _ => string.Format(_localizedStrings["TunStatusControllerFailureFormat"], detail),
+            };
+        }
+
         private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (_isDisposed)
@@ -742,6 +890,7 @@ namespace ClashWinUI.ViewModels
                 MixinStatusMessage = _localizedStrings["SettingsMixinNoActiveProfile"];
             }
 
+            RefreshTunRuntimeStatus();
             GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
             RefreshUpdateState();
         }

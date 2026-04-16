@@ -428,13 +428,15 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
 
                                 <TextBlock Text="{Binding [HomeFieldKernelVersion], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
                                 <TextBlock Grid.Column="1" Text="{Binding KernelVersionText}" Style="{StaticResource HomeInfoValueStyle}" />
 
                                 <TextBlock Grid.Row="1" Text="{Binding [HomeFieldSystemProxy], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
-                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SystemProxyAddressText}" Style="{StaticResource HomeInfoValueStyle}" />
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SystemProxyAddressText}" TextWrapping="WrapWholeWords" Style="{StaticResource HomeInfoValueStyle}" />
 
                                 <TextBlock Grid.Row="2" Text="{Binding [HomeFieldMixinPorts], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding MixinPortsText}" Style="{StaticResource HomeInfoValueStyle}" />
@@ -444,6 +446,12 @@
 
                                 <TextBlock Grid.Row="4" Text="{Binding [HomeFieldRulesCount], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
                                 <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding RulesCountText}" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <TextBlock Grid.Row="5" Text="{Binding [HomeFieldTunStatus], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" />
+                                <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding TunStatusText}" TextWrapping="WrapWholeWords" Style="{StaticResource HomeInfoValueStyle}" />
+
+                                <TextBlock Grid.Row="6" Text="{Binding [HomeFieldTunSummary], Source={StaticResource L}}" Style="{StaticResource HomeInfoLabelStyle}" Visibility="{Binding TunSummaryText, Converter={StaticResource StringToVisibilityConverter}}" />
+                                <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding TunSummaryText}" TextWrapping="WrapWholeWords" Style="{StaticResource HomeInfoValueStyle}" Visibility="{Binding TunSummaryText, Converter={StaticResource StringToVisibilityConverter}}" />
                             </Grid>
                         </StackPanel>
                     </Border>

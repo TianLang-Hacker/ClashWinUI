@@ -20,6 +20,7 @@ namespace ClashWinUI.ViewModels
         private readonly IMihomoService _mihomoService;
         private readonly IGeoDataService _geoDataService;
         private readonly IProcessService _processService;
+        private readonly ITunService _tunService;
         private readonly ISystemProxyService _systemProxyService;
         private bool _suppressSelectionActivation;
         private string? _pendingSelectedProfileId;
@@ -52,6 +53,7 @@ namespace ClashWinUI.ViewModels
             IMihomoService mihomoService,
             IGeoDataService geoDataService,
             IProcessService processService,
+            ITunService tunService,
             ISystemProxyService systemProxyService)
         {
             _localizedStrings = localizedStrings;
@@ -60,6 +62,7 @@ namespace ClashWinUI.ViewModels
             _mihomoService = mihomoService;
             _geoDataService = geoDataService;
             _processService = processService;
+            _tunService = tunService;
             _systemProxyService = systemProxyService;
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
 
@@ -106,14 +109,14 @@ namespace ClashWinUI.ViewModels
             {
                 ProfileItem profile = await _profileService.AddOrUpdateFromSubscriptionAsync(SubscriptionUrl);
                 ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(profile.FilePath);
-                bool applied = await ActivateProfileAsync(profile);
+                (bool applied, string runtimePath) = await ActivateProfileAsync(profile);
 
                 ReloadProfiles();
                 StatusMessage = compatibility == ProfileCompatibilityStatus.Base64NotYaml
                     ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
                     : (applied
                         ? _localizedStrings["ProfilesStatusFetchedAndApplied"]
-                        : GetApplyFailureStatus("ProfilesStatusFetchedOnly"));
+                        : GetApplyFailureStatus("ProfilesStatusFetchedOnly", runtimePath));
             }
             catch (Exception ex)
             {
@@ -137,14 +140,14 @@ namespace ClashWinUI.ViewModels
             {
                 ProfileItem profile = await _profileService.ImportLocalFileAsync(filePath);
                 ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(profile.FilePath);
-                bool applied = await ActivateProfileAsync(profile);
+                (bool applied, string runtimePath) = await ActivateProfileAsync(profile);
 
                 ReloadProfiles();
                 StatusMessage = compatibility == ProfileCompatibilityStatus.Base64NotYaml
                     ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
                     : (applied
                         ? _localizedStrings["ProfilesStatusImportedAndApplied"]
-                        : GetApplyFailureStatus("ProfilesStatusImportedOnly"));
+                        : GetApplyFailureStatus("ProfilesStatusImportedOnly", runtimePath));
             }
             catch (Exception ex)
             {
@@ -203,24 +206,41 @@ namespace ClashWinUI.ViewModels
             return SelectedProfile is not null && !IsBusy;
         }
 
-        private async Task<bool> ApplyRuntimeAndSyncProxyAsync(ProfileItem profile)
+        private async Task<bool> ApplyRuntimeAndSyncProxyAsync(string runtimePath)
         {
-            string runtimePath = _configService.GetRuntimePath(profile);
             bool applied = await _mihomoService.ApplyConfigAsync(runtimePath);
             if (!applied)
             {
+                if (PathsEqual(_processService.CurrentConfigPath, runtimePath))
+                {
+                    await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                        _systemProxyService,
+                        _processService,
+                        _tunService,
+                        runtimePath);
+                }
+
                 return false;
             }
 
-            int proxyPort = _processService.ResolveProxyPort(runtimePath);
-            await _systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+            await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                _systemProxyService,
+                _processService,
+                _tunService,
+                runtimePath);
             return true;
         }
 
-        private async Task<bool> ActivateProfileAsync(ProfileItem profile)
+        private async Task<(bool Applied, string RuntimePath)> ActivateProfileAsync(ProfileItem profile)
         {
-            return _profileService.SetActiveProfile(profile.Id)
-                && await ApplyRuntimeAndSyncProxyAsync(profile);
+            if (!_profileService.SetActiveProfile(profile.Id))
+            {
+                return (false, _configService.GetRuntimePath(profile));
+            }
+
+            string runtimePath = _configService.GetRuntimePath(profile);
+            bool applied = await ApplyRuntimeAndSyncProxyAsync(runtimePath);
+            return (applied, runtimePath);
         }
 
         private async Task ActivateSelectedProfileAsync(ProfileItem profile)
@@ -235,13 +255,13 @@ namespace ClashWinUI.ViewModels
             try
             {
                 ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(profile.FilePath);
-                bool applied = await ActivateProfileAsync(profile);
+                (bool applied, string runtimePath) = await ActivateProfileAsync(profile);
                 ReloadProfiles();
                 StatusMessage = compatibility == ProfileCompatibilityStatus.Base64NotYaml
                     ? _localizedStrings["ProfilesStatusNotMihomoCompatible"]
                     : (applied
                         ? _localizedStrings["ProfilesStatusActivated"]
-                        : GetApplyFailureStatus("ProfilesStatusActivatedNotApplied"));
+                        : GetApplyFailureStatus("ProfilesStatusActivatedNotApplied", runtimePath));
             }
             catch (Exception ex)
             {
@@ -336,15 +356,30 @@ namespace ClashWinUI.ViewModels
             ReloadProfiles();
         }
 
-        private string GetApplyFailureStatus(string fallbackResourceKey)
+        private string GetApplyFailureStatus(string fallbackResourceKey, string? runtimePath)
         {
-            return GeoDataStatusTextHelper.TryBuildControllerFailureMessage(
+            return MihomoFailureTextHelper.TryBuildControllerFailureMessage(
                 _localizedStrings,
                 _processService,
                 _geoDataService,
-                out string geoDataMessage)
-                ? geoDataMessage
+                _tunService,
+                runtimePath,
+                out string controllerMessage)
+                ? controllerMessage
                 : _localizedStrings[fallbackResourceKey];
+        }
+
+        private static bool PathsEqual(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                System.IO.Path.GetFullPath(left.Trim()),
+                System.IO.Path.GetFullPath(right.Trim()),
+                StringComparison.OrdinalIgnoreCase);
         }
     }
 }

@@ -21,6 +21,7 @@ namespace ClashWinUI.ViewModels
         private readonly IMihomoService _mihomoService;
         private readonly IGeoDataService _geoDataService;
         private readonly IProcessService _processService;
+        private readonly ITunService _tunService;
         private readonly ISystemProxyService _systemProxyService;
         private readonly SemaphoreSlim _applySemaphore = new(1, 1);
         private readonly CancellationTokenSource _disposeCancellation = new();
@@ -50,6 +51,7 @@ namespace ClashWinUI.ViewModels
             IMihomoService mihomoService,
             IGeoDataService geoDataService,
             IProcessService processService,
+            ITunService tunService,
             ISystemProxyService systemProxyService)
         {
             _localizedStrings = localizedStrings;
@@ -58,6 +60,7 @@ namespace ClashWinUI.ViewModels
             _mihomoService = mihomoService;
             _geoDataService = geoDataService;
             _processService = processService;
+            _tunService = tunService;
             _systemProxyService = systemProxyService;
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
@@ -129,19 +132,35 @@ namespace ClashWinUI.ViewModels
 
                 if (!applied)
                 {
+                    if (PathsEqual(_processService.CurrentConfigPath, runtimePath))
+                    {
+                        await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                            _systemProxyService,
+                            _processService,
+                            _tunService,
+                            runtimePath,
+                            cancellationToken);
+                    }
+
                     RollbackRuleOverride(rule.StableId, previousState);
-                    StatusMessage = GeoDataStatusTextHelper.TryBuildControllerFailureMessage(
+                    StatusMessage = MihomoFailureTextHelper.TryBuildControllerFailureMessage(
                         _localizedStrings,
                         _processService,
                         _geoDataService,
-                        out string geoDataMessage)
-                        ? geoDataMessage
+                        _tunService,
+                        runtimePath,
+                        out string controllerMessage)
+                        ? controllerMessage
                         : _localizedStrings["RulesStatusApplyFailed"];
                     return false;
                 }
 
-                int proxyPort = _processService.ResolveProxyPort(runtimePath);
-                await _systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+                await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                    _systemProxyService,
+                    _processService,
+                    _tunService,
+                    runtimePath,
+                    cancellationToken);
                 if (_isDisposed || cancellationToken.IsCancellationRequested)
                 {
                     return false;
@@ -338,6 +357,19 @@ namespace ClashWinUI.ViewModels
             {
                 StatusMessage = string.Format(_localizedStrings["RulesStatusLoaded"], _allRules.Count);
             }
+        }
+
+        private static bool PathsEqual(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            {
+                return false;
+            }
+
+            return string.Equals(
+                System.IO.Path.GetFullPath(left.Trim()),
+                System.IO.Path.GetFullPath(right.Trim()),
+                StringComparison.OrdinalIgnoreCase);
         }
     }
 }

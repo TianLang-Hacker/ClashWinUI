@@ -1,3 +1,4 @@
+using ClashWinUI.Models;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -7,5 +8,6 @@ namespace ClashWinUI.Services.Interfaces
     {
         Task EnableAsync(string host, int port, string bypassList, CancellationToken cancellationToken = default);
         Task DisableAsync(CancellationToken cancellationToken = default);
+        SystemProxyState GetCurrentState();
     }
 }

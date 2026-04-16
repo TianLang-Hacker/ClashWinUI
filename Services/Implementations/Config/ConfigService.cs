@@ -1,4 +1,5 @@
-﻿
+
+using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Serialization;
 using ClashWinUI.Services.Interfaces;
@@ -20,6 +21,7 @@ namespace ClashWinUI.Services.Implementations.Config
         private const string MixinFileName = "mixin.yaml";
         private const string RuntimeFileName = "runtime.yaml";
         private const string RulesOverrideFileName = "rules.overrides.json";
+        private const string DefaultRuntimeTunDeviceName = "ClashWinUI";
 
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
         private static readonly Encoding Utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
@@ -225,6 +227,7 @@ namespace ClashWinUI.Services.Implementations.Config
             {
                 YamlMappingNode merged = BuildMergedMapping(workspace);
                 ApplyRuleOverrides(workspace, merged);
+                NormalizeRuntimeTunSettings(merged);
                 SaveYamlMapping(workspace.RuntimePath, merged, useBom: true);
             }
             catch (Exception ex)
@@ -466,6 +469,70 @@ namespace ClashWinUI.Services.Implementations.Config
             root.Add(new YamlScalarNode(key), new YamlScalarNode(value));
         }
 
+        private static void NormalizeRuntimeTunSettings(YamlMappingNode merged)
+        {
+            if (!GetTunEnabled(merged))
+            {
+                return;
+            }
+
+            YamlMappingNode tunMapping = GetOrCreateMappingChild(merged, "tun");
+            SetBooleanIfMissing(tunMapping, "enable", true);
+
+            if (string.IsNullOrWhiteSpace(GetString(tunMapping, "stack")))
+            {
+                SetScalarValue(
+                    tunMapping,
+                    "stack",
+                    WindowsFirewallHelper.IsAnyProfileEnabled() ? "gvisor" : "mixed");
+            }
+
+            SetBooleanIfMissing(tunMapping, "auto-route", true);
+            SetBooleanIfMissing(tunMapping, "auto-detect-interface", true);
+            SetBooleanIfMissing(tunMapping, "strict-route", true);
+            if (string.IsNullOrWhiteSpace(GetString(tunMapping, "device")))
+            {
+                SetScalarValue(tunMapping, "device", DefaultRuntimeTunDeviceName);
+            }
+
+            bool hasExistingDns = TryGetChild(merged, "dns", out _, out YamlNode? dnsNode)
+                && dnsNode is YamlMappingNode;
+            YamlMappingNode dnsMapping = GetOrCreateMappingChild(merged, "dns");
+            bool ipv6Enabled = GetBool(merged, "ipv6");
+
+            if (hasExistingDns)
+            {
+                SetBooleanIfMissing(dnsMapping, "enable", true);
+                SetScalarIfMissing(dnsMapping, "listen", "127.0.0.1:1053");
+                SetBooleanIfMissing(dnsMapping, "ipv6", ipv6Enabled);
+                SetBooleanIfMissing(dnsMapping, "use-hosts", true);
+                SetBooleanIfMissing(dnsMapping, "use-system-hosts", true);
+                SetScalarIfMissing(dnsMapping, "enhanced-mode", "fake-ip");
+                SetScalarIfMissing(dnsMapping, "fake-ip-range", "198.18.0.1/16");
+                SetSequenceIfMissing(dnsMapping, "default-nameserver", "223.5.5.5", "119.29.29.29");
+                SetSequenceIfMissing(dnsMapping, "nameserver", "https://doh.pub/dns-query", "https://dns.alidns.com/dns-query");
+                SetSequenceIfMissing(dnsMapping, "proxy-server-nameserver", "https://doh.pub/dns-query", "https://dns.alidns.com/dns-query");
+            }
+            else
+            {
+                SetBooleanValue(dnsMapping, "enable", true);
+                SetScalarValue(dnsMapping, "listen", "127.0.0.1:1053");
+                SetBooleanValue(dnsMapping, "ipv6", ipv6Enabled);
+                SetBooleanValue(dnsMapping, "use-hosts", true);
+                SetBooleanValue(dnsMapping, "use-system-hosts", true);
+                SetScalarValue(dnsMapping, "enhanced-mode", "fake-ip");
+                SetScalarValue(dnsMapping, "fake-ip-range", "198.18.0.1/16");
+                SetNode(dnsMapping, "default-nameserver", CreateStringSequenceNode("223.5.5.5", "119.29.29.29"));
+                SetNode(dnsMapping, "nameserver", CreateStringSequenceNode("https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"));
+                SetNode(dnsMapping, "proxy-server-nameserver", CreateStringSequenceNode("https://doh.pub/dns-query", "https://dns.alidns.com/dns-query"));
+            }
+
+            if (!HasValue(tunMapping, "dns-hijack"))
+            {
+                SetNode(tunMapping, "dns-hijack", CreateStringSequenceNode("any:53", "tcp://any:53"));
+            }
+        }
+
         private static RuntimeRuleItem ParseRuntimeRuleItem(string stableId, int index, string rawRuleText, bool isEnabled)
         {
             string[] segments = rawRuleText
@@ -537,6 +604,30 @@ namespace ClashWinUI.Services.Implementations.Config
             using var writer = new StringWriter(CultureInfo.InvariantCulture);
             stream.Save(writer, false);
             File.WriteAllText(path, writer.ToString(), useBom ? Utf8Bom : Utf8NoBom);
+        }
+
+        private static YamlMappingNode GetOrCreateMappingChild(YamlMappingNode mapping, string key)
+        {
+            if (TryGetChild(mapping, key, out YamlNode? existingKey, out YamlNode? existingValue))
+            {
+                if (existingValue is YamlMappingNode existingMapping)
+                {
+                    return existingMapping;
+                }
+
+                var replacement = new YamlMappingNode();
+                if (existingValue is YamlScalarNode scalar && bool.TryParse(scalar.Value, out bool enabled))
+                {
+                    SetBooleanValue(replacement, "enable", enabled);
+                }
+
+                mapping.Children[existingKey!] = replacement;
+                return replacement;
+            }
+
+            var created = new YamlMappingNode();
+            mapping.Add(new YamlScalarNode(key), created);
+            return created;
         }
 
         private static YamlMappingNode MergeMappings(YamlMappingNode source, YamlMappingNode mixin)
@@ -623,11 +714,85 @@ namespace ClashWinUI.Services.Implementations.Config
             return bool.TryParse(value, out bool result) && result;
         }
 
+        private static bool HasValue(YamlMappingNode mapping, string key)
+        {
+            if (!TryGetChild(mapping, key, out _, out YamlNode? valueNode) || valueNode is null)
+            {
+                return false;
+            }
+
+            return valueNode switch
+            {
+                YamlScalarNode scalar => !string.IsNullOrWhiteSpace(scalar.Value),
+                YamlSequenceNode sequence => sequence.Children.Count > 0,
+                _ => true,
+            };
+        }
+
         private static string? GetString(YamlMappingNode mapping, string key)
         {
             return TryGetChild(mapping, key, out _, out YamlNode? valueNode)
                 ? GetScalarValue(valueNode)
                 : null;
+        }
+
+        private static void SetBooleanIfMissing(YamlMappingNode mapping, string key, bool value)
+        {
+            if (TryGetChild(mapping, key, out _, out _))
+            {
+                return;
+            }
+
+            SetBooleanValue(mapping, key, value);
+        }
+
+        private static void SetScalarIfMissing(YamlMappingNode mapping, string key, string value)
+        {
+            if (HasValue(mapping, key))
+            {
+                return;
+            }
+
+            SetScalarValue(mapping, key, value);
+        }
+
+        private static void SetBooleanValue(YamlMappingNode mapping, string key, bool value)
+        {
+            SetScalarValue(mapping, key, value ? "true" : "false");
+        }
+
+        private static void SetScalarValue(YamlMappingNode mapping, string key, string value)
+        {
+            SetNode(mapping, key, new YamlScalarNode(value));
+        }
+
+        private static void SetNode(YamlMappingNode mapping, string key, YamlNode value)
+        {
+            if (TryGetChild(mapping, key, out YamlNode? existingKey, out _))
+            {
+                mapping.Children[existingKey!] = value;
+                return;
+            }
+
+            mapping.Add(new YamlScalarNode(key), value);
+        }
+
+        private static void SetSequenceIfMissing(YamlMappingNode mapping, string key, params string[] values)
+        {
+            if (HasValue(mapping, key))
+            {
+                return;
+            }
+
+            SetNode(mapping, key, CreateStringSequenceNode(values));
+        }
+
+        private static YamlSequenceNode CreateStringSequenceNode(params string[] values)
+        {
+            return new YamlSequenceNode(
+                values
+                    .Where(value => !string.IsNullOrWhiteSpace(value))
+                    .Select(value => new YamlScalarNode(value)));
         }
 
         private static bool GetTunEnabled(YamlMappingNode mapping)

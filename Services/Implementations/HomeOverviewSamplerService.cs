@@ -1,5 +1,7 @@
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
+using ClashWinUI.Helpers;
+using ClashWinUI.Services.Implementations.Native;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -15,12 +17,16 @@ namespace ClashWinUI.Services.Implementations
         private const int ChartCapacity = 60;
         private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
         private static readonly TimeSpan KernelVersionRefreshInterval = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan TunRuntimeRefreshInterval = TimeSpan.FromSeconds(4);
         private static readonly double MemoryChartDefaultAxisMax = 10d * 1024d * 1024d;
 
         private readonly IMihomoService _mihomoService;
         private readonly IProcessService _processService;
         private readonly IProfileService _profileService;
         private readonly IConfigService _configService;
+        private readonly IKernelPathService _kernelPathService;
+        private readonly ISystemProxyService _systemProxyService;
+        private readonly ITunService _tunService;
         private readonly IAppLogService _logService;
         private readonly IHomeChartStateService _homeChartStateService;
         private readonly Queue<double> _downloadSpeedSamples = CreateInitialSampleQueue();
@@ -35,10 +41,11 @@ namespace ClashWinUI.Services.Implementations
         private ProfileItem? _activeProfile;
         private string? _cachedSummaryProfileId;
         private string? _cachedSummaryRuntimePath;
-        private string _cachedSystemProxyAddressText = UnavailableText;
         private string _cachedMixinPortsText = UnavailableText;
         private string _cachedRulesCountText = UnavailableText;
+        private bool _cachedTunConfigured;
         private bool _summaryCacheDirty = true;
+        private bool _tunRuntimeCacheDirty = true;
         private int _connectionsCount;
         private long? _memoryUsageBytes;
         private long _downloadTotalBytes;
@@ -46,6 +53,15 @@ namespace ClashWinUI.Services.Implementations
         private long _uploadTotalBytes;
         private long _uploadSpeedBytes;
         private int _runtimeEventsCount;
+        private SystemProxyState _systemProxyState = SystemProxyState.Disabled();
+        private TunRuntimeStatus _tunRuntimeStatus = TunRuntimeStatus.Disabled();
+        private TunRuntimeStatus _cachedTunRuntimeSample = TunRuntimeStatus.Disabled();
+        private DateTimeOffset _lastTunRuntimeRefresh = DateTimeOffset.MinValue;
+        private string? _cachedTunRuntimeConfigPath;
+        private string _lastTunRuntimeWarningFingerprint = string.Empty;
+        private bool _lastObservedProcessRunning;
+        private string? _lastObservedProcessConfigPath;
+        private DateTimeOffset _lastObservedFailureDiagnosticAt = DateTimeOffset.MinValue;
         private DateTimeOffset _updatedAt = DateTimeOffset.UtcNow;
         private bool _isDisposed;
 
@@ -56,6 +72,9 @@ namespace ClashWinUI.Services.Implementations
             IProcessService processService,
             IProfileService profileService,
             IConfigService configService,
+            IKernelPathService kernelPathService,
+            ISystemProxyService systemProxyService,
+            ITunService tunService,
             IAppLogService logService,
             IHomeChartStateService homeChartStateService)
         {
@@ -63,6 +82,9 @@ namespace ClashWinUI.Services.Implementations
             _processService = processService;
             _profileService = profileService;
             _configService = configService;
+            _kernelPathService = kernelPathService;
+            _systemProxyService = systemProxyService;
+            _tunService = tunService;
             _logService = logService;
             _homeChartStateService = homeChartStateService;
 
@@ -70,6 +92,7 @@ namespace ClashWinUI.Services.Implementations
             _activeProfile = _profileService.GetActiveProfile();
             _profileService.ActiveProfileChanged += OnActiveProfileChanged;
             _configService.ConfigurationChanged += OnConfigurationChanged;
+            _mihomoService.ConfigApplied += OnMihomoConfigApplied;
         }
 
         public void Start()
@@ -117,6 +140,7 @@ namespace ClashWinUI.Services.Implementations
             _isDisposed = true;
             _profileService.ActiveProfileChanged -= OnActiveProfileChanged;
             _configService.ConfigurationChanged -= OnConfigurationChanged;
+            _mihomoService.ConfigApplied -= OnMihomoConfigApplied;
             FlushState();
             CancellationTokenSource? cancellation = _samplingCancellation;
             _samplingCancellation = null;
@@ -157,6 +181,11 @@ namespace ClashWinUI.Services.Implementations
                 int runtimeEventsCount = _logService.Count;
                 long? memoryUsageBytes = _processService.GetMihomoMemoryUsageBytes();
                 UpdateRuntimeSummaryCacheIfNeeded(activeProfile);
+                SystemProxyState systemProxyState = _systemProxyService.GetCurrentState();
+                string? currentConfigPath = _processService.CurrentConfigPath;
+                TunRuntimeStatus tunRuntimeStatus = ResolveTunRuntimeStatus(
+                    currentConfigPath,
+                    DetermineTunRuntimeRefreshNeed(currentConfigPath, _processService.IsRunning, _processService.LastFailureDiagnostic.OccurredAt));
 
                 string kernelVersionText = await ResolveKernelVersionTextAsync(forceKernelVersionRefresh, cancellationToken).ConfigureAwait(false);
 
@@ -169,6 +198,8 @@ namespace ClashWinUI.Services.Implementations
                     _uploadTotalBytes = uploadTotalBytes;
                     _uploadSpeedBytes = uploadSpeedBytes;
                     _runtimeEventsCount = runtimeEventsCount;
+                    _systemProxyState = systemProxyState;
+                    _tunRuntimeStatus = tunRuntimeStatus;
                     _lastKernelVersionText = kernelVersionText;
                     _updatedAt = DateTimeOffset.UtcNow;
                     EnqueueSample(_downloadSpeedSamples, downloadSpeedBytes);
@@ -214,6 +245,200 @@ namespace ClashWinUI.Services.Implementations
             return _lastKernelVersionText;
         }
 
+        private TunRuntimeStatus ResolveTunRuntimeStatus(string? currentConfigPath, bool forceRefresh)
+        {
+            string? configPath = null;
+
+            if (!string.IsNullOrWhiteSpace(currentConfigPath) && _tunService.IsTunEnabled(currentConfigPath))
+            {
+                configPath = currentConfigPath;
+            }
+            else
+            {
+                lock (_stateGate)
+                {
+                    if (_cachedTunConfigured && !string.IsNullOrWhiteSpace(_cachedSummaryRuntimePath))
+                    {
+                        configPath = _cachedSummaryRuntimePath;
+                    }
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(configPath) || !_tunService.IsTunEnabled(configPath))
+            {
+                lock (_stateGate)
+                {
+                    _cachedTunRuntimeSample = TunRuntimeStatus.Disabled();
+                    _cachedTunRuntimeConfigPath = null;
+                    _lastTunRuntimeRefresh = DateTimeOffset.MinValue;
+                    _lastTunRuntimeWarningFingerprint = string.Empty;
+                    _tunRuntimeCacheDirty = false;
+                }
+
+                return TunRuntimeStatus.Disabled();
+            }
+
+            TunRuntimeStatus cachedStatus;
+            DateTimeOffset lastRefreshAt;
+            string? cachedConfigPath;
+            bool cacheDirty;
+
+            lock (_stateGate)
+            {
+                cachedStatus = _cachedTunRuntimeSample;
+                lastRefreshAt = _lastTunRuntimeRefresh;
+                cachedConfigPath = _cachedTunRuntimeConfigPath;
+                cacheDirty = _tunRuntimeCacheDirty;
+            }
+
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+            bool cacheMatchesConfig = string.Equals(cachedConfigPath, configPath, StringComparison.OrdinalIgnoreCase);
+            if (!forceRefresh
+                && !cacheDirty
+                && cacheMatchesConfig
+                && now - lastRefreshAt < TunRuntimeRefreshInterval)
+            {
+                return TunRuntimeDiagnosticHelper.ApplyPreferredKernelDiagnostic(_processService, cachedStatus);
+            }
+
+            TunRuntimeStatus rawStatus;
+            bool readSucceeded;
+            string warningDetail = string.Empty;
+
+            try
+            {
+                rawStatus = _tunService.GetRuntimeStatus(configPath, _kernelPathService.ResolveKernelPath());
+                readSucceeded = !IsTunRuntimeInspectionReadFailure(rawStatus);
+            }
+            catch (Exception ex)
+            {
+                rawStatus = new TunRuntimeStatus
+                {
+                    IsConfigured = true,
+                    IsHealthy = false,
+                    DriverLoaded = false,
+                    DriverVersion = string.Empty,
+                    AdapterPresent = false,
+                    AdapterName = string.Empty,
+                    RouteAttached = false,
+                    EffectiveStack = string.Empty,
+                    FirewallEnabled = WindowsFirewallHelper.IsAnyProfileEnabled(),
+                    DnsHijackConfigured = false,
+                    DnsManaged = false,
+                    DnsAutoGenerated = false,
+                    FailureKind = MihomoFailureKind.TunDependency,
+                    Message = IpHelperNative.RuntimeInspectionFailureMessage,
+                };
+                readSucceeded = false;
+                warningDetail = ex.Message;
+            }
+
+            TunRuntimeStatus decoratedStatus = TunRuntimeDiagnosticHelper.ApplyPreferredKernelDiagnostic(_processService, rawStatus);
+            if (readSucceeded)
+            {
+                lock (_stateGate)
+                {
+                    _cachedTunRuntimeSample = TunRuntimeDiagnosticHelper.Clone(decoratedStatus);
+                    _cachedTunRuntimeConfigPath = configPath;
+                    _lastTunRuntimeRefresh = now;
+                    _lastTunRuntimeWarningFingerprint = string.Empty;
+                    _tunRuntimeCacheDirty = false;
+                }
+
+                return decoratedStatus;
+            }
+
+            if (cacheMatchesConfig)
+            {
+                LogTunRuntimeReadWarningIfNeeded(configPath, rawStatus.Message, warningDetail);
+
+                lock (_stateGate)
+                {
+                    _lastTunRuntimeRefresh = now;
+                    _tunRuntimeCacheDirty = false;
+                }
+
+                return TunRuntimeDiagnosticHelper.ApplyPreferredKernelDiagnostic(_processService, cachedStatus);
+            }
+
+            lock (_stateGate)
+            {
+                _cachedTunRuntimeSample = TunRuntimeDiagnosticHelper.Clone(decoratedStatus);
+                _cachedTunRuntimeConfigPath = configPath;
+                _lastTunRuntimeRefresh = now;
+                _tunRuntimeCacheDirty = false;
+            }
+
+            LogTunRuntimeReadWarningIfNeeded(configPath, rawStatus.Message, warningDetail);
+            return decoratedStatus;
+        }
+
+        private bool DetermineTunRuntimeRefreshNeed(string? currentConfigPath, bool isProcessRunning, DateTimeOffset failureDiagnosticAt)
+        {
+            lock (_stateGate)
+            {
+                bool shouldRefresh = _tunRuntimeCacheDirty
+                    || !string.Equals(_lastObservedProcessConfigPath, currentConfigPath, StringComparison.OrdinalIgnoreCase)
+                    || _lastObservedProcessRunning != isProcessRunning
+                    || _lastObservedFailureDiagnosticAt != failureDiagnosticAt;
+
+                _lastObservedProcessConfigPath = currentConfigPath;
+                _lastObservedProcessRunning = isProcessRunning;
+                _lastObservedFailureDiagnosticAt = failureDiagnosticAt;
+                return shouldRefresh;
+            }
+        }
+
+        private bool IsTunRuntimeInspectionReadFailure(TunRuntimeStatus runtimeStatus)
+        {
+            return runtimeStatus.FailureKind == MihomoFailureKind.TunDependency
+                && string.Equals(
+                    runtimeStatus.Message?.Trim(),
+                    IpHelperNative.RuntimeInspectionFailureMessage,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void LogTunRuntimeReadWarningIfNeeded(string? configPath, string message, string warningDetail)
+        {
+            string fingerprint = $"{configPath}|{message}|{warningDetail}";
+
+            lock (_stateGate)
+            {
+                if (string.Equals(_lastTunRuntimeWarningFingerprint, fingerprint, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _lastTunRuntimeWarningFingerprint = fingerprint;
+            }
+
+            string detail = string.IsNullOrWhiteSpace(warningDetail)
+                ? message
+                : $"{message} Detail={warningDetail}";
+            _logService.Add($"TUN runtime sampling reused cached state because runtime inspection failed: {detail}", LogLevel.Warning);
+        }
+
+        private static TunRuntimeStatus CloneTunRuntimeStatus(TunRuntimeStatus status)
+        {
+            return new TunRuntimeStatus
+            {
+                IsConfigured = status.IsConfigured,
+                IsHealthy = status.IsHealthy,
+                DriverLoaded = status.DriverLoaded,
+                DriverVersion = status.DriverVersion,
+                AdapterPresent = status.AdapterPresent,
+                AdapterName = status.AdapterName,
+                RouteAttached = status.RouteAttached,
+                EffectiveStack = status.EffectiveStack,
+                FirewallEnabled = status.FirewallEnabled,
+                DnsHijackConfigured = status.DnsHijackConfigured,
+                DnsManaged = status.DnsManaged,
+                DnsAutoGenerated = status.DnsAutoGenerated,
+                FailureKind = status.FailureKind,
+                Message = status.Message,
+            };
+        }
+
         private HomeOverviewState CreateStateSnapshot()
         {
             return new HomeOverviewState
@@ -225,10 +450,16 @@ namespace ClashWinUI.Services.Implementations
                 UploadTotalBytes = _uploadTotalBytes,
                 UploadSpeedBytes = _uploadSpeedBytes,
                 RuntimeEventsCount = _runtimeEventsCount,
-                SystemProxyAddressText = _cachedSystemProxyAddressText,
+                SystemProxyState = new SystemProxyState
+                {
+                    IsEnabled = _systemProxyState.IsEnabled,
+                    ProxyServer = _systemProxyState.ProxyServer,
+                    BypassList = _systemProxyState.BypassList,
+                },
                 MixinPortsText = _cachedMixinPortsText,
                 RulesCountText = _cachedRulesCountText,
                 KernelVersionText = _lastKernelVersionText,
+                TunRuntimeStatus = CloneTunRuntimeStatus(_tunRuntimeStatus),
                 DownloadValues = _downloadSpeedSamples.ToArray(),
                 UploadValues = _uploadSpeedSamples.ToArray(),
                 MemoryValues = _memoryUsageSamples.ToArray(),
@@ -260,6 +491,7 @@ namespace ClashWinUI.Services.Implementations
             {
                 _activeProfile = activeProfile;
                 _summaryCacheDirty = true;
+                _tunRuntimeCacheDirty = true;
             }
         }
 
@@ -268,6 +500,15 @@ namespace ClashWinUI.Services.Implementations
             lock (_stateGate)
             {
                 _summaryCacheDirty = true;
+                _tunRuntimeCacheDirty = true;
+            }
+        }
+
+        private void OnMihomoConfigApplied(object? sender, string configPath)
+        {
+            lock (_stateGate)
+            {
+                _tunRuntimeCacheDirty = true;
             }
         }
 
@@ -293,9 +534,9 @@ namespace ClashWinUI.Services.Implementations
                 ? _configService.GetRuntimePath(activeProfile)
                 : _processService.EnsureStartupConfigPath();
 
-            string systemProxyAddressText = $"127.0.0.1:{_processService.ResolveProxyPort(runtimePath).ToString(CultureInfo.InvariantCulture)}";
             string mixinPortsText = UnavailableText;
             string rulesCountText = UnavailableText;
+            bool isTunConfigured = _tunService.IsTunEnabled(runtimePath);
 
             if (activeProfile is not null)
             {
@@ -308,9 +549,9 @@ namespace ClashWinUI.Services.Implementations
             {
                 _cachedSummaryProfileId = activeProfileId;
                 _cachedSummaryRuntimePath = runtimePath;
-                _cachedSystemProxyAddressText = systemProxyAddressText;
                 _cachedMixinPortsText = mixinPortsText;
                 _cachedRulesCountText = rulesCountText;
+                _cachedTunConfigured = isTunConfigured;
                 _summaryCacheDirty = false;
             }
         }

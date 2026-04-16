@@ -24,6 +24,10 @@ namespace ClashWinUI.Services.Implementations
         private const int ProxyTypeProxy = 0x00000002;
 
         private readonly IAppLogService _logService;
+        private readonly object _stateGate = new();
+
+        private bool _sessionOwnsProxy;
+        private SystemProxyState _previousState = SystemProxyState.Disabled();
 
         public SystemProxyService(IAppLogService logService)
         {
@@ -38,27 +42,40 @@ namespace ClashWinUI.Services.Implementations
             int normalizedPort = port > 0 && port <= 65535 ? port : 7890;
             string proxyServer = $"{normalizedHost}:{normalizedPort}";
             string normalizedBypass = string.IsNullOrWhiteSpace(bypassList) ? "localhost;127.*" : bypassList.Trim();
+            SystemProxyState currentState = GetCurrentState();
+
+            if (!GetSessionOwnsProxy() && IsSameProxyState(currentState, proxyServer, normalizedBypass))
+            {
+                return Task.CompletedTask;
+            }
 
             try
             {
-                bool winInetOk = TryApplyWinInetProxy(enable: true, proxyServer, normalizedBypass, out string? winInetError);
-                bool registryOk = TryWriteRegistryProxy(enable: true, proxyServer, normalizedBypass, out string? registryError);
-
-                if (!winInetOk && !registryOk)
+                if (!TryApplyProxyState(enable: true, proxyServer, normalizedBypass, out string? error, out bool usedRegistryFallback))
                 {
                     _logService.Add(
-                        $"System proxy enable failed. WinINet={winInetError ?? "<none>"}, Registry={registryError ?? "<none>"}",
+                        $"System proxy enable failed. Error={error ?? "<none>"}",
                         LogLevel.Warning);
                     return Task.CompletedTask;
                 }
 
-                if (winInetOk)
+                lock (_stateGate)
                 {
-                    _logService.Add($"System proxy enabled: {proxyServer}");
+                    if (!_sessionOwnsProxy)
+                    {
+                        _previousState = CloneState(currentState);
+                    }
+
+                    _sessionOwnsProxy = true;
+                }
+
+                if (usedRegistryFallback)
+                {
+                    _logService.Add($"System proxy enabled via registry fallback: {proxyServer}", LogLevel.Warning);
                 }
                 else
                 {
-                    _logService.Add($"System proxy enabled via registry fallback: {proxyServer}", LogLevel.Warning);
+                    _logService.Add($"System proxy enabled: {proxyServer}");
                 }
             }
             catch (Exception ex)
@@ -73,20 +90,56 @@ namespace ClashWinUI.Services.Implementations
         {
             cancellationToken.ThrowIfCancellationRequested();
 
+            SystemProxyState restoreState;
+            lock (_stateGate)
+            {
+                if (!_sessionOwnsProxy)
+                {
+                    return Task.CompletedTask;
+                }
+
+                restoreState = CloneState(_previousState);
+            }
+
             try
             {
-                bool winInetOk = TryApplyWinInetProxy(enable: false, proxyServer: null, bypassList: null, out string? winInetError);
-                bool registryOk = TryWriteRegistryProxy(enable: false, proxyServer: null, bypassList: null, out string? registryError);
-
-                if (!winInetOk && !registryOk)
+                if (!TryApplyProxyState(
+                    restoreState.IsEnabled,
+                    restoreState.ProxyServer,
+                    restoreState.BypassList,
+                    out string? error,
+                    out bool usedRegistryFallback))
                 {
                     _logService.Add(
-                        $"System proxy disable failed. WinINet={winInetError ?? "<none>"}, Registry={registryError ?? "<none>"}",
+                        $"System proxy restore failed. Error={error ?? "<none>"}",
                         LogLevel.Warning);
                     return Task.CompletedTask;
                 }
 
-                _logService.Add("System proxy disabled.");
+                lock (_stateGate)
+                {
+                    _sessionOwnsProxy = false;
+                    _previousState = SystemProxyState.Disabled();
+                }
+
+                if (restoreState.IsEnabled)
+                {
+                    string displayAddress = string.IsNullOrWhiteSpace(restoreState.ProxyServer)
+                        ? "existing proxy"
+                        : restoreState.ProxyServer;
+                    if (usedRegistryFallback)
+                    {
+                        _logService.Add($"System proxy restored via registry fallback: {displayAddress}", LogLevel.Warning);
+                    }
+                    else
+                    {
+                        _logService.Add($"System proxy restored: {displayAddress}");
+                    }
+                }
+                else
+                {
+                    _logService.Add("System proxy disabled.");
+                }
             }
             catch (Exception ex)
             {
@@ -94,6 +147,78 @@ namespace ClashWinUI.Services.Implementations
             }
 
             return Task.CompletedTask;
+        }
+
+        public SystemProxyState GetCurrentState()
+        {
+            try
+            {
+                using RegistryKey root = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Default);
+                using RegistryKey? key = root.OpenSubKey(InternetSettingsSubKey, writable: false);
+                if (key is null)
+                {
+                    return SystemProxyState.Disabled();
+                }
+
+                return new SystemProxyState
+                {
+                    IsEnabled = ReadDwordValue(key, "ProxyEnable") != 0,
+                    ProxyServer = (key.GetValue("ProxyServer") as string ?? string.Empty).Trim(),
+                    BypassList = (key.GetValue("ProxyOverride") as string ?? string.Empty).Trim(),
+                };
+            }
+            catch (Exception ex)
+            {
+                _logService.Add($"Read system proxy state failed: {ex.Message}", LogLevel.Warning);
+                return SystemProxyState.Disabled();
+            }
+        }
+
+        private bool GetSessionOwnsProxy()
+        {
+            lock (_stateGate)
+            {
+                return _sessionOwnsProxy;
+            }
+        }
+
+        private static SystemProxyState CloneState(SystemProxyState state)
+        {
+            return new SystemProxyState
+            {
+                IsEnabled = state.IsEnabled,
+                ProxyServer = state.ProxyServer,
+                BypassList = state.BypassList,
+            };
+        }
+
+        private static bool IsSameProxyState(SystemProxyState state, string proxyServer, string bypassList)
+        {
+            return state.IsEnabled
+                && string.Equals(state.ProxyServer?.Trim(), proxyServer.Trim(), StringComparison.OrdinalIgnoreCase)
+                && string.Equals(state.BypassList?.Trim(), bypassList.Trim(), StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryApplyProxyState(
+            bool enable,
+            string? proxyServer,
+            string? bypassList,
+            out string? error,
+            out bool usedRegistryFallback)
+        {
+            usedRegistryFallback = false;
+            bool winInetOk = TryApplyWinInetProxy(enable, proxyServer, bypassList, out string? winInetError);
+            bool registryOk = TryWriteRegistryProxy(enable, proxyServer, bypassList, out string? registryError);
+
+            if (!winInetOk && !registryOk)
+            {
+                error = $"WinINet={winInetError ?? "<none>"}, Registry={registryError ?? "<none>"}";
+                return false;
+            }
+
+            usedRegistryFallback = !winInetOk && registryOk;
+            error = winInetOk ? null : registryError ?? winInetError;
+            return true;
         }
 
         private static bool TryApplyWinInetProxy(bool enable, string? proxyServer, string? bypassList, out string? error)
@@ -241,6 +366,18 @@ namespace ClashWinUI.Services.Implementations
             }
 
             return true;
+        }
+
+        private static int ReadDwordValue(RegistryKey key, string valueName)
+        {
+            object? value = key.GetValue(valueName);
+            return value switch
+            {
+                int intValue => intValue,
+                byte byteValue => byteValue,
+                short shortValue => shortValue,
+                _ => 0,
+            };
         }
 
         [DllImport("wininet.dll", EntryPoint = "InternetSetOptionW", CharSet = CharSet.Unicode, SetLastError = true)]

@@ -18,13 +18,15 @@ namespace ClashWinUI.Models
 
         public required int RuntimeEventsCount { get; init; }
 
-        public required string SystemProxyAddressText { get; init; }
+        public required SystemProxyState SystemProxyState { get; init; }
 
         public required string MixinPortsText { get; init; }
 
         public required string RulesCountText { get; init; }
 
         public required string KernelVersionText { get; init; }
+
+        public required TunRuntimeStatus TunRuntimeStatus { get; init; }
 
         public required double[] DownloadValues { get; init; }
 

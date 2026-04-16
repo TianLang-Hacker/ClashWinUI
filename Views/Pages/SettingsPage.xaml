@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Page
     x:Class="ClashWinUI.Views.Pages.SettingsPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -200,6 +200,21 @@
                             Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                             Text="{Binding MixinStatusMessage}"
                             TextWrapping="WrapWholeWords" />
+
+                        <StackPanel
+                            Spacing="4"
+                            Visibility="{Binding TunRuntimeStatusText, Converter={StaticResource StringToVisibilityConverter}}">
+                            <TextBlock Text="{Binding [HomeFieldTunStatus], Source={StaticResource L}}" />
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{Binding TunRuntimeStatusText}"
+                                TextWrapping="WrapWholeWords" />
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{Binding TunRuntimeSummaryText}"
+                                TextWrapping="WrapWholeWords"
+                                Visibility="{Binding TunRuntimeSummaryText, Converter={StaticResource StringToVisibilityConverter}}" />
+                        </StackPanel>
 
                         <StackPanel Spacing="12">
                             <Grid ColumnSpacing="12">

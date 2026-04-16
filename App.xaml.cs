@@ -41,6 +41,7 @@ namespace ClashWinUI
                     services.AddSingleton<IConfigService, ConfigService>();
                     services.AddSingleton<IKernelPathService, KernelPathService>();
                     services.AddSingleton<IKernelBootstrapService, KernelBootstrapService>();
+                    services.AddSingleton<ITunService, TunService>();
                     services.AddSingleton<IGeoDataService, GeoDataService>();
                     services.AddSingleton<INetworkInfoService, NetworkInfoService>();
                     services.AddSingleton<IAppSettingsService, AppSettingsService>();
@@ -172,10 +173,12 @@ namespace ClashWinUI
         {
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             IKernelBootstrapService kernelBootstrapService = _host.Services.GetRequiredService<IKernelBootstrapService>();
+            IKernelPathService kernelPathService = _host.Services.GetRequiredService<IKernelPathService>();
             IGeoDataService geoDataService = _host.Services.GetRequiredService<IGeoDataService>();
             IConfigService configService = _host.Services.GetRequiredService<IConfigService>();
             IProfileService profileService = _host.Services.GetRequiredService<IProfileService>();
             IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
+            ITunService tunService = _host.Services.GetRequiredService<ITunService>();
             ISystemProxyService systemProxyService = _host.Services.GetRequiredService<ISystemProxyService>();
 
             try
@@ -218,13 +221,28 @@ namespace ClashWinUI
                     controllerReady = await TryRecoverFromGeoDataFailureAsync(
                         processService,
                         geoDataService,
+                        tunService,
+                        kernelPathService,
+                        startupConfigPath);
+                }
+
+                if (controllerReady)
+                {
+                    controllerReady = await ValidateStartupTunRuntimeAsync(
+                        processService,
+                        tunService,
+                        kernelPathService,
+                        logService,
                         startupConfigPath);
                 }
 
                 if (!controllerReady)
                 {
                     string fallbackConfigPath = processService.EnsureStartupConfigPath();
-                    if (!string.Equals(fallbackConfigPath, startupConfigPath, StringComparison.OrdinalIgnoreCase))
+                    MihomoFailureDiagnostic diagnostic = processService.LastFailureDiagnostic;
+                    bool shouldFallbackToDefaultConfig = !MihomoFailureKindHelper.IsTunFailure(diagnostic.Kind);
+                    if (shouldFallbackToDefaultConfig
+                        && !string.Equals(fallbackConfigPath, startupConfigPath, StringComparison.OrdinalIgnoreCase))
                     {
                         logService.Add($"Primary config failed, fallback to default startup config: {fallbackConfigPath}", LogLevel.Warning);
                         bool fallbackStarted = await processService.RestartAsync(fallbackConfigPath);
@@ -236,10 +254,25 @@ namespace ClashWinUI
                                 TimeSpan.FromSeconds(20));
                             if (controllerReady)
                             {
-                                processService.ResetFailureDiagnostic();
-                                startupConfigPath = fallbackConfigPath;
+                                controllerReady = await ValidateStartupTunRuntimeAsync(
+                                    processService,
+                                    tunService,
+                                    kernelPathService,
+                                    logService,
+                                    fallbackConfigPath);
+                                if (controllerReady)
+                                {
+                                    processService.ResetFailureDiagnostic();
+                                    startupConfigPath = fallbackConfigPath;
+                                }
                             }
                         }
+                    }
+                    else if (!shouldFallbackToDefaultConfig)
+                    {
+                        logService.Add(
+                            $"Skip fallback to default startup config because TUN startup validation failed. Detail={diagnostic.Message}",
+                            LogLevel.Warning);
                     }
                 }
 
@@ -250,10 +283,14 @@ namespace ClashWinUI
                     return;
                 }
 
-                int proxyPort = processService.ResolveProxyPort(startupConfigPath);
-                await systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList);
+                await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                    systemProxyService,
+                    processService,
+                    tunService,
+                    startupConfigPath);
                 processService.ResetFailureDiagnostic();
 
+                int proxyPort = processService.ResolveProxyPort(startupConfigPath);
                 logService.Add($"Startup completed. Controller={processService.ControllerHost}:{processService.ControllerPort}, ProxyPort={proxyPort}");
             }
             catch (Exception ex)
@@ -414,9 +451,33 @@ namespace ClashWinUI
                 TimeSpan.FromSeconds(20));
         }
 
+        private static async Task<bool> ValidateStartupTunRuntimeAsync(
+            IProcessService processService,
+            ITunService tunService,
+            IKernelPathService kernelPathService,
+            IAppLogService logService,
+            string configPath)
+        {
+            TunRuntimeValidationOutcome validation = await TunRuntimeValidationHelper.ValidateAsync(
+                tunService,
+                kernelPathService,
+                processService,
+                configPath).ConfigureAwait(false);
+            if (validation.Success)
+            {
+                return true;
+            }
+
+            processService.UpdateFailureDiagnostic(validation.FailureKind, validation.Message);
+            logService.Add($"Startup controller is ready, but TUN runtime is unhealthy: {validation.Message}", LogLevel.Warning);
+            return false;
+        }
+
         private async Task<bool> TryRecoverFromGeoDataFailureAsync(
             IProcessService processService,
             IGeoDataService geoDataService,
+            ITunService tunService,
+            IKernelPathService kernelPathService,
             string configPath)
         {
             MihomoFailureDiagnostic diagnostic = processService.LastFailureDiagnostic;
@@ -451,7 +512,16 @@ namespace ClashWinUI
 
             if (controllerReady)
             {
-                processService.ResetFailureDiagnostic();
+                controllerReady = await ValidateStartupTunRuntimeAsync(
+                    processService,
+                    tunService,
+                    kernelPathService,
+                    logService,
+                    configPath);
+                if (controllerReady)
+                {
+                    processService.ResetFailureDiagnostic();
+                }
             }
 
             return controllerReady;

@@ -1,4 +1,4 @@
-﻿using ClashWinUI.Models;
+using ClashWinUI.Models;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,6 +9,7 @@ namespace ClashWinUI.Services.Interfaces
         bool IsRunning { get; }
         int ControllerPort { get; }
         string ControllerHost { get; }
+        string? CurrentConfigPath { get; }
         MihomoFailureDiagnostic LastFailureDiagnostic { get; }
         long? GetMihomoMemoryUsageBytes();
 
@@ -18,5 +19,6 @@ namespace ClashWinUI.Services.Interfaces
         Task<bool> RestartAsync(string configPath, CancellationToken cancellationToken = default);
         Task StopAsync(CancellationToken cancellationToken = default);
         void ResetFailureDiagnostic();
+        void UpdateFailureDiagnostic(MihomoFailureKind kind, string message);
     }
 }
