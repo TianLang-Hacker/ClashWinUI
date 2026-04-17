@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -806,5 +806,8 @@
   </data>
   <data name="SettingsAboutVersionFormat" xml:space="preserve">
     <value>Version {0}</value>
+  </data>
+  <data name="SettingsProfileLoadingStatus" xml:space="preserve">
+    <value>Loading active profile diagnostics…</value>
   </data>
 </root>

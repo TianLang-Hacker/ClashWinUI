@@ -132,7 +132,7 @@ namespace ClashWinUI.Views
                 _homeOverviewSamplerService.FlushState();
                 SuspendBackdrop();
                 _isShellFrozen = true;
-                PageMemoryTrimHelper.RequestTrim();
+                PageMemoryTrimHelper.RequestTrim("shell freeze");
             }
             finally
             {

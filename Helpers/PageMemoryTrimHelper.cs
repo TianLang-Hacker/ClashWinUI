@@ -11,7 +11,7 @@ namespace ClashWinUI.Helpers
     {
         private static int _trimScheduled;
 
-        public static void RequestTrim()
+        public static void RequestTrim(string reason = "general")
         {
             if (Interlocked.Exchange(ref _trimScheduled, 1) == 1)
             {
@@ -20,6 +20,7 @@ namespace ClashWinUI.Helpers
 
             _ = Task.Run(async () =>
             {
+                Stopwatch stopwatch = Stopwatch.StartNew();
                 try
                 {
                     // Let navigation settle first, then trim the large page graph.
@@ -39,6 +40,11 @@ namespace ClashWinUI.Helpers
                 }
                 finally
                 {
+                    stopwatch.Stop();
+                    PerformanceTraceHelper.LogElapsed(
+                        $"memory trim ({reason})",
+                        stopwatch.Elapsed,
+                        TimeSpan.FromMilliseconds(120));
                     Interlocked.Exchange(ref _trimScheduled, 0);
                 }
             });

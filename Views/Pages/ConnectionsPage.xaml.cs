@@ -175,7 +175,6 @@ namespace ClashWinUI.Views.Pages
             _viewModel.StopAutoRefresh();
             _viewModel.Dispose();
             _viewModel = null;
-            PageMemoryTrimHelper.RequestTrim();
         }
 
         private static ConnectionsViewModel ResolveViewModel()

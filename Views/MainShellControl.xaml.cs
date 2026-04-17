@@ -22,6 +22,7 @@ namespace ClashWinUI.Views
             _navigationService = navigationService;
 
             InitializeComponent();
+            contentFrame.CacheSize = 2;
             DataContext = _viewModel;
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         }

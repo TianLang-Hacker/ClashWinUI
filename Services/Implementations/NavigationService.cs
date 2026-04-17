@@ -1,16 +1,16 @@
-﻿using ClashWinUI.Services.Interfaces;
+using ClashWinUI.Helpers;
+using ClashWinUI.Services.Interfaces;
 using ClashWinUI.ViewModels;
 using ClashWinUI.Views.Pages;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace ClashWinUI.Services.Implementations
 {
     public class NavigationService : INavigationService
     {
-        private Frame? _frame;
-
         private readonly Dictionary<string, Type> _routes = new(StringComparer.OrdinalIgnoreCase)
         {
             [MainViewModel.HomeRouteKey] = typeof(HomePage),
@@ -21,6 +21,8 @@ namespace ClashWinUI.Services.Implementations
             [MainViewModel.RulesRouteKey] = typeof(RulesPage),
             [MainViewModel.SettingsRouteKey] = typeof(SettingsPage),
         };
+
+        private Frame? _frame;
 
         public void Initialize(Frame frame)
         {
@@ -41,9 +43,16 @@ namespace ClashWinUI.Services.Implementations
                 throw new ArgumentException($"Unknown route key: {routeKey}", nameof(routeKey));
             }
 
+            Stopwatch stopwatch = Stopwatch.StartNew();
             _frame.Navigate(pageType);
             _frame.BackStack.Clear();
             _frame.ForwardStack.Clear();
+            stopwatch.Stop();
+
+            PerformanceTraceHelper.LogElapsed(
+                $"navigate to '{routeKey}'",
+                stopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(80));
         }
     }
 }

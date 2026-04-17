@@ -46,15 +46,20 @@ namespace ClashWinUI.ViewModels
         private readonly ITunService _tunService;
         private readonly ISystemProxyService _systemProxyService;
         private readonly IUpdateService _updateService;
+        private readonly IHomeOverviewSamplerService _homeOverviewSamplerService;
         private readonly SemaphoreSlim _mixinApplySemaphore = new(1, 1);
 
+        private CancellationTokenSource? _profileStateLoadCancellation;
         private bool _isUpdatingFromLocalization;
         private bool _isUpdatingFromThemeService;
         private bool _isUpdatingFromAppSettings;
         private bool _isUpdatingMixinInputs;
         private int _mixinApplyRequestVersion;
+        private int _profileStateLoadVersion;
         private ProfileItem? _activeMixinProfile;
         private MixinSettings _currentMixinSettings = new();
+        private SystemProxyState _currentSystemProxyState = SystemProxyState.Disabled();
+        private TunRuntimeStatus _currentTunRuntimeStatus = TunRuntimeStatus.Disabled();
         private bool _isDisposed;
 
         [ObservableProperty]
@@ -156,6 +161,9 @@ namespace ClashWinUI.ViewModels
         [ObservableProperty]
         public partial string UpdateDownloadProgressText { get; set; }
 
+        [ObservableProperty]
+        public partial bool IsLoadingProfileState { get; set; }
+
         public IThemeService ThemeService => _themeService;
 
         public SettingsViewModel(
@@ -170,7 +178,8 @@ namespace ClashWinUI.ViewModels
             IProcessService processService,
             ITunService tunService,
             ISystemProxyService systemProxyService,
-            IUpdateService updateService)
+            IUpdateService updateService,
+            IHomeOverviewSamplerService homeOverviewSamplerService)
         {
             _localizedStrings = localizedStrings;
             _themeService = themeService;
@@ -184,6 +193,7 @@ namespace ClashWinUI.ViewModels
             _tunService = tunService;
             _systemProxyService = systemProxyService;
             _updateService = updateService;
+            _homeOverviewSamplerService = homeOverviewSamplerService;
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
             _appSettingsService.SettingsChanged += OnAppSettingsChanged;
@@ -219,8 +229,9 @@ namespace ClashWinUI.ViewModels
             IsUpdateDownloadProgressIndeterminate = false;
             UpdateDownloadProgressValue = 0;
             UpdateDownloadProgressText = string.Empty;
+            IsLoadingProfileState = false;
 
-            RefreshActiveProfileState();
+            ApplyOverviewSnapshot();
             RefreshUpdateState();
         }
 
@@ -232,10 +243,34 @@ namespace ClashWinUI.ViewModels
             }
 
             _isDisposed = true;
+            CancelProfileStateLoad();
             _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
             _appSettingsService.SettingsChanged -= OnAppSettingsChanged;
             _updateService.StateChanged -= OnUpdateServiceStateChanged;
             _mixinApplySemaphore.Dispose();
+        }
+
+        public Task InitializeAsync()
+        {
+            if (_isDisposed)
+            {
+                return Task.CompletedTask;
+            }
+
+            CancelProfileStateLoad();
+
+            _profileStateLoadCancellation = new CancellationTokenSource();
+            int requestVersion = Interlocked.Increment(ref _profileStateLoadVersion);
+
+            Stopwatch immediateStopwatch = Stopwatch.StartNew();
+            ApplyImmediateProfileState();
+            immediateStopwatch.Stop();
+            PerformanceTraceHelper.LogElapsed(
+                "settings init immediate",
+                immediateStopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(16));
+
+            return InitializeProfileStateAsync(requestVersion, _profileStateLoadCancellation.Token);
         }
 
         [RelayCommand]
@@ -258,47 +293,6 @@ namespace ClashWinUI.ViewModels
                 FileName = CurrentMixinWorkspacePath,
                 UseShellExecute = true,
             });
-        }
-
-        public void RefreshActiveProfileState()
-        {
-            GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
-            _activeMixinProfile = _profileService.GetActiveProfile();
-            HasActiveMixinProfile = _activeMixinProfile is not null;
-            OpenMixinFolderCommand.NotifyCanExecuteChanged();
-
-            if (_activeMixinProfile is null)
-            {
-                CurrentMixinProfileName = _localizedStrings["ProfilesNoActive"];
-                CurrentMixinWorkspacePath = string.Empty;
-                MixinStatusMessage = _localizedStrings["SettingsMixinNoActiveProfile"];
-                TunRuntimeStatusText = string.Empty;
-                TunRuntimeSummaryText = string.Empty;
-                ResetMixinInputs();
-                return;
-            }
-
-            try
-            {
-                ProfileConfigWorkspace workspace = _configService.EnsureWorkspace(_activeMixinProfile);
-                MixinSettings settings = _configService.LoadMixin(_activeMixinProfile);
-
-                CurrentMixinProfileName = _activeMixinProfile.DisplayName;
-                CurrentMixinWorkspacePath = workspace.DirectoryPath;
-                MixinStatusMessage = string.Empty;
-                _currentMixinSettings = CloneMixinSettings(settings);
-                ApplyMixinSettings(settings);
-                RefreshTunRuntimeStatus();
-            }
-            catch (Exception ex)
-            {
-                CurrentMixinProfileName = _activeMixinProfile.DisplayName;
-                CurrentMixinWorkspacePath = _activeMixinProfile.WorkspaceDirectory;
-                MixinStatusMessage = string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message);
-                _currentMixinSettings = new MixinSettings();
-                ResetMixinInputs();
-                RefreshTunRuntimeStatus();
-            }
         }
 
         [RelayCommand(CanExecute = nameof(CanUpdateGeoData))]
@@ -468,6 +462,189 @@ namespace ClashWinUI.ViewModels
             return !IsUpdatingApp;
         }
 
+        private void ApplyImmediateProfileState()
+        {
+            GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
+            IsLoadingProfileState = true;
+            OpenMixinFolderCommand.NotifyCanExecuteChanged();
+            ApplyOverviewSnapshot();
+
+            if (!HasActiveMixinProfile && string.IsNullOrWhiteSpace(CurrentMixinProfileName))
+            {
+                CurrentMixinWorkspacePath = string.Empty;
+                MixinStatusMessage = string.Empty;
+                ResetMixinInputs();
+            }
+        }
+
+        private async Task InitializeProfileStateAsync(int requestVersion, CancellationToken cancellationToken)
+        {
+            await Task.Yield();
+            if (_isDisposed || cancellationToken.IsCancellationRequested || requestVersion != _profileStateLoadVersion)
+            {
+                return;
+            }
+
+            Stopwatch backgroundStopwatch = Stopwatch.StartNew();
+            ActiveProfileLoadResult result;
+            try
+            {
+                result = await Task.Run(() => LoadActiveProfileState(cancellationToken), cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            backgroundStopwatch.Stop();
+            PerformanceTraceHelper.LogElapsed(
+                "settings init background",
+                backgroundStopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(120));
+
+            if (_isDisposed || cancellationToken.IsCancellationRequested || requestVersion != _profileStateLoadVersion)
+            {
+                return;
+            }
+
+            Stopwatch applyStopwatch = Stopwatch.StartNew();
+            ApplyLoadedProfileState(result);
+            applyStopwatch.Stop();
+            PerformanceTraceHelper.LogElapsed(
+                "settings init apply",
+                applyStopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(16));
+        }
+
+        private ActiveProfileLoadResult LoadActiveProfileState(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            SystemProxyState systemProxyState = _systemProxyService.GetCurrentState();
+            ProfileItem? activeProfile = _profileService.GetActiveProfile();
+            if (activeProfile is null)
+            {
+                return ActiveProfileLoadResult.NoActive(systemProxyState, TunRuntimeStatus.Disabled());
+            }
+
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                ProfileConfigWorkspace workspace = _configService.EnsureWorkspace(activeProfile);
+                cancellationToken.ThrowIfCancellationRequested();
+                MixinSettings settings = _configService.LoadMixin(activeProfile);
+                cancellationToken.ThrowIfCancellationRequested();
+                TunRuntimeStatus tunRuntimeStatus = ResolveTunRuntimeStatus(activeProfile);
+
+                return ActiveProfileLoadResult.FromSuccess(
+                    activeProfile,
+                    workspace.DirectoryPath,
+                    settings,
+                    systemProxyState,
+                    tunRuntimeStatus);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                TunRuntimeStatus tunRuntimeStatus = ResolveTunRuntimeStatus(activeProfile);
+                return ActiveProfileLoadResult.FromFailure(
+                    activeProfile,
+                    activeProfile.WorkspaceDirectory,
+                    systemProxyState,
+                    tunRuntimeStatus,
+                    string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message));
+            }
+        }
+
+        private void ApplyLoadedProfileState(ActiveProfileLoadResult result)
+        {
+            IsLoadingProfileState = false;
+
+            if (!result.HasActiveProfile)
+            {
+                ApplyNoActiveProfileState(result.SystemProxyState, result.TunRuntimeStatus);
+                return;
+            }
+
+            _activeMixinProfile = result.Profile;
+            HasActiveMixinProfile = true;
+            CurrentMixinProfileName = result.Profile!.DisplayName;
+            CurrentMixinWorkspacePath = result.WorkspacePath;
+            OpenMixinFolderCommand.NotifyCanExecuteChanged();
+
+            if (!result.Success)
+            {
+                _currentMixinSettings = new MixinSettings();
+                ResetMixinInputs();
+                MixinStatusMessage = result.Message;
+                ApplyTunPresentation(result.TunRuntimeStatus, result.SystemProxyState);
+                return;
+            }
+
+            _currentMixinSettings = CloneMixinSettings(result.Settings!);
+            ApplyMixinSettings(result.Settings!);
+            MixinStatusMessage = string.Empty;
+            ApplyTunPresentation(result.TunRuntimeStatus, result.SystemProxyState);
+        }
+
+        private void ApplyNoActiveProfileState(SystemProxyState systemProxyState, TunRuntimeStatus tunRuntimeStatus)
+        {
+            _activeMixinProfile = null;
+            HasActiveMixinProfile = false;
+            CurrentMixinProfileName = _localizedStrings["ProfilesNoActive"];
+            CurrentMixinWorkspacePath = string.Empty;
+            MixinStatusMessage = _localizedStrings["SettingsMixinNoActiveProfile"];
+            _currentMixinSettings = new MixinSettings();
+            ResetMixinInputs();
+            OpenMixinFolderCommand.NotifyCanExecuteChanged();
+            ApplyTunPresentation(tunRuntimeStatus, systemProxyState);
+        }
+
+        private void ApplyOverviewSnapshot()
+        {
+            HomeOverviewState state = _homeOverviewSamplerService.GetState();
+            ApplyTunPresentation(state.TunRuntimeStatus, state.SystemProxyState);
+        }
+
+        private void ApplyTunPresentation(TunRuntimeStatus runtimeStatus, SystemProxyState systemProxyState)
+        {
+            _currentTunRuntimeStatus = runtimeStatus;
+            _currentSystemProxyState = systemProxyState;
+
+            (TunRuntimeStatusText, TunRuntimeSummaryText) = RuntimeNetworkStatusTextHelper.BuildTunPresentation(
+                _localizedStrings,
+                runtimeStatus,
+                systemProxyState);
+        }
+
+        private async Task RefreshTunRuntimeStatusAsync()
+        {
+            ProfileItem? activeProfile = _activeMixinProfile;
+
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            (SystemProxyState SystemProxyState, TunRuntimeStatus TunRuntimeStatus) snapshot = await Task.Run(() =>
+            {
+                SystemProxyState systemProxyState = _systemProxyService.GetCurrentState();
+                TunRuntimeStatus runtimeStatus = ResolveTunRuntimeStatus(activeProfile);
+                return (systemProxyState, runtimeStatus);
+            });
+            stopwatch.Stop();
+
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            ApplyTunPresentation(snapshot.TunRuntimeStatus, snapshot.SystemProxyState);
+            PerformanceTraceHelper.LogElapsed(
+                "settings tun diagnostics refresh",
+                stopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(120));
+        }
+
         private void ApplyMixinSettings(MixinSettings settings)
         {
             _isUpdatingMixinInputs = true;
@@ -585,7 +762,7 @@ namespace ClashWinUI.ViewModels
 
         private void QueueImmediateMixinApply()
         {
-            if (_isUpdatingMixinInputs || _activeMixinProfile is null || !HasActiveMixinProfile)
+            if (_isUpdatingMixinInputs || IsLoadingProfileState || _activeMixinProfile is null || !HasActiveMixinProfile)
             {
                 return;
             }
@@ -631,7 +808,7 @@ namespace ClashWinUI.ViewModels
 
             if (MixinSettingsEquals(_currentMixinSettings, nextSettings))
             {
-                RefreshTunRuntimeStatus();
+                await RefreshTunRuntimeStatusAsync();
                 return (true, string.Empty);
             }
 
@@ -648,7 +825,7 @@ namespace ClashWinUI.ViewModels
 
                     string failedMessage = BuildTunPreparationFailureMessage(tunPreparation);
                     MixinStatusMessage = failedMessage;
-                    RefreshTunRuntimeStatus();
+                    await RefreshTunRuntimeStatusAsync();
                     return (false, failedMessage);
                 }
             }
@@ -686,7 +863,7 @@ namespace ClashWinUI.ViewModels
                         ? controllerMessage
                         : _localizedStrings["SettingsMixinStatusApplyFailed"];
                     MixinStatusMessage = failedMessage;
-                    RefreshTunRuntimeStatus();
+                    await RefreshTunRuntimeStatusAsync();
                     return (false, failedMessage);
                 }
 
@@ -701,7 +878,7 @@ namespace ClashWinUI.ViewModels
 
                 string successMessage = _localizedStrings["SettingsMixinStatusApplied"];
                 MixinStatusMessage = successMessage;
-                RefreshTunRuntimeStatus();
+                await RefreshTunRuntimeStatusAsync();
                 return (true, successMessage);
             }
             catch (Exception ex)
@@ -714,7 +891,7 @@ namespace ClashWinUI.ViewModels
 
                 string failedMessage = string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message);
                 MixinStatusMessage = failedMessage;
-                RefreshTunRuntimeStatus();
+                await RefreshTunRuntimeStatusAsync();
                 return (false, failedMessage);
             }
         }
@@ -771,25 +948,7 @@ namespace ClashWinUI.ViewModels
                 && string.Equals(NormalizeLogLevelTag(left.LogLevel), NormalizeLogLevelTag(right.LogLevel), StringComparison.OrdinalIgnoreCase);
         }
 
-        private void RefreshTunRuntimeStatus()
-        {
-            if (!HasActiveMixinProfile)
-            {
-                TunRuntimeStatusText = string.Empty;
-                TunRuntimeSummaryText = string.Empty;
-                return;
-            }
-
-            SystemProxyState systemProxyState = _systemProxyService.GetCurrentState();
-            TunRuntimeStatus runtimeStatus = ResolveTunRuntimeStatus();
-
-            (TunRuntimeStatusText, TunRuntimeSummaryText) = RuntimeNetworkStatusTextHelper.BuildTunPresentation(
-                _localizedStrings,
-                runtimeStatus,
-                systemProxyState);
-        }
-
-        private TunRuntimeStatus ResolveTunRuntimeStatus()
+        private TunRuntimeStatus ResolveTunRuntimeStatus(ProfileItem? activeProfile)
         {
             try
             {
@@ -801,12 +960,12 @@ namespace ClashWinUI.ViewModels
                         _tunService.GetRuntimeStatus(currentConfigPath, _kernelPathService.ResolveKernelPath()));
                 }
 
-                if (_activeMixinProfile is null)
+                if (activeProfile is null)
                 {
                     return TunRuntimeStatus.Disabled();
                 }
 
-                string runtimePath = _configService.GetRuntimePath(_activeMixinProfile);
+                string runtimePath = _configService.GetRuntimePath(activeProfile);
                 if (!_tunService.IsTunEnabled(runtimePath))
                 {
                     return TunRuntimeStatus.Disabled();
@@ -885,12 +1044,13 @@ namespace ClashWinUI.ViewModels
                 _isUpdatingFromLocalization = false;
             }
 
-            if (!HasActiveMixinProfile)
+            if (!HasActiveMixinProfile && !IsLoadingProfileState)
             {
+                CurrentMixinProfileName = _localizedStrings["ProfilesNoActive"];
                 MixinStatusMessage = _localizedStrings["SettingsMixinNoActiveProfile"];
             }
 
-            RefreshTunRuntimeStatus();
+            ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
             GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
             RefreshUpdateState();
         }
@@ -968,6 +1128,29 @@ namespace ClashWinUI.ViewModels
                 version);
         }
 
+        private void CancelProfileStateLoad()
+        {
+            CancellationTokenSource? cancellation = _profileStateLoadCancellation;
+            _profileStateLoadCancellation = null;
+            if (cancellation is null)
+            {
+                return;
+            }
+
+            try
+            {
+                cancellation.Cancel();
+            }
+            catch
+            {
+                // Ignore best-effort cancellation failures.
+            }
+            finally
+            {
+                cancellation.Dispose();
+            }
+        }
+
         private static bool TryMapTagToAppTheme(string tag, out AppThemeMode mode)
         {
             mode = tag switch
@@ -1030,6 +1213,94 @@ namespace ClashWinUI.ViewModels
                 CloseBehavior.Exit => CloseBehaviorExit,
                 _ => CloseBehaviorMinimizeToTray,
             };
+        }
+
+        private sealed class ActiveProfileLoadResult
+        {
+            private ActiveProfileLoadResult(
+                bool hasActiveProfile,
+                bool success,
+                ProfileItem? profile,
+                string workspacePath,
+                MixinSettings? settings,
+                SystemProxyState systemProxyState,
+                TunRuntimeStatus tunRuntimeStatus,
+                string message)
+            {
+                HasActiveProfile = hasActiveProfile;
+                Success = success;
+                Profile = profile;
+                WorkspacePath = workspacePath;
+                Settings = settings;
+                SystemProxyState = systemProxyState;
+                TunRuntimeStatus = tunRuntimeStatus;
+                Message = message;
+            }
+
+            public bool HasActiveProfile { get; }
+
+            public bool Success { get; }
+
+            public ProfileItem? Profile { get; }
+
+            public string WorkspacePath { get; }
+
+            public MixinSettings? Settings { get; }
+
+            public SystemProxyState SystemProxyState { get; }
+
+            public TunRuntimeStatus TunRuntimeStatus { get; }
+
+            public string Message { get; }
+
+            public static ActiveProfileLoadResult NoActive(SystemProxyState systemProxyState, TunRuntimeStatus tunRuntimeStatus)
+            {
+                return new ActiveProfileLoadResult(
+                    hasActiveProfile: false,
+                    success: true,
+                    profile: null,
+                    workspacePath: string.Empty,
+                    settings: null,
+                    systemProxyState,
+                    tunRuntimeStatus,
+                    string.Empty);
+            }
+
+            public static ActiveProfileLoadResult FromSuccess(
+                ProfileItem profile,
+                string workspacePath,
+                MixinSettings settings,
+                SystemProxyState systemProxyState,
+                TunRuntimeStatus tunRuntimeStatus)
+            {
+                return new ActiveProfileLoadResult(
+                    hasActiveProfile: true,
+                    success: true,
+                    profile,
+                    workspacePath,
+                    settings,
+                    systemProxyState,
+                    tunRuntimeStatus,
+                    string.Empty);
+            }
+
+            public static ActiveProfileLoadResult FromFailure(
+                ProfileItem profile,
+                string workspacePath,
+                SystemProxyState systemProxyState,
+                TunRuntimeStatus tunRuntimeStatus,
+                string message)
+            {
+                return new ActiveProfileLoadResult(
+                    hasActiveProfile: true,
+                    success: false,
+                    profile,
+                    workspacePath,
+                    settings: null,
+                    systemProxyState,
+                    tunRuntimeStatus,
+                    message);
+            }
         }
     }
 }

@@ -9,6 +9,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:ui="using:CommunityToolkit.WinUI"
     xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    NavigationCacheMode="Enabled"
     mc:Ignorable="d">
     <Page.Resources>
         <x:Double x:Key="SettingsCardSpacing">4</x:Double>
@@ -98,6 +99,21 @@
                 <TextBlock
                     Style="{StaticResource SettingsSectionHeaderTextBlockStyle}"
                     Text="{Binding [SettingsSection2], Source={StaticResource L}}" />
+
+                <StackPanel
+                    Margin="14,0,0,8"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Visibility="{Binding IsLoadingProfileState, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ProgressRing
+                        Width="18"
+                        Height="18"
+                        IsActive="True" />
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="{Binding [SettingsProfileLoadingStatus], Source={StaticResource L}}" />
+                </StackPanel>
 
                 <controls:SettingsCard
                     Description="{Binding [CloseBehaviorDescription], Source={StaticResource L}}"

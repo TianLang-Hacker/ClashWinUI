@@ -7,7 +7,9 @@ using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ClashWinUI.ViewModels
@@ -22,6 +24,7 @@ namespace ClashWinUI.ViewModels
         private readonly IProcessService _processService;
         private readonly ITunService _tunService;
         private readonly ISystemProxyService _systemProxyService;
+        private int _profileMetadataRefreshVersion;
         private bool _suppressSelectionActivation;
         private string? _pendingSelectedProfileId;
         private bool _isDisposed;
@@ -86,6 +89,7 @@ namespace ClashWinUI.ViewModels
         public Task InitializeAsync()
         {
             ReloadProfiles();
+            QueueProfileMetadataRefresh();
             return Task.CompletedTask;
         }
 
@@ -93,6 +97,7 @@ namespace ClashWinUI.ViewModels
         private Task RefreshAsync()
         {
             ReloadProfiles();
+            QueueProfileMetadataRefresh();
             return Task.CompletedTask;
         }
 
@@ -325,6 +330,63 @@ namespace ClashWinUI.ViewModels
             }
 
             SetSelectedProfileSilently(nextSelected);
+        }
+
+        private void QueueProfileMetadataRefresh()
+        {
+            int requestVersion = Interlocked.Increment(ref _profileMetadataRefreshVersion);
+            _ = RefreshProfileMetadataAsync(requestVersion);
+        }
+
+        private async Task RefreshProfileMetadataAsync(int requestVersion)
+        {
+            ProfileItem[] snapshot = _profileService.GetProfiles().ToArray();
+            (string Id, int NodeCount)[] recalculatedCounts = await Task.Run(() =>
+            {
+                return snapshot
+                    .Select(profile => (profile.Id, CalculateNodeCount(profile.FilePath)))
+                    .ToArray();
+            });
+
+            if (_isDisposed || requestVersion != _profileMetadataRefreshVersion)
+            {
+                return;
+            }
+
+            bool changed = false;
+            foreach ((string id, int nodeCount) in recalculatedCounts)
+            {
+                ProfileItem? profile = snapshot.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
+                if (profile is null || profile.NodeCount == nodeCount)
+                {
+                    continue;
+                }
+
+                profile.NodeCount = nodeCount;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                ReloadProfiles();
+            }
+        }
+
+        private static int CalculateNodeCount(string? filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            {
+                return 0;
+            }
+
+            try
+            {
+                return ProxyConfigParser.ParseFromFile(filePath).Count;
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         private void SetSelectedProfileSilently(ProfileItem? profile)

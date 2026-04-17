@@ -66,8 +66,6 @@ namespace ClashWinUI.ViewModels
             SelectedLevelFilterTag = LevelAllTag;
             SearchKeyword = string.Empty;
             IsAutoScrollEnabled = true;
-
-            ReloadEntries();
         }
 
         public Task InitializeAsync()

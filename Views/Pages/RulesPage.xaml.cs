@@ -81,7 +81,6 @@ namespace ClashWinUI.Views.Pages
             DataContext = null;
             _viewModel.Dispose();
             _viewModel = null;
-            PageMemoryTrimHelper.RequestTrim();
         }
 
         private static RulesViewModel ResolveViewModel()

@@ -31,7 +31,7 @@ namespace ClashWinUI.Views.Pages
                 DataContext = viewModel;
             }
 
-            viewModel.RefreshActiveProfileState();
+            _ = viewModel.InitializeAsync();
 
             base.OnNavigatedTo(e);
         }

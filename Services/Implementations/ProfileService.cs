@@ -70,8 +70,6 @@ namespace ClashWinUI.Services.Implementations
 
         public IReadOnlyList<ProfileItem> GetProfiles()
         {
-            EnsureWorkspaceLayouts();
-            RefreshNodeCountsIfChanged();
             return _store.Profiles
                 .OrderByDescending(item => item.UpdatedAt)
                 .ToArray();
@@ -79,20 +77,12 @@ namespace ClashWinUI.Services.Implementations
 
         public ProfileItem? GetActiveProfile()
         {
-            EnsureWorkspaceLayouts();
-            RefreshNodeCountsIfChanged();
             if (string.IsNullOrWhiteSpace(_store.ActiveProfileId))
             {
                 return null;
             }
 
-            ProfileItem? profile = _store.Profiles.FirstOrDefault(item => string.Equals(item.Id, _store.ActiveProfileId, StringComparison.OrdinalIgnoreCase));
-            if (profile is not null && TryRefreshSubscriptionSource(profile))
-            {
-                SaveStore();
-            }
-
-            return profile;
+            return _store.Profiles.FirstOrDefault(item => string.Equals(item.Id, _store.ActiveProfileId, StringComparison.OrdinalIgnoreCase));
         }
 
         public async Task<ProfileItem> AddOrUpdateFromSubscriptionAsync(string subscriptionUrl, CancellationToken cancellationToken = default)
@@ -216,7 +206,6 @@ namespace ClashWinUI.Services.Implementations
             }
 
             string? previousActiveProfileId = _store.ActiveProfileId;
-            _ = TryRefreshSubscriptionSource(profile);
             _store.ActiveProfileId = profileId;
             _configService.EnsureWorkspace(profile);
             _configService.BuildRuntime(profile);
