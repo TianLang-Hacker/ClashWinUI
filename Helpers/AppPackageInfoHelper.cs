@@ -12,6 +12,31 @@ namespace ClashWinUI.Helpers
 
         public static AppPackageIdentityInfo Current => CachedIdentity;
 
+        public static bool IsPackaged()
+        {
+            try
+            {
+                _ = Package.Current;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        public static string? TryGetPackageFamilyName()
+        {
+            try
+            {
+                return Package.Current.Id.FamilyName?.Trim();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static AppPackageIdentityInfo ResolveIdentity()
         {
             if (TryGetFromPackage(out AppPackageIdentityInfo? packagedIdentity))

@@ -10,7 +10,6 @@ using System.Linq;
 using System.Management;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
 using YamlDotNet.RepresentationModel;
 
 namespace ClashWinUI.Services.Implementations
@@ -80,7 +79,7 @@ namespace ClashWinUI.Services.Implementations
             }
 
             bool firewallEnabled = WindowsFirewallHelper.IsAnyProfileEnabled();
-            if (!IsProcessElevated())
+            if (!AppElevationHelper.IsProcessElevated())
             {
                 return CreateRuntimeStatus(snapshot, false, string.Empty, false, false, firewallEnabled, MihomoFailureKind.TunPermission, "Current process is not running as administrator.");
             }
@@ -305,7 +304,7 @@ namespace ClashWinUI.Services.Implementations
         {
             try
             {
-                if (!IsProcessElevated())
+                if (!AppElevationHelper.IsProcessElevated())
                 {
                     return CreateFailure(MihomoFailureKind.TunPermission, "Current process is not running as administrator.");
                 }
@@ -1588,13 +1587,6 @@ namespace ClashWinUI.Services.Implementations
                 FailureKind = failureKind,
                 Message = message,
             };
-        }
-
-        private static bool IsProcessElevated()
-        {
-            using WindowsIdentity identity = WindowsIdentity.GetCurrent();
-            var principal = new WindowsPrincipal(identity);
-            return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
 
         private static string FormatDriverVersion(uint rawVersion)

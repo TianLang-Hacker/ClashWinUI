@@ -26,6 +26,7 @@ namespace ClashWinUI
         private Window? _window;
         private ITrayService? _trayService;
         private int _shutdownRequested;
+        private int _skipProcessExitCleanup;
 
         public App()
         {
@@ -85,12 +86,20 @@ namespace ClashWinUI
         {
             try
             {
+                string startupConfigPath = ResolveStartupConfigPath();
+                if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
+                {
+                    Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                    Exit();
+                    return;
+                }
+
                 _window = _host.Services.GetRequiredService<MainWindow>();
                 _window.Activate();
 
                 await _host.StartAsync();
                 _host.Services.GetRequiredService<IHomeOverviewSamplerService>().Start();
-                await InitializeStartupPipelineAsync();
+                await InitializeStartupPipelineAsync(startupConfigPath);
                 _ = RunStartupUpdateCheckAsync();
             }
             catch (Exception ex)
@@ -169,14 +178,12 @@ namespace ClashWinUI
             }
         }
 
-        private async Task InitializeStartupPipelineAsync()
+        private async Task InitializeStartupPipelineAsync(string startupConfigPath)
         {
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             IKernelBootstrapService kernelBootstrapService = _host.Services.GetRequiredService<IKernelBootstrapService>();
             IKernelPathService kernelPathService = _host.Services.GetRequiredService<IKernelPathService>();
             IGeoDataService geoDataService = _host.Services.GetRequiredService<IGeoDataService>();
-            IConfigService configService = _host.Services.GetRequiredService<IConfigService>();
-            IProfileService profileService = _host.Services.GetRequiredService<IProfileService>();
             IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
             ITunService tunService = _host.Services.GetRequiredService<ITunService>();
             ISystemProxyService systemProxyService = _host.Services.GetRequiredService<ISystemProxyService>();
@@ -196,24 +203,6 @@ namespace ClashWinUI
                 {
                     logService.Add($"GeoData ensure failed before startup: {geoDataEnsureResult.Details}", LogLevel.Warning);
                 }
-
-                string startupConfigPath = processService.EnsureStartupConfigPath();
-                ProfileItem? activeProfile = profileService.GetActiveProfile();
-                if (activeProfile is not null)
-                {
-                    try
-                    {
-                        startupConfigPath = configService.BuildRuntime(activeProfile);
-                    }
-                    catch (Exception ex)
-                    {
-                        logService.Add(
-                            $"Build runtime config failed for active profile. Use default startup profile instead: {ex.Message}",
-                            LogLevel.Warning);
-                    }
-                }
-
-                logService.Add($"Startup config path: {startupConfigPath}");
 
                 bool controllerReady = await StartAndWaitControllerReadyAsync(processService, startupConfigPath);
                 if (!controllerReady)
@@ -300,6 +289,74 @@ namespace ClashWinUI
             finally
             {
                 InitializeTray();
+            }
+        }
+
+        private string ResolveStartupConfigPath()
+        {
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+            IConfigService configService = _host.Services.GetRequiredService<IConfigService>();
+            IProfileService profileService = _host.Services.GetRequiredService<IProfileService>();
+            IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
+
+            string startupConfigPath = processService.EnsureStartupConfigPath();
+            ProfileItem? activeProfile = profileService.GetActiveProfile();
+            if (activeProfile is not null)
+            {
+                try
+                {
+                    startupConfigPath = configService.BuildRuntime(activeProfile);
+                }
+                catch (Exception ex)
+                {
+                    logService.Add(
+                        $"Build runtime config failed for active profile. Use default startup profile instead: {ex.Message}",
+                        LogLevel.Warning);
+                }
+            }
+
+            logService.Add($"Startup config path: {startupConfigPath}");
+            return startupConfigPath;
+        }
+
+        private bool TryRelaunchAsAdministratorForTunStartup(string startupConfigPath)
+        {
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+            ITunService tunService = _host.Services.GetRequiredService<ITunService>();
+            bool isPackaged = AppPackageInfoHelper.IsPackaged();
+
+            if (string.IsNullOrWhiteSpace(startupConfigPath) || !tunService.IsTunEnabled(startupConfigPath))
+            {
+                return false;
+            }
+
+            if (AppElevationHelper.IsProcessElevated())
+            {
+                return false;
+            }
+
+            ElevationRelaunchOutcome outcome = AppElevationHelper.TryRelaunchAsAdministrator();
+            switch (outcome.Status)
+            {
+                case ElevationRelaunchStatus.Relaunched:
+                    logService.Add(
+                        $"Startup config enables TUN. Relaunching as administrator. Mode={(isPackaged ? "packaged" : "unpackaged")}; " +
+                        $"StartupConfig={startupConfigPath}; Target={outcome.Target.ExecutablePath}");
+                    return true;
+                case ElevationRelaunchStatus.UserCancelled:
+                    logService.Add(
+                        $"Administrator relaunch cancelled by user. Continue without elevation. " +
+                        $"Mode={(isPackaged ? "packaged" : "unpackaged")}; StartupConfig={startupConfigPath}; " +
+                        $"Target={outcome.Target.ExecutablePath}; Detail={outcome.Message}",
+                        LogLevel.Warning);
+                    return false;
+                default:
+                    logService.Add(
+                        $"Administrator relaunch failed. Continue without elevation. " +
+                        $"Mode={(isPackaged ? "packaged" : "unpackaged")}; StartupConfig={startupConfigPath}; " +
+                        $"Target={outcome.Target.ExecutablePath}; Detail={outcome.Message}",
+                        LogLevel.Warning);
+                    return false;
             }
         }
 
@@ -529,6 +586,11 @@ namespace ClashWinUI
 
         private void OnProcessExit(object? sender, EventArgs e)
         {
+            if (Interlocked.CompareExchange(ref _skipProcessExitCleanup, 0, 0) == 1)
+            {
+                return;
+            }
+
             try
             {
                 _trayService?.Shutdown();
