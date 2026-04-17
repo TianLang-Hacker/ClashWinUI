@@ -537,6 +537,12 @@
   <data name="SettingsMixinTunEnabledLabel" xml:space="preserve">
     <value>Tun Mode</value>
   </data>
+  <data name="SettingsTunCardHeader" xml:space="preserve">
+    <value>Tun Mode</value>
+  </data>
+  <data name="SettingsTunCardDescription" xml:space="preserve">
+    <value>Control TUN mode separately for the active profile and show the current runtime status.</value>
+  </data>
   <data name="SettingsMixinAllowLanLabel" xml:space="preserve">
     <value>Allow LAN</value>
   </data>

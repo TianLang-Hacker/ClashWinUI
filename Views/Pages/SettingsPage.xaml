@@ -201,25 +201,9 @@
                             Text="{Binding MixinStatusMessage}"
                             TextWrapping="WrapWholeWords" />
 
-                        <StackPanel
-                            Spacing="4"
-                            Visibility="{Binding TunRuntimeStatusText, Converter={StaticResource StringToVisibilityConverter}}">
-                            <TextBlock Text="{Binding [HomeFieldTunStatus], Source={StaticResource L}}" />
-                            <TextBlock
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{Binding TunRuntimeStatusText}"
-                                TextWrapping="WrapWholeWords" />
-                            <TextBlock
-                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                Text="{Binding TunRuntimeSummaryText}"
-                                TextWrapping="WrapWholeWords"
-                                Visibility="{Binding TunRuntimeSummaryText, Converter={StaticResource StringToVisibilityConverter}}" />
-                        </StackPanel>
-
                         <StackPanel Spacing="12">
                             <Grid ColumnSpacing="12">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
@@ -227,19 +211,12 @@
                                 <StackPanel
                                     Grid.Column="0"
                                     Spacing="8">
-                                    <TextBlock Text="{Binding [SettingsMixinTunEnabledLabel], Source={StaticResource L}}" />
-                                    <ToggleSwitch IsOn="{Binding TunEnabled, Mode=TwoWay}" />
-                                </StackPanel>
-
-                                <StackPanel
-                                    Grid.Column="1"
-                                    Spacing="8">
                                     <TextBlock Text="{Binding [SettingsMixinAllowLanLabel], Source={StaticResource L}}" />
                                     <ToggleSwitch IsOn="{Binding AllowLanEnabled, Mode=TwoWay}" />
                                 </StackPanel>
 
                                 <StackPanel
-                                    Grid.Column="2"
+                                    Grid.Column="1"
                                     Spacing="8">
                                     <TextBlock Text="{Binding [SettingsMixinIpv6Label], Source={StaticResource L}}" />
                                     <ToggleSwitch IsOn="{Binding Ipv6Enabled, Mode=TwoWay}" />
@@ -306,6 +283,31 @@
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard
+                    Header="{Binding [SettingsTunCardHeader], Source={StaticResource L}}"
+                    HeaderIcon="{ui:FontIcon Glyph=&#xE705;}"
+                    IsEnabled="{Binding HasActiveMixinProfile}">
+                    <controls:SettingsCard.Description>
+                        <StackPanel Spacing="2">
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{Binding [SettingsTunCardDescription], Source={StaticResource L}}"
+                                TextWrapping="WrapWholeWords" />
+                            <TextBlock
+                                Text="{Binding TunRuntimeStatusText}"
+                                TextWrapping="WrapWholeWords"
+                                Visibility="{Binding TunRuntimeStatusText, Converter={StaticResource StringToVisibilityConverter}}" />
+                            <TextBlock
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                Text="{Binding TunRuntimeSummaryText}"
+                                TextWrapping="WrapWholeWords"
+                                Visibility="{Binding TunRuntimeSummaryText, Converter={StaticResource StringToVisibilityConverter}}" />
+                        </StackPanel>
+                    </controls:SettingsCard.Description>
+
+                    <ToggleSwitch IsOn="{Binding TunEnabled, Mode=TwoWay}" />
                 </controls:SettingsCard>
 
                 <TextBlock 

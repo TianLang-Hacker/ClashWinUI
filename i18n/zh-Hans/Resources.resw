@@ -537,6 +537,12 @@
   <data name="SettingsMixinTunEnabledLabel" xml:space="preserve">
     <value>Tun 模式</value>
   </data>
+  <data name="SettingsTunCardHeader" xml:space="preserve">
+    <value>Tun 模式</value>
+  </data>
+  <data name="SettingsTunCardDescription" xml:space="preserve">
+    <value>独立控制当前激活配置的 TUN 模式，并显示当前运行状态。</value>
+  </data>
   <data name="SettingsMixinAllowLanLabel" xml:space="preserve">
     <value>允许局域网</value>
   </data>
