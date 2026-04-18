@@ -15,7 +15,6 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 
 namespace ClashWinUI.Services.Implementations
 {
@@ -124,6 +123,7 @@ namespace ClashWinUI.Services.Implementations
         public async Task<bool> DownloadAndInstallLatestAsync(CancellationToken cancellationToken = default)
         {
             await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
+            bool failureLogged = false;
             try
             {
                 if (_latestRelease is null || _latestRelease.Version is null || _packageIdentity.Version.CompareTo(_latestRelease.Version) >= 0)
@@ -167,10 +167,15 @@ namespace ClashWinUI.Services.Implementations
                 Directory.CreateDirectory(downloadDirectory);
 
                 string msixPath = Path.Combine(downloadDirectory, asset.Name);
-                string appInstallerPath = Path.Combine(downloadDirectory, Path.GetFileNameWithoutExtension(asset.Name) + ".appinstaller");
-
-                await DownloadWithFallbackAsync(asset, msixPath, cancellationToken).ConfigureAwait(false);
-                WriteLocalAppInstallerFile(appInstallerPath, msixPath, asset, _latestRelease.Version);
+                try
+                {
+                    await DownloadWithFallbackAsync(asset, msixPath, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    failureLogged = true;
+                    throw;
+                }
 
                 SetState(new UpdateState
                 {
@@ -184,17 +189,30 @@ namespace ClashWinUI.Services.Implementations
                     IsBusy = false,
                 });
 
-                Process.Start(new ProcessStartInfo
+                try
                 {
-                    FileName = appInstallerPath,
-                    UseShellExecute = true,
-                });
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = msixPath,
+                        UseShellExecute = true,
+                    });
+                }
+                catch (Exception ex)
+                {
+                    failureLogged = true;
+                    _logService.Add($"Update package launch error for '{msixPath}': {ex.Message}", LogLevel.Warning);
+                    throw;
+                }
 
                 return true;
             }
             catch (Exception ex)
             {
-                _logService.Add($"Update download/install error: {ex.Message}", LogLevel.Warning);
+                if (!failureLogged)
+                {
+                    _logService.Add($"Update download/install error: {ex.Message}", LogLevel.Warning);
+                }
+
                 SetState(new UpdateState
                 {
                     Status = UpdateStatus.DownloadFailed,
@@ -280,6 +298,8 @@ namespace ClashWinUI.Services.Implementations
 
             string tempPath = destinationPath + ".download";
             Exception? lastException = null;
+            UpdateDownloadFailureStage lastFailureStage = UpdateDownloadFailureStage.None;
+            string lastCandidate = string.Empty;
 
             foreach (string candidate in candidates)
             {
@@ -289,28 +309,40 @@ namespace ClashWinUI.Services.Implementations
                     if (!response.IsSuccessStatusCode)
                     {
                         lastException = new HttpRequestException($"HTTP {(int)response.StatusCode} {response.ReasonPhrase}");
+                        lastFailureStage = UpdateDownloadFailureStage.Download;
+                        lastCandidate = candidate;
                         continue;
                     }
 
-                    await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-                    await using FileStream target = new(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                    await CopyToFileWithProgressAsync(source, target, response.Content.Headers.ContentLength, asset, cancellationToken).ConfigureAwait(false);
-
-                    if (File.Exists(destinationPath))
                     {
-                        File.Delete(destinationPath);
+                        await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                        await using FileStream target = new(tempPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                        await CopyToFileWithProgressAsync(source, target, response.Content.Headers.ContentLength, asset, cancellationToken).ConfigureAwait(false);
                     }
 
-                    File.Move(tempPath, destinationPath, overwrite: true);
-                    return;
+                    try
+                    {
+                        File.Move(tempPath, destinationPath, overwrite: true);
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastException = ex;
+                        lastFailureStage = UpdateDownloadFailureStage.Promote;
+                        lastCandidate = candidate;
+                        TryDeleteTempFile(tempPath);
+                    }
                 }
                 catch (Exception ex)
                 {
                     lastException = ex;
+                    lastFailureStage = UpdateDownloadFailureStage.Download;
+                    lastCandidate = candidate;
                     TryDeleteTempFile(tempPath);
                 }
             }
 
+            LogDownloadFailure(lastFailureStage, tempPath, destinationPath, lastCandidate, lastException);
             throw lastException ?? new InvalidOperationException("Update download failed for all candidate URLs.");
         }
 
@@ -376,40 +408,6 @@ namespace ClashWinUI.Services.Implementations
             }
 
             await target.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
-
-        private void WriteLocalAppInstallerFile(string appInstallerPath, string msixPath, GitHubReleaseAsset asset, Version version)
-        {
-            string appInstallerUri = new Uri(appInstallerPath).AbsoluteUri;
-            string msixUri = new Uri(msixPath).AbsoluteUri;
-            string processorArchitecture = string.IsNullOrWhiteSpace(asset.Architecture)
-                ? _packageIdentity.Architecture
-                : asset.Architecture;
-
-            XNamespace ns = "http://schemas.microsoft.com/appx/appinstaller/2017/2";
-            var document = new XDocument(
-                new XDeclaration("1.0", "utf-8", "yes"),
-                new XElement(
-                    ns + "AppInstaller",
-                    new XAttribute("Uri", appInstallerUri),
-                    new XAttribute("Version", version.ToString(4)),
-                    new XElement(
-                        ns + "MainPackage",
-                        new XAttribute("Name", _packageIdentity.Name),
-                        new XAttribute("Publisher", _packageIdentity.Publisher),
-                        new XAttribute("Version", version.ToString(4)),
-                        new XAttribute("ProcessorArchitecture", processorArchitecture),
-                        new XAttribute("Uri", msixUri)),
-                    new XElement(
-                        ns + "UpdateSettings",
-                        new XElement(
-                            ns + "OnLaunch",
-                            new XAttribute("HoursBetweenUpdateChecks", "0"),
-                            new XAttribute("ShowPrompt", "false"),
-                            new XAttribute("UpdateBlocksActivation", "false")))));
-
-            Directory.CreateDirectory(Path.GetDirectoryName(appInstallerPath)!);
-            document.Save(appInstallerPath);
         }
 
         private async Task<bool> ShouldUseChinaProxyAsync(CancellationToken cancellationToken)
@@ -511,7 +509,23 @@ namespace ClashWinUI.Services.Implementations
                 normalized = normalized[..suffixIndex];
             }
 
-            return Version.TryParse(normalized, out version);
+            string[] segments = normalized.Split('.', StringSplitOptions.None);
+            if (segments.Length is < 2 or > 4)
+            {
+                return false;
+            }
+
+            int[] components = new int[4];
+            for (int index = 0; index < segments.Length; index++)
+            {
+                if (!int.TryParse(segments[index], out components[index]))
+                {
+                    return false;
+                }
+            }
+
+            version = new Version(components[0], components[1], components[2], components[3]);
+            return true;
         }
 
         private static string ResolveAssetArchitecture(string assetName)
@@ -543,6 +557,28 @@ namespace ClashWinUI.Services.Implementations
                 JsonValueKind.Number => element.GetRawText(),
                 _ => string.Empty,
             };
+        }
+
+        private void LogDownloadFailure(
+            UpdateDownloadFailureStage stage,
+            string tempPath,
+            string destinationPath,
+            string candidate,
+            Exception? exception)
+        {
+            if (exception is null)
+            {
+                return;
+            }
+
+            string message = stage switch
+            {
+                UpdateDownloadFailureStage.Promote => $"Update package promote error from '{tempPath}' to '{destinationPath}': {exception.Message}",
+                UpdateDownloadFailureStage.Download when !string.IsNullOrWhiteSpace(candidate) => $"Update package download/write error for '{destinationPath}' from '{candidate}': {exception.Message}",
+                _ => $"Update package download/write error for '{destinationPath}': {exception.Message}",
+            };
+
+            _logService.Add(message, LogLevel.Warning);
         }
 
         private static void TryDeleteTempFile(string path)
@@ -593,6 +629,13 @@ namespace ClashWinUI.Services.Implementations
             public string BrowserDownloadUrl { get; }
 
             public string Architecture { get; }
+        }
+
+        private enum UpdateDownloadFailureStage
+        {
+            None,
+            Download,
+            Promote,
         }
     }
 }

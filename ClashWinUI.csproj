@@ -20,6 +20,14 @@
     <LangVersion>preview</LangVersion>
     <!-- Prevent custom output/intermediate folders from being globbed as source items. -->
     <DefaultItemExcludes>$(DefaultItemExcludes);bin\**;obj\**;bin_*\**;obj_*\**</DefaultItemExcludes>
+    <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
+    <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
+    <PackageCertificateThumbprint>F128A09B3FA4555583A34C97AD15B1D44EB5E1F8</PackageCertificateThumbprint>
+    <AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
+    <AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
+    <GenerateTestArtifacts>False</GenerateTestArtifacts>
+    <AppxBundle>Never</AppxBundle>
+    <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_BREAK_ON_UNHANDLED_EXCEPTION</DefineConstants>
@@ -177,33 +185,21 @@
 
   <Target Name="CopyLocalizationResources" AfterTargets="Build">
     <MakeDir Directories="@(LocalizationResourceFiles->'$(TargetDir)%(RecursiveDir)')" />
-    <Copy
-      SourceFiles="@(LocalizationResourceFiles)"
-      DestinationFiles="@(LocalizationResourceFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(LocalizationResourceFiles)" DestinationFiles="@(LocalizationResourceFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 
   <Target Name="CopyLocalizationResourcesToAppxLayout" AfterTargets="_CreatePackageLayout">
     <MakeDir Directories="@(LocalizationResourceFiles->'$(LayoutDir)\%(RecursiveDir)')" />
-    <Copy
-      SourceFiles="@(LocalizationResourceFiles)"
-      DestinationFiles="@(LocalizationResourceFiles->'$(LayoutDir)\%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(LocalizationResourceFiles)" DestinationFiles="@(LocalizationResourceFiles->'$(LayoutDir)\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 
   <Target Name="CopyTunResources" AfterTargets="Build">
     <MakeDir Directories="@(TunResourceFiles->'$(TargetDir)%(RecursiveDir)')" />
-    <Copy
-      SourceFiles="@(TunResourceFiles)"
-      DestinationFiles="@(TunResourceFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(TunResourceFiles)" DestinationFiles="@(TunResourceFiles->'$(TargetDir)%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 
   <Target Name="CopyTunResourcesToAppxLayout" AfterTargets="_CreatePackageLayout">
     <MakeDir Directories="@(TunResourceFiles->'$(LayoutDir)\%(RecursiveDir)')" />
-    <Copy
-      SourceFiles="@(TunResourceFiles)"
-      DestinationFiles="@(TunResourceFiles->'$(LayoutDir)\%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(TunResourceFiles)" DestinationFiles="@(TunResourceFiles->'$(LayoutDir)\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 </Project>
