@@ -20,7 +20,6 @@
 | 文件 | 说明 |
 | - | - |
 | `AppConstants.cs` | 全局常量，例如默认控制器端口、路由键和应用级常量。 |
-| `ObservableExtensions.cs` | 可观察对象和异步流的辅助扩展方法。 |
 
 ## Converters/
 
@@ -34,21 +33,6 @@
 | `StringToVisibilityConverter.cs` | 字符串为空/非空转可见性。 |
 | `ProxyDelayLevelToBrushConverter.cs` | 根据节点延迟等级给出对应颜色。 |
 
-## Background/
-
-| 文件 | 说明 |
-| - | - |
-| `HealthChecker.cs` | 周期性检查 Mihomo 控制器可用性。 |
-| `MihomoEventSubscriber.cs` | 订阅 Mihomo 推送事件，供页面或服务层消费。 |
-| `ProcessMonitor.cs` | 监控 Mihomo 进程生命周期并辅助恢复。 |
-
-## Exceptions/
-
-| 文件 | 说明 |
-| - | - |
-| `GlobalExceptionHandler.cs` | 全局异常捕获与日志记录辅助。 |
-| `KernelException.cs` | Mihomo 内核相关的自定义异常。 |
-
 ## Helpers/
 
 `Helpers/` 存放跨页面、跨服务复用的工具类和适配逻辑。
@@ -56,12 +40,9 @@
 | 文件 | 说明 |
 | - | - |
 | `AppPackageInfoHelper.cs` | 统一读取包标识、版本号、发布者和架构信息，供设置页与更新逻辑使用。 |
-| `FileHelper.cs` | 文件读写与路径处理辅助。 |
 | `GeoDataStatusTextHelper.cs` | 根据 GeoData 结果生成用户可读状态文案。 |
-| `JsonHelper.cs` | JSON 读写辅助。 |
 | `LiveChartsBootstrapper.cs` | 首页 LiveCharts 图表的懒初始化入口。 |
 | `LocalizedStrings.cs` | 本地化字符串访问包装器。 |
-| `LogLevelToBrushConverter.cs` | 按日志等级映射文本颜色。 |
 | `PageMemoryTrimHelper.cs` | 重页面离页、Shell 冻结后触发 GC 与工作集收缩。 |
 | `ProfileCompatibilityChecker.cs` | 校验配置文件/订阅与当前运行环境的兼容性。 |
 | `ProxyConfigParser.cs` | 解析代理节点配置。 |
@@ -69,24 +50,18 @@
 | `ShareLinkSubscriptionConverter.cs` | 将分享链接订阅转换成 Mihomo YAML。 |
 | `SubscriptionContentNormalizer.cs` | 统一订阅内容编码和格式。 |
 
-## Logging/
-
-| 文件 | 说明 |
-| - | - |
-| `FileLoggerProvider.cs` | 自定义日志提供器，把日志写入本地文件。 |
-
 ## Models/
 
 `Models/` 定义应用状态对象、页面显示模型和运行期数据结构。
 
 | 文件 | 说明 |
 | - | - |
-| `AppConfig.cs`、`CloseBehavior.cs` | 应用配置和关闭行为定义。 |
+| `CloseBehavior.cs` | 应用关闭行为定义。 |
 | `ConnectionEntry.cs`、`ConnectionsColumnLayout.cs` | 连接页的数据行模型和列布局状态。 |
 | `GeoDataAssetStatus.cs`、`GeoDataFailureKind.cs`、`GeoDataOperationKind.cs`、`GeoDataOperationResult.cs` | GeoData 下载/校验结果模型。 |
 | `HomeChartSample.cs`、`HomeChartState.cs`、`HomeOverviewState.cs` | 首页图表采样点、图表历史缓存和首页总览快照模型。 |
 | `LogEntry.cs` | 日志页单条日志项。 |
-| `MihomoFailureDiagnostic.cs`、`MihomoFailureKind.cs`、`MihomoStatus.cs` | Mihomo 运行状态与故障诊断信息。 |
+| `MihomoFailureDiagnostic.cs`、`MihomoFailureKind.cs` | Mihomo 故障诊断信息。 |
 | `MixinSettings.cs`、`PortSettingsDraft.cs`、`ProfileConfigWorkspace.cs`、`ProfileItem.cs` | 配置工作区、混合配置和订阅资料模型。 |
 | `ProxyGroup.cs`、`ProxyGroupLoadResult.cs`、`ProxyGroupMember.cs`、`ProxyNode.cs` | 代理页使用的节点、分组和加载结果模型。 |
 | `PublicNetworkInfo.cs` | 首页公网网络信息模型。 |
@@ -99,7 +74,6 @@
 | - | - |
 | `ClashJsonContext.cs` | `System.Text.Json` 的源生成上下文，用于提高 JSON 序列化性能并统一模型注册。 |
 
-## Services/
 
 ### Interfaces/
 
@@ -108,13 +82,11 @@
 | `IAppLogService.cs` | 应用日志收集与查询接口。 |
 | `IAppSettingsService.cs` | 应用设置读写接口。 |
 | `IConfigService.cs` | 订阅配置、Mixin、Runtime 与规则开关管理接口。 |
-| `IDialogService.cs` | 对话框显示接口。 |
 | `IGeoDataService.cs` | GeoData 准备、刷新与状态查询接口。 |
 | `IHomeChartStateService.cs` | 首页图表历史缓存接口。 |
 | `IHomeOverviewSamplerService.cs` | 首页后台采样接口，负责持续维护连接、速度、内存和图表历史。 |
 | `IKernelBootstrapService.cs` | Mihomo 内核准备与下载入口。 |
 | `IKernelPathService.cs` | 内核路径解析接口。 |
-| `ILoggerService.cs` | 日志抽象接口。 |
 | `IMihomoService.cs` | Mihomo 控制器高层业务接口。 |
 | `INavigationService.cs` | 主窗口页面导航接口。 |
 | `INetworkInfoService.cs` | 公网 IP 和网络归属地查询接口。 |
@@ -131,13 +103,11 @@
 | - | - |
 | `AppLogService.cs` | 应用内存日志与页面日志源实现。 |
 | `AppSettingsService.cs` | 本地应用设置读写实现。 |
-| `DialogService.cs` | 基于 WinUI 对话框的实现。 |
 | `GeoDataService.cs` | 调用下载脚本并检查 GeoData 状态。 |
 | `HomeChartStateService.cs` | 保存首页图表最近样本和轴上限缓存。 |
 | `HomeOverviewSamplerService.cs` | 首页后台采样实现，持续聚合 Mihomo 连接统计、内存和图表样本。 |
 | `KernelBootstrapService.cs` | 启动时准备 Mihomo 内核。 |
 | `KernelPathService.cs` | 解析当前应使用的 Mihomo 内核路径。 |
-| `MihomoApiClient.cs` | 底层控制器 API 通信组件。 |
 | `MihomoService.cs` | Mihomo 相关高层业务实现，例如代理组、连接、规则应用与版本读取。 |
 | `NavigationService.cs` | 主窗口各页面与 ViewModel 的导航映射。 |
 | `NetworkInfoService.cs` | 首页公网 IP 与网络信息查询实现。 |
@@ -153,14 +123,11 @@
 | 文件 | 说明 |
 | - | - |
 | `ConfigService.cs` | 配置工作区、`source.yaml`、`mixin.yaml`、`runtime.yaml` 与规则覆盖文件的核心管理实现。 |
-| `ConfigValidator.cs` | 配置合法性检查。 |
-| `ConfigBackupManager.cs` | 配置备份与恢复辅助。 |
 
 ## ViewModels/
 
 | 文件 | 说明 |
 | - | - |
-| `ViewModelBase.cs` | 视图模型基础能力。 |
 | `MainViewModel.cs` | 主窗口导航状态、路由历史和侧边栏选中逻辑。 |
 | `HomeViewModel.cs` | 首页总览、图表、网络信息、系统信息展示逻辑。 |
 | `ProfilesViewModel.cs` | 订阅资料管理与切换逻辑。 |
@@ -193,7 +160,6 @@
 | `SettingsPage.xaml` / `SettingsPage.xaml.cs` | 应用设置、GeoData、内核、更新和运行配置页面。 |
 | `IShellFreezablePage.cs` | 页面在 Shell 冻结前主动释放 UI/数据引用的接口。 |
 
-> 当前仓库没有单独的 `Dialogs/` 目录；对话框能力主要通过 `IDialogService` 和页面内的 `ContentDialog` 组织。
 
 ## i18n/
 

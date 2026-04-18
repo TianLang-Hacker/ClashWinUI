@@ -361,3 +361,7 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Local CLI/tooling state and ad-hoc diagnostics
+.dotnet/
+builddiag.txt

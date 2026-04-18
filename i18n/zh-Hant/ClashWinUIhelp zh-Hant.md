@@ -20,7 +20,6 @@
 | 檔案 | 說明 |
 | - | - |
 | `AppConstants.cs` | 全域常數，例如預設控制器連接埠、路由鍵與應用層常數。 |
-| `ObservableExtensions.cs` | 可觀察物件與非同步串流的輔助擴充方法。 |
 
 ## Converters/
 
@@ -34,21 +33,6 @@
 | `StringToVisibilityConverter.cs` | 字串為空/非空轉可見性。 |
 | `ProxyDelayLevelToBrushConverter.cs` | 依據節點延遲等級給出對應顏色。 |
 
-## Background/
-
-| 檔案 | 說明 |
-| - | - |
-| `HealthChecker.cs` | 週期性檢查 Mihomo 控制器是否可用。 |
-| `MihomoEventSubscriber.cs` | 訂閱 Mihomo 推送事件，供頁面或服務層消費。 |
-| `ProcessMonitor.cs` | 監控 Mihomo 行程生命週期並協助恢復。 |
-
-## Exceptions/
-
-| 檔案 | 說明 |
-| - | - |
-| `GlobalExceptionHandler.cs` | 全域例外捕捉與日誌記錄輔助。 |
-| `KernelException.cs` | Mihomo 核心相關自訂例外。 |
-
 ## Helpers/
 
 `Helpers/` 存放跨頁面、跨服務重用的工具類與適配邏輯。
@@ -56,12 +40,9 @@
 | 檔案 | 說明 |
 | - | - |
 | `AppPackageInfoHelper.cs` | 統一讀取套件識別、版本號、發行者與架構資訊，供設定頁與更新邏輯使用。 |
-| `FileHelper.cs` | 檔案讀寫與路徑處理輔助。 |
 | `GeoDataStatusTextHelper.cs` | 根據 GeoData 結果產生使用者可讀狀態文字。 |
-| `JsonHelper.cs` | JSON 讀寫輔助。 |
 | `LiveChartsBootstrapper.cs` | 首頁 LiveCharts 圖表的延遲初始化入口。 |
 | `LocalizedStrings.cs` | 本地化字串存取包裝器。 |
-| `LogLevelToBrushConverter.cs` | 依照日誌等級映射文字顏色。 |
 | `PageMemoryTrimHelper.cs` | 在重頁面離頁與 Shell 凍結後觸發 GC 與工作集收縮。 |
 | `ProfileCompatibilityChecker.cs` | 檢查設定檔/訂閱與目前執行環境的相容性。 |
 | `ProxyConfigParser.cs` | 解析代理節點設定。 |
@@ -69,24 +50,18 @@
 | `ShareLinkSubscriptionConverter.cs` | 將分享連結訂閱轉成 Mihomo YAML。 |
 | `SubscriptionContentNormalizer.cs` | 統一訂閱內容編碼與格式。 |
 
-## Logging/
-
-| 檔案 | 說明 |
-| - | - |
-| `FileLoggerProvider.cs` | 自訂日誌提供器，把日誌寫入本機檔案。 |
-
 ## Models/
 
 `Models/` 定義應用程式狀態物件、頁面顯示模型與執行期資料結構。
 
 | 檔案 | 說明 |
 | - | - |
-| `AppConfig.cs`、`CloseBehavior.cs` | 應用程式設定與關閉行為定義。 |
+| `CloseBehavior.cs` | 應用程式關閉行為定義。 |
 | `ConnectionEntry.cs`、`ConnectionsColumnLayout.cs` | 連線頁的資料列模型與欄位版面狀態。 |
 | `GeoDataAssetStatus.cs`、`GeoDataFailureKind.cs`、`GeoDataOperationKind.cs`、`GeoDataOperationResult.cs` | GeoData 下載/驗證結果模型。 |
 | `HomeChartSample.cs`、`HomeChartState.cs`、`HomeOverviewState.cs` | 首頁圖表採樣點、圖表歷史快取與首頁總覽快照模型。 |
 | `LogEntry.cs` | 日誌頁單筆日誌項目。 |
-| `MihomoFailureDiagnostic.cs`、`MihomoFailureKind.cs`、`MihomoStatus.cs` | Mihomo 執行狀態與故障診斷資訊。 |
+| `MihomoFailureDiagnostic.cs`、`MihomoFailureKind.cs` | Mihomo 故障診斷資訊。 |
 | `MixinSettings.cs`、`PortSettingsDraft.cs`、`ProfileConfigWorkspace.cs`、`ProfileItem.cs` | 設定工作區、Mixin 設定與訂閱資料模型。 |
 | `ProxyGroup.cs`、`ProxyGroupLoadResult.cs`、`ProxyGroupMember.cs`、`ProxyNode.cs` | 代理頁使用的節點、群組與載入結果模型。 |
 | `PublicNetworkInfo.cs` | 首頁公網網路資訊模型。 |
@@ -99,8 +74,6 @@
 | - | - |
 | `ClashJsonContext.cs` | `System.Text.Json` 的來源產生器上下文，用於提升 JSON 序列化效能並統一模型註冊。 |
 
-## Services/
-
 ### Interfaces/
 
 | 介面 | 說明 |
@@ -108,13 +81,11 @@
 | `IAppLogService.cs` | 應用日誌收集與查詢介面。 |
 | `IAppSettingsService.cs` | 應用設定讀寫介面。 |
 | `IConfigService.cs` | 訂閱設定、Mixin、Runtime 與規則開關管理介面。 |
-| `IDialogService.cs` | 對話框顯示介面。 |
 | `IGeoDataService.cs` | GeoData 準備、刷新與狀態查詢介面。 |
 | `IHomeChartStateService.cs` | 首頁圖表歷史快取介面。 |
 | `IHomeOverviewSamplerService.cs` | 首頁背景採樣介面，負責持續維護連線、速率、記憶體與圖表歷史。 |
 | `IKernelBootstrapService.cs` | Mihomo 核心準備與下載入口。 |
 | `IKernelPathService.cs` | 核心路徑解析介面。 |
-| `ILoggerService.cs` | 日誌抽象介面。 |
 | `IMihomoService.cs` | Mihomo 控制器高階業務介面。 |
 | `INavigationService.cs` | 主視窗頁面導覽介面。 |
 | `INetworkInfoService.cs` | 公網 IP 與網路歸屬查詢介面。 |
@@ -131,13 +102,11 @@
 | - | - |
 | `AppLogService.cs` | 應用程式記憶體日誌與頁面日誌來源實作。 |
 | `AppSettingsService.cs` | 本機應用設定讀寫實作。 |
-| `DialogService.cs` | 基於 WinUI 對話框的實作。 |
 | `GeoDataService.cs` | 呼叫下載腳本並檢查 GeoData 狀態。 |
 | `HomeChartStateService.cs` | 保存首頁圖表最近樣本與座標軸上限快取。 |
 | `HomeOverviewSamplerService.cs` | 首頁背景採樣實作，持續聚合 Mihomo 連線統計、記憶體與圖表樣本。 |
 | `KernelBootstrapService.cs` | 啟動時準備 Mihomo 核心。 |
 | `KernelPathService.cs` | 解析目前應使用的 Mihomo 核心路徑。 |
-| `MihomoApiClient.cs` | 底層控制器 API 通訊元件。 |
 | `MihomoService.cs` | Mihomo 相關高階業務實作，例如代理群組、連線、規則套用與版本讀取。 |
 | `NavigationService.cs` | 主視窗各頁面與 ViewModel 的導覽對應。 |
 | `NetworkInfoService.cs` | 首頁公網 IP 與網路資訊查詢實作。 |
@@ -153,14 +122,11 @@
 | 檔案 | 說明 |
 | - | - |
 | `ConfigService.cs` | 設定工作區、`source.yaml`、`mixin.yaml`、`runtime.yaml` 與規則覆寫檔的核心管理實作。 |
-| `ConfigValidator.cs` | 設定合法性檢查。 |
-| `ConfigBackupManager.cs` | 設定備份與還原輔助。 |
 
 ## ViewModels/
 
 | 檔案 | 說明 |
 | - | - |
-| `ViewModelBase.cs` | 視圖模型基礎能力。 |
 | `MainViewModel.cs` | 主視窗導覽狀態、路由歷史與側邊欄選取邏輯。 |
 | `HomeViewModel.cs` | 首頁總覽、圖表、網路資訊、系統資訊展示邏輯。 |
 | `ProfilesViewModel.cs` | 訂閱資料管理與切換邏輯。 |
@@ -193,7 +159,6 @@
 | `SettingsPage.xaml` / `SettingsPage.xaml.cs` | 應用設定、GeoData、核心、更新與執行設定頁面。 |
 | `IShellFreezablePage.cs` | 頁面在 Shell 凍結前主動釋放 UI/資料引用的介面。 |
 
-> 目前倉庫沒有獨立的 `Dialogs/` 目錄；對話框能力主要透過 `IDialogService` 與頁面內的 `ContentDialog` 組織。
 
 ## i18n/
 

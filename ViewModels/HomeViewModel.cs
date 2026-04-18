@@ -211,7 +211,7 @@ namespace ClashWinUI.ViewModels
             PublicIpText = UnavailableText;
             IsPublicIpVisible = false;
             DisplayedPublicIpText = UnavailableText;
-            PublicIpVisibilityGlyph = "\uE8A7";
+            PublicIpVisibilityGlyph = "\uE890";
             PublicIpVisibilityToolTipText = _localizedStrings["HomeShowPublicIpTooltip"];
             LocationText = UnavailableText;
             AsNumberText = UnavailableText;
@@ -814,7 +814,7 @@ namespace ClashWinUI.ViewModels
                 ? IsPublicIpVisible ? PublicIpText : MaskedPublicIpText
                 : UnavailableText;
 
-            PublicIpVisibilityGlyph = IsPublicIpVisible ? "\uE890" : "\uE8A7";
+            PublicIpVisibilityGlyph = IsPublicIpVisible ? "\uE890" : "\uED1A";
             PublicIpVisibilityToolTipText = _localizedStrings[
                 IsPublicIpVisible ? "HomeHidePublicIpTooltip" : "HomeShowPublicIpTooltip"];
         }

@@ -20,7 +20,6 @@
 | File | Description |
 | - | - |
 | `AppConstants.cs` | Global constants such as controller ports, route keys, and app-level defaults. |
-| `ObservableExtensions.cs` | Helper extension methods for observable objects and async streams. |
 
 ## Converters/
 
@@ -34,21 +33,6 @@
 | `StringToVisibilityConverter.cs` | Converts empty/non-empty strings to visibility. |
 | `ProxyDelayLevelToBrushConverter.cs` | Maps proxy delay levels to colors. |
 
-## Background/
-
-| File | Description |
-| - | - |
-| `HealthChecker.cs` | Periodically checks Mihomo controller health. |
-| `MihomoEventSubscriber.cs` | Subscribes to Mihomo event streams for higher layers. |
-| `ProcessMonitor.cs` | Monitors the Mihomo process lifecycle and assists recovery. |
-
-## Exceptions/
-
-| File | Description |
-| - | - |
-| `GlobalExceptionHandler.cs` | Global exception capture and logging helper. |
-| `KernelException.cs` | Custom exception type for Mihomo kernel-related failures. |
-
 ## Helpers/
 
 `Helpers/` contains reusable utility and adapter classes shared across pages and services.
@@ -56,12 +40,9 @@
 | File | Description |
 | - | - |
 | `AppPackageInfoHelper.cs` | Resolves package identity, version, publisher, and architecture for settings and update flows. |
-| `FileHelper.cs` | File IO and path handling helper. |
 | `GeoDataStatusTextHelper.cs` | Builds user-facing GeoData status text. |
-| `JsonHelper.cs` | JSON read/write helper. |
 | `LiveChartsBootstrapper.cs` | Lazy initialization entry point for HomePage LiveCharts charts. |
 | `LocalizedStrings.cs` | Localized string access wrapper. |
-| `LogLevelToBrushConverter.cs` | Maps log levels to text colors. |
 | `PageMemoryTrimHelper.cs` | Triggers GC and working-set trimming after heavy pages unload or the shell freezes. |
 | `ProfileCompatibilityChecker.cs` | Checks whether a profile/config is compatible with the current runtime environment. |
 | `ProxyConfigParser.cs` | Parses proxy node configuration. |
@@ -69,24 +50,18 @@
 | `ShareLinkSubscriptionConverter.cs` | Converts share-link subscriptions into Mihomo YAML. |
 | `SubscriptionContentNormalizer.cs` | Normalizes subscription encoding and content format. |
 
-## Logging/
-
-| File | Description |
-| - | - |
-| `FileLoggerProvider.cs` | Custom logger provider that writes logs to local files. |
-
 ## Models/
 
 `Models/` defines application state objects, page view models, and runtime data structures.
 
 | File | Description |
 | - | - |
-| `AppConfig.cs`, `CloseBehavior.cs` | Application settings and close-behavior definitions. |
+| `CloseBehavior.cs` | Application close-behavior definitions. |
 | `ConnectionEntry.cs`, `ConnectionsColumnLayout.cs` | Connection page row model and column layout state. |
 | `GeoDataAssetStatus.cs`, `GeoDataFailureKind.cs`, `GeoDataOperationKind.cs`, `GeoDataOperationResult.cs` | GeoData download and verification result models. |
 | `HomeChartSample.cs`, `HomeChartState.cs`, `HomeOverviewState.cs` | Home chart samples, chart history cache, and dashboard snapshot models. |
 | `LogEntry.cs` | Single log item model for the logs page. |
-| `MihomoFailureDiagnostic.cs`, `MihomoFailureKind.cs`, `MihomoStatus.cs` | Mihomo runtime status and failure diagnostics. |
+| `MihomoFailureDiagnostic.cs`, `MihomoFailureKind.cs` | Mihomo runtime failure diagnostics. |
 | `MixinSettings.cs`, `PortSettingsDraft.cs`, `ProfileConfigWorkspace.cs`, `ProfileItem.cs` | Profile workspace, mixin settings, and subscription metadata models. |
 | `ProxyGroup.cs`, `ProxyGroupLoadResult.cs`, `ProxyGroupMember.cs`, `ProxyNode.cs` | Proxy groups, members, nodes, and load result models. |
 | `PublicNetworkInfo.cs` | Public network information model used by the Home dashboard. |
@@ -99,8 +74,6 @@
 | - | - |
 | `ClashJsonContext.cs` | `System.Text.Json` source-generated context used to centralize JSON model registration and improve serialization performance. |
 
-## Services/
-
 ### Interfaces/
 
 | Interface | Description |
@@ -108,13 +81,11 @@
 | `IAppLogService.cs` | Application log collection and query interface. |
 | `IAppSettingsService.cs` | App settings read/write interface. |
 | `IConfigService.cs` | Interface for subscription config, mixin, runtime, and rule-toggle management. |
-| `IDialogService.cs` | Dialog display abstraction. |
 | `IGeoDataService.cs` | GeoData prepare/refresh/status interface. |
 | `IHomeChartStateService.cs` | Home dashboard chart history cache interface. |
 | `IHomeOverviewSamplerService.cs` | Background sampler interface that maintains Home metrics and chart history. |
 | `IKernelBootstrapService.cs` | Entry point for Mihomo kernel preparation and download. |
 | `IKernelPathService.cs` | Kernel path resolution interface. |
-| `ILoggerService.cs` | Logging abstraction interface. |
 | `IMihomoService.cs` | High-level Mihomo controller business interface. |
 | `INavigationService.cs` | Main-window page navigation interface. |
 | `INetworkInfoService.cs` | Public IP and network ownership lookup interface. |
@@ -131,13 +102,11 @@
 | - | - |
 | `AppLogService.cs` | In-memory application log source used by the UI and file logger. |
 | `AppSettingsService.cs` | Local app settings persistence implementation. |
-| `DialogService.cs` | WinUI dialog implementation. |
 | `GeoDataService.cs` | Calls the GeoData download script and validates GeoData availability. |
 | `HomeChartStateService.cs` | Stores recent Home chart samples and axis cache. |
 | `HomeOverviewSamplerService.cs` | Background Home sampler that aggregates Mihomo connections, memory usage, and chart samples. |
 | `KernelBootstrapService.cs` | Ensures the Mihomo kernel is available at startup. |
 | `KernelPathService.cs` | Resolves the Mihomo kernel path used by the app. |
-| `MihomoApiClient.cs` | Low-level Mihomo controller API communication component. |
 | `MihomoService.cs` | High-level Mihomo operations such as proxy groups, connections, config apply, and version retrieval. |
 | `NavigationService.cs` | Maps routes to pages and view models in the main window. |
 | `NetworkInfoService.cs` | Home dashboard network information lookup implementation. |
@@ -153,14 +122,11 @@
 | File | Description |
 | - | - |
 | `ConfigService.cs` | Core manager for profile workspaces, `source.yaml`, `mixin.yaml`, `runtime.yaml`, and rule override files. |
-| `ConfigValidator.cs` | Config validation helper. |
-| `ConfigBackupManager.cs` | Config backup and restore helper. |
 
 ## ViewModels/
 
 | File | Description |
 | - | - |
-| `ViewModelBase.cs` | Shared base capabilities for view models. |
 | `MainViewModel.cs` | Main window navigation state, route history, and sidebar selection logic. |
 | `HomeViewModel.cs` | Home dashboard logic for metrics, charts, network info, and system info. |
 | `ProfilesViewModel.cs` | Subscription/profile management and switching logic. |
@@ -193,7 +159,6 @@
 | `SettingsPage.xaml` / `SettingsPage.xaml.cs` | App settings, GeoData, kernel, updates, and runtime configuration page. |
 | `IShellFreezablePage.cs` | Interface that lets pages release UI and data references before the shell freezes. |
 
-> The current repo does not have a dedicated `Dialogs/` folder. Dialog behavior is mainly organized through `IDialogService` and page-level `ContentDialog` usage.
 
 ## i18n/
 

@@ -537,9 +537,6 @@
   <data name="SettingsMixinTProxyPortLabel" xml:space="preserve">
     <value>TProxy Port</value>
   </data>
-  <data name="SettingsMixinTunEnabledLabel" xml:space="preserve">
-    <value>Tun Mode</value>
-  </data>
   <data name="SettingsTunCardHeader" xml:space="preserve">
     <value>Tun Mode</value>
   </data>
