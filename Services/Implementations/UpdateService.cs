@@ -15,12 +15,16 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.Management.Deployment;
 
 namespace ClashWinUI.Services.Implementations
 {
     public sealed class UpdateService : IUpdateService
     {
         private const string LatestReleaseApiUrl = "https://api.github.com/repos/TianLang-Hacker/ClashWinUI/releases/latest";
+        private const int ErrorCancelledHResult = unchecked((int)0x800704C7);
         private static readonly TimeSpan MetadataTimeout = TimeSpan.FromSeconds(15);
         private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(15);
 
@@ -186,22 +190,21 @@ namespace ClashWinUI.Services.Implementations
                     SelectedAssetName = asset.Name,
                     DownloadProgressPercentage = 100,
                     IsDownloadProgressIndeterminate = false,
-                    IsBusy = false,
+                    IsBusy = true,
                 });
 
                 try
                 {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = msixPath,
-                        UseShellExecute = true,
-                    });
+                    TryRegisterApplicationRestart();
+                    await RequestInstallPackageAsync(msixPath, cancellationToken).ConfigureAwait(false);
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (TryHandleInstallCancellation(ex))
                 {
-                    failureLogged = true;
-                    _logService.Add($"Update package launch error for '{msixPath}': {ex.Message}", LogLevel.Warning);
-                    throw;
+                    return false;
+                }
+                catch (Exception ex) when (TryHandleInstallFailure(ex))
+                {
+                    return false;
                 }
 
                 return true;
@@ -344,6 +347,26 @@ namespace ClashWinUI.Services.Implementations
 
             LogDownloadFailure(lastFailureStage, tempPath, destinationPath, lastCandidate, lastException);
             throw lastException ?? new InvalidOperationException("Update download failed for all candidate URLs.");
+        }
+
+        private async Task RequestInstallPackageAsync(string msixPath, CancellationToken cancellationToken)
+        {
+            var packageManager = new PackageManager();
+            Uri packageUri = new(Path.GetFullPath(msixPath));
+            var options = DeploymentOptions.ForceApplicationShutdown;
+            var operation = packageManager.RequestAddPackageAsync(
+                packageUri,
+                dependencyPackageUris: null,
+                deploymentOptions: options,
+                targetVolume: null,
+                optionalPackageFamilyNames: null,
+                relatedPackageUris: null);
+
+            DeploymentResult result = await operation.AsTask(cancellationToken).ConfigureAwait(false);
+            if (result.ExtendedErrorCode is { HResult: not 0 } error)
+            {
+                throw CreateDeploymentException(error.HResult, result.ErrorText);
+            }
         }
 
         private async Task CopyToFileWithProgressAsync(
@@ -581,6 +604,73 @@ namespace ClashWinUI.Services.Implementations
             _logService.Add(message, LogLevel.Warning);
         }
 
+        private bool TryHandleInstallCancellation(Exception ex)
+        {
+            if (!IsCancelledException(ex))
+            {
+                return false;
+            }
+
+            _logService.Add("Update install canceled by user.", LogLevel.Warning);
+            SetState(new UpdateState
+            {
+                Status = UpdateStatus.DownloadFailed,
+                CurrentVersion = _packageIdentity.Version.ToString(4),
+                LatestVersion = _latestRelease?.Version?.ToString(4) ?? string.Empty,
+                ReleasePageUrl = _latestRelease?.ReleasePageUrl ?? string.Empty,
+                SelectedAssetName = _currentState.SelectedAssetName,
+                DownloadProgressPercentage = _currentState.DownloadProgressPercentage,
+                IsDownloadProgressIndeterminate = false,
+                IsBusy = false,
+            });
+            return true;
+        }
+
+        private bool TryHandleInstallFailure(Exception ex)
+        {
+            string errorText = ex.Message;
+            if (ex is DeploymentException deploymentException && !string.IsNullOrWhiteSpace(deploymentException.ErrorText))
+            {
+                errorText = deploymentException.ErrorText;
+            }
+
+            _logService.Add($"Update install request failed: 0x{ex.HResult:X8} {errorText}", LogLevel.Warning);
+            SetState(new UpdateState
+            {
+                Status = UpdateStatus.DownloadFailed,
+                CurrentVersion = _packageIdentity.Version.ToString(4),
+                LatestVersion = _latestRelease?.Version?.ToString(4) ?? string.Empty,
+                ReleasePageUrl = _latestRelease?.ReleasePageUrl ?? string.Empty,
+                SelectedAssetName = _currentState.SelectedAssetName,
+                DownloadProgressPercentage = _currentState.DownloadProgressPercentage,
+                IsDownloadProgressIndeterminate = false,
+                IsBusy = false,
+            });
+            return true;
+        }
+
+        private static Exception CreateDeploymentException(int hresult, string errorText)
+        {
+            string normalizedText = string.IsNullOrWhiteSpace(errorText) ? "Package deployment failed." : errorText;
+            return new DeploymentException(hresult, normalizedText);
+        }
+
+        private static bool IsCancelledException(Exception ex)
+        {
+            return ex.HResult == ErrorCancelledHResult
+                || ex is DeploymentException { HResult: ErrorCancelledHResult }
+                || ex is OperationCanceledException;
+        }
+
+        private static void TryRegisterApplicationRestart()
+        {
+            int hresult = RegisterApplicationRestart(null, 0);
+            if (hresult != 0)
+            {
+                Debug.WriteLine($"RegisterApplicationRestart failed: 0x{hresult:X8}");
+            }
+        }
+
         private static void TryDeleteTempFile(string path)
         {
             try
@@ -631,11 +721,26 @@ namespace ClashWinUI.Services.Implementations
             public string Architecture { get; }
         }
 
+        private sealed class DeploymentException : Exception
+        {
+            public DeploymentException(int hresult, string errorText)
+                : base(errorText)
+            {
+                HResult = hresult;
+                ErrorText = errorText;
+            }
+
+            public string ErrorText { get; }
+        }
+
         private enum UpdateDownloadFailureStage
         {
             None,
             Download,
             Promote,
         }
+
+        [DllImport("kernel32.dll", SetLastError = false, CharSet = CharSet.Unicode)]
+        private static extern int RegisterApplicationRestart(string? pwzCommandline, int dwFlags);
     }
 }
