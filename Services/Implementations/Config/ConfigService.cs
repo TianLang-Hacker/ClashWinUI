@@ -27,13 +27,17 @@ namespace ClashWinUI.Services.Implementations.Config
         private static readonly Encoding Utf8Bom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true);
 
         private readonly IAppLogService _logService;
+        private readonly IPageWarmCacheService _pageWarmCacheService;
         private readonly string _profilesRoot;
+        private readonly object _runtimeRulesCacheSync = new();
+        private readonly Dictionary<string, IReadOnlyList<RuntimeRuleItem>> _runtimeRulesCache = new(StringComparer.Ordinal);
 
         public event EventHandler? ConfigurationChanged;
 
-        public ConfigService(IAppLogService logService)
+        public ConfigService(IAppLogService logService, IPageWarmCacheService pageWarmCacheService)
         {
             _logService = logService;
+            _pageWarmCacheService = pageWarmCacheService;
 
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             _profilesRoot = Path.Combine(userProfile, "ClashWinUI", "Profiles");
@@ -103,6 +107,8 @@ namespace ClashWinUI.Services.Implementations.Config
 
             ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
             WriteMixinSettings(workspace.MixinPath, settings);
+            InvalidateRuntimeRulesCache();
+            _pageWarmCacheService.Clear();
             ConfigurationChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -110,6 +116,8 @@ namespace ClashWinUI.Services.Implementations.Config
         {
             ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
             BuildRuntimeInternal(workspace);
+            InvalidateRuntimeRulesCache();
+            _pageWarmCacheService.Clear();
             ConfigurationChanged?.Invoke(this, EventArgs.Empty);
             return workspace.RuntimePath;
         }
@@ -130,9 +138,27 @@ namespace ClashWinUI.Services.Implementations.Config
             ArgumentNullException.ThrowIfNull(profile);
 
             ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
+            string cacheKey = BuildRuntimeRulesCacheKey(workspace);
+
+            lock (_runtimeRulesCacheSync)
+            {
+                if (_runtimeRulesCache.TryGetValue(cacheKey, out IReadOnlyList<RuntimeRuleItem>? cachedItems))
+                {
+                    return ModelSnapshotCloneHelper.CloneRuntimeRuleItems(cachedItems);
+                }
+            }
+
             YamlMappingNode merged = BuildMergedMapping(workspace);
             HashSet<string> disabledRuleIds = LoadDisabledRuleIds(workspace);
-            return BuildRuntimeRuleItems(merged, disabledRuleIds);
+            IReadOnlyList<RuntimeRuleItem> items = BuildRuntimeRuleItems(merged, disabledRuleIds);
+
+            lock (_runtimeRulesCacheSync)
+            {
+                _runtimeRulesCache[cacheKey] = ModelSnapshotCloneHelper.CloneRuntimeRuleItems(items);
+                TrimRuntimeRulesCache();
+            }
+
+            return ModelSnapshotCloneHelper.CloneRuntimeRuleItems(items);
         }
 
         public void SetRuleEnabled(ProfileItem profile, string stableId, bool isEnabled)
@@ -154,6 +180,8 @@ namespace ClashWinUI.Services.Implementations.Config
             }
 
             SaveRulesOverrideState(workspace, disabledRuleIds);
+            InvalidateRuntimeRulesCache();
+            _pageWarmCacheService.Clear();
             ConfigurationChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -309,6 +337,32 @@ namespace ClashWinUI.Services.Implementations.Config
             }
 
             return items;
+        }
+
+        private string BuildRuntimeRulesCacheKey(ProfileConfigWorkspace workspace)
+        {
+            return FileFingerprintHelper.Combine(
+                FileFingerprintHelper.GetFingerprintOrMissing(workspace.SourcePath),
+                FileFingerprintHelper.GetFingerprintOrMissing(workspace.MixinPath),
+                FileFingerprintHelper.GetFingerprintOrMissing(workspace.RuntimePath),
+                FileFingerprintHelper.GetFingerprintOrMissing(workspace.RulesOverridePath));
+        }
+
+        private void InvalidateRuntimeRulesCache()
+        {
+            lock (_runtimeRulesCacheSync)
+            {
+                _runtimeRulesCache.Clear();
+            }
+        }
+
+        private void TrimRuntimeRulesCache()
+        {
+            while (_runtimeRulesCache.Count > 16)
+            {
+                string oldestKey = _runtimeRulesCache.Keys.First();
+                _runtimeRulesCache.Remove(oldestKey);
+            }
         }
 
         private HashSet<string> LoadDisabledRuleIds(ProfileConfigWorkspace workspace)

@@ -6,8 +6,8 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Dispatching;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,7 +32,7 @@ namespace ClashWinUI.ViewModels
         };
 
         private const int TestAllConcurrencyLimit = 8;
-        private const int ControllerWarmupAttempts = 6;
+        private const int ControllerWarmupAttempts = 3;
         private static readonly TimeSpan ControllerWarmupDelay = TimeSpan.FromMilliseconds(250);
 
         private readonly LocalizedStrings _localizedStrings;
@@ -44,9 +44,16 @@ namespace ClashWinUI.ViewModels
         private readonly ITunService _tunService;
         private readonly ISystemProxyService _systemProxyService;
         private readonly IAppSettingsService _appSettingsService;
+        private readonly IPageWarmCacheService _pageWarmCacheService;
         private readonly DispatcherQueue? _dispatcherQueue;
+        private readonly CancellationTokenSource _disposeCancellation = new();
+
+        private CancellationTokenSource? _loadCancellation;
+        private string _currentRuntimePath = string.Empty;
+        private string _currentRuntimeFingerprint = string.Empty;
         private bool _isWatchingRuntimeChanges;
         private bool _isDisposed;
+        private int _loadVersion;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -63,7 +70,8 @@ namespace ClashWinUI.ViewModels
         [ObservableProperty]
         public partial bool IsBusy { get; set; }
 
-        public ObservableCollection<ProxyGroup> ProxyGroups { get; } = new();
+        [ObservableProperty]
+        public partial IReadOnlyList<ProxyGroup> ProxyGroups { get; set; }
 
         public ProxiesViewModel(
             LocalizedStrings localizedStrings,
@@ -74,7 +82,8 @@ namespace ClashWinUI.ViewModels
             IProcessService processService,
             ITunService tunService,
             ISystemProxyService systemProxyService,
-            IAppSettingsService appSettingsService)
+            IAppSettingsService appSettingsService,
+            IPageWarmCacheService pageWarmCacheService)
         {
             _localizedStrings = localizedStrings;
             _profileService = profileService;
@@ -85,12 +94,14 @@ namespace ClashWinUI.ViewModels
             _tunService = tunService;
             _systemProxyService = systemProxyService;
             _appSettingsService = appSettingsService;
+            _pageWarmCacheService = pageWarmCacheService;
             _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
 
             Title = _localizedStrings["PageProxies"];
             TestUrl = "https://www.gstatic.com/generate_204";
             StatusMessage = string.Empty;
+            ProxyGroups = Array.Empty<ProxyGroup>();
         }
 
         public void Dispose()
@@ -102,12 +113,29 @@ namespace ClashWinUI.ViewModels
 
             _isDisposed = true;
             StopWatchingRuntimeChanges();
+            CancelLoad();
+            _disposeCancellation.Cancel();
+            _disposeCancellation.Dispose();
             _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
         }
 
         public Task InitializeAsync()
         {
-            return RefreshGroupsAsync(reapplyRuntime: true);
+            if (!TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken))
+            {
+                return Task.CompletedTask;
+            }
+
+            Stopwatch immediateStopwatch = Stopwatch.StartNew();
+            ApplyImmediateSnapshot();
+            immediateStopwatch.Stop();
+            PerformanceTraceHelper.LogElapsed(
+                "proxies init immediate",
+                immediateStopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(16));
+
+            _ = RefreshGroupsAsync(requestVersion, cancellationToken, reapplyRuntime: false, reason: "init");
+            return Task.CompletedTask;
         }
 
         public void StartWatchingRuntimeChanges()
@@ -133,9 +161,14 @@ namespace ClashWinUI.ViewModels
         }
 
         [RelayCommand]
-        private Task RefreshAsync()
+        private async Task RefreshAsync()
         {
-            return RefreshGroupsAsync(reapplyRuntime: true);
+            if (!TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken))
+            {
+                return;
+            }
+
+            await RefreshGroupsAsync(requestVersion, cancellationToken, reapplyRuntime: true, reason: "manual");
         }
 
         [RelayCommand]
@@ -156,7 +189,7 @@ namespace ClashWinUI.ViewModels
             try
             {
                 member.Node.IsTesting = true;
-                int? delay = await _mihomoService.TestProxyDelayAsync(member.Node.Name, TestUrl);
+                int? delay = await _mihomoService.TestProxyDelayAsync(member.Node.Name, TestUrl, cancellationToken: _disposeCancellation.Token);
                 if (delay is null)
                 {
                     StatusMessage = _localizedStrings["ProxiesStatusDelayFailed"];
@@ -165,6 +198,11 @@ namespace ClashWinUI.ViewModels
 
                 member.Node.DelayMs = delay;
                 StatusMessage = string.Format(_localizedStrings["ProxiesStatusDelaySuccess"], member.Node.Name, delay.Value);
+                StoreCurrentProxySnapshot();
+            }
+            catch (OperationCanceledException)
+            {
+                // Ignore when the page leaves while delay tests are in-flight.
             }
             finally
             {
@@ -185,10 +223,15 @@ namespace ClashWinUI.ViewModels
             IsBusy = true;
             try
             {
-                int skippedCount = await TestNodesAsync(nodes);
+                int skippedCount = await TestNodesAsync(nodes, _disposeCancellation.Token);
                 StatusMessage = skippedCount > 0
                     ? string.Format(_localizedStrings["ProxiesStatusDelayAllFinishedWithSkipped"], skippedCount)
                     : _localizedStrings["ProxiesStatusDelayAllFinished"];
+                StoreCurrentProxySnapshot();
+            }
+            catch (OperationCanceledException)
+            {
+                // Ignore when the page leaves while tests are running.
             }
             finally
             {
@@ -216,10 +259,15 @@ namespace ClashWinUI.ViewModels
             IsBusy = true;
             try
             {
-                int skippedCount = await TestNodesAsync(nodes);
+                int skippedCount = await TestNodesAsync(nodes, _disposeCancellation.Token);
                 StatusMessage = skippedCount > 0
                     ? string.Format(_localizedStrings["ProxiesStatusDelayGroupFinishedWithSkipped"], group.Name, skippedCount)
                     : string.Format(_localizedStrings["ProxiesStatusDelayGroupFinished"], group.Name);
+                StoreCurrentProxySnapshot();
+            }
+            catch (OperationCanceledException)
+            {
+                // Ignore when the page leaves while tests are running.
             }
             finally
             {
@@ -258,7 +306,7 @@ namespace ClashWinUI.ViewModels
                     ? member.Node.Name
                     : member.Node.ControllerName;
 
-                bool selected = await _mihomoService.SelectProxyAsync(groupName, proxyName);
+                bool selected = await _mihomoService.SelectProxyAsync(groupName, proxyName, _disposeCancellation.Token);
                 if (!selected)
                 {
                     StatusMessage = string.Format(_localizedStrings["ProxiesStatusProxySelectFailed"], group.Name, member.Node.Name);
@@ -267,11 +315,395 @@ namespace ClashWinUI.ViewModels
 
                 group.SetCurrentProxy(member.Node.Name);
                 StatusMessage = string.Format(_localizedStrings["ProxiesStatusProxySelected"], group.Name, member.Node.Name);
+                StoreCurrentProxySnapshot();
+                InvalidateRulesSnapshot();
+            }
+            catch (OperationCanceledException)
+            {
+                // Ignore when the page leaves while selection is in-flight.
             }
             finally
             {
                 IsBusy = false;
             }
+        }
+
+        private void ApplyImmediateSnapshot()
+        {
+            ActiveProfile = _profileService.GetActiveProfile();
+            _currentRuntimePath = string.Empty;
+            _currentRuntimeFingerprint = string.Empty;
+
+            if (ActiveProfile is null)
+            {
+                ProxyGroups = Array.Empty<ProxyGroup>();
+                StatusMessage = _localizedStrings["ProxiesStatusNoActiveProfile"];
+                return;
+            }
+
+            string runtimePath = _configService.GetWorkspace(ActiveProfile).RuntimePath;
+            if (FileFingerprintHelper.TryGetFingerprint(runtimePath, out string runtimeFingerprint)
+                && _pageWarmCacheService.TryGetProxyGroups(runtimeFingerprint, out IReadOnlyList<ProxyGroup> cachedGroups))
+            {
+                _currentRuntimePath = runtimePath;
+                _currentRuntimeFingerprint = runtimeFingerprint;
+                ProxyGroups = cachedGroups;
+
+                int nodeCount = CountUniqueNodes(cachedGroups);
+                StatusMessage = nodeCount == 0
+                    ? string.Empty
+                    : string.Format(_localizedStrings["ProxiesStatusLoadedNoApply"], nodeCount);
+                return;
+            }
+
+            ProxyGroups = Array.Empty<ProxyGroup>();
+            StatusMessage = string.Empty;
+        }
+
+        private bool TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken)
+        {
+            requestVersion = 0;
+            cancellationToken = CancellationToken.None;
+            if (_isDisposed || _disposeCancellation.IsCancellationRequested)
+            {
+                return false;
+            }
+
+            CancelLoad();
+            _loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(_disposeCancellation.Token);
+            requestVersion = Interlocked.Increment(ref _loadVersion);
+            cancellationToken = _loadCancellation.Token;
+            return true;
+        }
+
+        private void CancelLoad()
+        {
+            if (_loadCancellation is null)
+            {
+                return;
+            }
+
+            try
+            {
+                _loadCancellation.Cancel();
+            }
+            catch
+            {
+                // Ignore disposal races.
+            }
+            finally
+            {
+                _loadCancellation.Dispose();
+                _loadCancellation = null;
+            }
+        }
+
+        private async Task RefreshGroupsAsync(int requestVersion, CancellationToken cancellationToken, bool reapplyRuntime, string reason)
+        {
+            if (!IsCurrentRequest(requestVersion, cancellationToken))
+            {
+                return;
+            }
+
+            IsBusy = true;
+            Stopwatch totalStopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                await Task.Yield();
+                if (!IsCurrentRequest(requestVersion, cancellationToken))
+                {
+                    return;
+                }
+
+                ProfileItem? activeProfile = ActiveProfile ?? _profileService.GetActiveProfile();
+                ActiveProfile = activeProfile;
+                if (activeProfile is null)
+                {
+                    ProxyGroups = Array.Empty<ProxyGroup>();
+                    _currentRuntimePath = string.Empty;
+                    _currentRuntimeFingerprint = string.Empty;
+                    StatusMessage = _localizedStrings["ProxiesStatusNoActiveProfile"];
+                    return;
+                }
+
+                Stopwatch resolveStopwatch = Stopwatch.StartNew();
+                ProxyLoadContext context = await Task.Run(() => ResolveLoadContext(activeProfile, cancellationToken), cancellationToken);
+                resolveStopwatch.Stop();
+                PerformanceTraceHelper.LogElapsed(
+                    $"proxies init resolve ({reason})",
+                    resolveStopwatch.Elapsed,
+                    TimeSpan.FromMilliseconds(120));
+
+                if (!IsCurrentRequest(requestVersion, cancellationToken))
+                {
+                    return;
+                }
+
+                ProxyRefreshResult refreshResult = await LoadLatestGroupsAsync(context, reapplyRuntime, cancellationToken);
+                if (!IsCurrentRequest(requestVersion, cancellationToken))
+                {
+                    return;
+                }
+
+                Stopwatch applyStopwatch = Stopwatch.StartNew();
+                ApplyLoadedGroups(refreshResult);
+                applyStopwatch.Stop();
+                PerformanceTraceHelper.LogElapsed(
+                    $"proxies init apply ({reason})",
+                    applyStopwatch.Elapsed,
+                    TimeSpan.FromMilliseconds(16));
+            }
+            catch (OperationCanceledException)
+            {
+                // Expected when a newer load supersedes the current one or the page leaves.
+            }
+            catch (Exception ex)
+            {
+                if (IsCurrentRequest(requestVersion, cancellationToken))
+                {
+                    StatusMessage = ex.Message;
+                }
+            }
+            finally
+            {
+                totalStopwatch.Stop();
+                PerformanceTraceHelper.LogElapsed(
+                    $"proxies init total ({reason})",
+                    totalStopwatch.Elapsed,
+                    TimeSpan.FromMilliseconds(120));
+
+                if (!_isDisposed && requestVersion == _loadVersion)
+                {
+                    IsBusy = false;
+                }
+            }
+        }
+
+        private ProxyLoadContext ResolveLoadContext(ProfileItem profile, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string runtimePath = _configService.GetRuntimePath(profile);
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = FileFingerprintHelper.TryGetFingerprint(runtimePath, out string runtimeFingerprint);
+            ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(profile.FilePath);
+
+            return new ProxyLoadContext(
+                profile,
+                runtimePath,
+                runtimeFingerprint,
+                compatibility == ProfileCompatibilityStatus.Base64NotYaml);
+        }
+
+        private async Task<ProxyRefreshResult> LoadLatestGroupsAsync(ProxyLoadContext context, bool reapplyRuntime, CancellationToken cancellationToken)
+        {
+            bool attemptedApply = reapplyRuntime;
+            bool applied = false;
+            if (reapplyRuntime)
+            {
+                applied = await ApplyRuntimeAsync(context.RuntimePath, cancellationToken);
+            }
+
+            ProxyGroupLoadResult loadResult = await LoadProxyGroupsWithWarmupAsync(
+                context.RuntimePath,
+                allowWarmup: reapplyRuntime,
+                cancellationToken);
+
+            if (!reapplyRuntime && ShouldRetryWithApply(context.RuntimePath, loadResult))
+            {
+                attemptedApply = true;
+                applied = await ApplyRuntimeAsync(context.RuntimePath, cancellationToken);
+                if (applied || PathsEqual(_processService.CurrentConfigPath, context.RuntimePath))
+                {
+                    loadResult = await LoadProxyGroupsWithWarmupAsync(
+                        context.RuntimePath,
+                        allowWarmup: true,
+                        cancellationToken);
+                }
+            }
+
+            return new ProxyRefreshResult(context, loadResult, attemptedApply, applied);
+        }
+
+        private async Task<bool> ApplyRuntimeAsync(string runtimePath, CancellationToken cancellationToken)
+        {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            bool applied = false;
+
+            try
+            {
+                applied = await _mihomoService.ApplyConfigAsync(runtimePath, cancellationToken);
+                if (applied || PathsEqual(_processService.CurrentConfigPath, runtimePath))
+                {
+                    await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                        _systemProxyService,
+                        _processService,
+                        _tunService,
+                        runtimePath,
+                        cancellationToken);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch
+            {
+                applied = false;
+            }
+            finally
+            {
+                stopwatch.Stop();
+                PerformanceTraceHelper.LogElapsed(
+                    "proxies runtime apply",
+                    stopwatch.Elapsed,
+                    TimeSpan.FromMilliseconds(120));
+            }
+
+            return applied;
+        }
+
+        private async Task<ProxyGroupLoadResult> LoadProxyGroupsWithWarmupAsync(string runtimePath, bool allowWarmup, CancellationToken cancellationToken)
+        {
+            Stopwatch fetchStopwatch = Stopwatch.StartNew();
+            ProxyGroupLoadResult bestResult = await _mihomoService.GetProxyGroupsAsync(runtimePath, cancellationToken);
+            fetchStopwatch.Stop();
+            PerformanceTraceHelper.LogElapsed(
+                "proxies controller fetch",
+                fetchStopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(120));
+
+            if (!allowWarmup || IsControllerReady(bestResult))
+            {
+                return bestResult;
+            }
+
+            Stopwatch warmupStopwatch = Stopwatch.StartNew();
+            for (int attempt = 1; attempt < ControllerWarmupAttempts; attempt++)
+            {
+                await Task.Delay(ControllerWarmupDelay, cancellationToken);
+
+                ProxyGroupLoadResult currentResult = await _mihomoService.GetProxyGroupsAsync(runtimePath, cancellationToken);
+                if (currentResult.Groups.Count > 0)
+                {
+                    bestResult = currentResult;
+                }
+
+                if (IsControllerReady(currentResult))
+                {
+                    warmupStopwatch.Stop();
+                    PerformanceTraceHelper.LogElapsed(
+                        "proxies controller warmup",
+                        warmupStopwatch.Elapsed,
+                        TimeSpan.FromMilliseconds(120));
+                    return currentResult;
+                }
+            }
+
+            warmupStopwatch.Stop();
+            PerformanceTraceHelper.LogElapsed(
+                "proxies controller warmup",
+                warmupStopwatch.Elapsed,
+                TimeSpan.FromMilliseconds(120));
+            return bestResult;
+        }
+
+        private void ApplyLoadedGroups(ProxyRefreshResult refreshResult)
+        {
+            _currentRuntimePath = refreshResult.Context.RuntimePath;
+            _currentRuntimeFingerprint = refreshResult.Context.RuntimeFingerprint;
+
+            if (refreshResult.LoadResult.Groups.Count > 0)
+            {
+                IReadOnlyList<ProxyGroup> displayGroups = PrepareDisplayGroups(refreshResult.LoadResult.Groups);
+                ProxyGroups = displayGroups;
+                StoreCurrentProxySnapshot();
+
+                int nodeCount = CountUniqueNodes(displayGroups);
+                bool hasGeoDataFailure = TryGetControllerFailureStatus(refreshResult.Context.RuntimePath, out string controllerFailureMessage);
+                if (refreshResult.Context.IsIncompatibleProfile)
+                {
+                    StatusMessage = refreshResult.LoadResult.Source == ProxyGroupLoadSource.MihomoController
+                        ? string.Format(_localizedStrings["ProxiesStatusLoadedIncompatibleProfile"], nodeCount)
+                        : string.Format(_localizedStrings["ProxiesStatusFallbackLoadedIncompatibleProfile"], nodeCount);
+                    return;
+                }
+
+                if (refreshResult.AttemptedApply && !refreshResult.Applied && hasGeoDataFailure)
+                {
+                    StatusMessage = controllerFailureMessage;
+                    return;
+                }
+
+                StatusMessage = refreshResult.LoadResult.Source == ProxyGroupLoadSource.RuntimeFile
+                    ? string.Format(_localizedStrings["ProxiesStatusFallbackLoaded"], nodeCount)
+                    : (refreshResult.AttemptedApply && refreshResult.Applied
+                        ? string.Format(_localizedStrings["ProxiesStatusLoaded"], nodeCount)
+                        : string.Format(_localizedStrings["ProxiesStatusLoadedNoApply"], nodeCount));
+                return;
+            }
+
+            ProxyGroups = Array.Empty<ProxyGroup>();
+            _pageWarmCacheService.InvalidateProxyGroups(refreshResult.Context.RuntimeFingerprint);
+            StatusMessage = TryGetControllerFailureStatus(refreshResult.Context.RuntimePath, out string noGroupMessage)
+                ? noGroupMessage
+                : _localizedStrings["ProxiesStatusNoProxyGroups"];
+        }
+
+        private IReadOnlyList<ProxyGroup> PrepareDisplayGroups(IReadOnlyList<ProxyGroup> groups)
+        {
+            IReadOnlyList<ProxyGroup> clones = ModelSnapshotCloneHelper.CloneProxyGroups(groups);
+            var expandedLookup = BuildExpansionLookup(ProxyGroups);
+            bool expandByDefault = _appSettingsService.ProxyGroupsExpandedByDefault;
+
+            foreach (ProxyGroup group in clones)
+            {
+                if (TryGetExpandedState(expandedLookup, group, out bool isExpanded))
+                {
+                    group.IsExpanded = isExpanded;
+                }
+                else
+                {
+                    group.IsExpanded = expandByDefault;
+                }
+            }
+
+            return clones;
+        }
+
+        private static Dictionary<string, bool> BuildExpansionLookup(IReadOnlyList<ProxyGroup> groups)
+        {
+            var lookup = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (ProxyGroup group in groups)
+            {
+                if (!string.IsNullOrWhiteSpace(group.Name))
+                {
+                    lookup[group.Name] = group.IsExpanded;
+                }
+
+                if (!string.IsNullOrWhiteSpace(group.ControllerName))
+                {
+                    lookup[group.ControllerName] = group.IsExpanded;
+                }
+            }
+
+            return lookup;
+        }
+
+        private static bool TryGetExpandedState(Dictionary<string, bool> expandedLookup, ProxyGroup group, out bool isExpanded)
+        {
+            if (!string.IsNullOrWhiteSpace(group.Name) && expandedLookup.TryGetValue(group.Name, out isExpanded))
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(group.ControllerName) && expandedLookup.TryGetValue(group.ControllerName, out isExpanded))
+            {
+                return true;
+            }
+
+            isExpanded = false;
+            return false;
         }
 
         private static bool IsDelayTestable(ProxyNode node)
@@ -287,21 +719,21 @@ namespace ClashWinUI.ViewModels
                 return;
             }
 
-            _dispatcherQueue.TryEnqueue(async () =>
+            _dispatcherQueue.TryEnqueue(() =>
             {
-                if (IsBusy)
+                if (IsBusy || !TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken))
                 {
                     return;
                 }
 
-                await RefreshGroupsAsync(reapplyRuntime: false);
+                _ = RefreshGroupsAsync(requestVersion, cancellationToken, reapplyRuntime: false, reason: "config-applied");
             });
         }
 
-        private async Task<int> TestNodesAsync(IReadOnlyList<ProxyNode> nodes)
+        private async Task<int> TestNodesAsync(IReadOnlyList<ProxyNode> nodes, CancellationToken cancellationToken)
         {
             int skippedCount = 0;
-            var semaphore = new SemaphoreSlim(TestAllConcurrencyLimit, TestAllConcurrencyLimit);
+            using var semaphore = new SemaphoreSlim(TestAllConcurrencyLimit, TestAllConcurrencyLimit);
             var tasks = new List<Task>(nodes.Count);
 
             foreach (ProxyNode node in nodes)
@@ -314,7 +746,7 @@ namespace ClashWinUI.ViewModels
                     continue;
                 }
 
-                tasks.Add(TestNodeDelayWithLimitAsync(node, semaphore));
+                tasks.Add(TestNodeDelayWithLimitAsync(node, semaphore, cancellationToken));
             }
 
             if (tasks.Count > 0)
@@ -325,14 +757,18 @@ namespace ClashWinUI.ViewModels
             return skippedCount;
         }
 
-        private async Task TestNodeDelayWithLimitAsync(ProxyNode node, SemaphoreSlim semaphore)
+        private async Task TestNodeDelayWithLimitAsync(ProxyNode node, SemaphoreSlim semaphore, CancellationToken cancellationToken)
         {
-            await semaphore.WaitAsync();
+            await semaphore.WaitAsync(cancellationToken);
             try
             {
                 node.IsTesting = true;
-                int? delay = await _mihomoService.TestProxyDelayAsync(node.Name, TestUrl);
+                int? delay = await _mihomoService.TestProxyDelayAsync(node.Name, TestUrl, cancellationToken: cancellationToken);
                 node.DelayMs = delay;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch
             {
@@ -354,132 +790,14 @@ namespace ClashWinUI.ViewModels
                 .ToList();
         }
 
-        private async Task RefreshGroupsAsync(bool reapplyRuntime)
+        private static int CountUniqueNodes(IEnumerable<ProxyGroup> groups)
         {
-            IsBusy = true;
-            try
-            {
-                ActiveProfile = _profileService.GetActiveProfile();
-                ProxyGroups.Clear();
-
-                if (ActiveProfile is null)
-                {
-                    StatusMessage = _localizedStrings["ProxiesStatusNoActiveProfile"];
-                    return;
-                }
-
-                ProfileCompatibilityStatus compatibility = ProfileCompatibilityChecker.Check(ActiveProfile.FilePath);
-                bool isIncompatibleProfile = compatibility == ProfileCompatibilityStatus.Base64NotYaml;
-
-                string runtimePath = ActiveProfile.FilePath;
-                bool applied = false;
-                try
-                {
-                    runtimePath = _configService.GetRuntimePath(ActiveProfile);
-                    if (reapplyRuntime)
-                    {
-                        applied = await _mihomoService.ApplyConfigAsync(runtimePath);
-                        if (applied || PathsEqual(_processService.CurrentConfigPath, runtimePath))
-                        {
-                            await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
-                                _systemProxyService,
-                                _processService,
-                                _tunService,
-                                runtimePath);
-                        }
-                    }
-                }
-                catch
-                {
-                    applied = false;
-                }
-
-                ProxyGroupLoadResult loadResult = await LoadProxyGroupsWithWarmupAsync(runtimePath);
-                if (loadResult.Groups.Count > 0)
-                {
-                    bool expandByDefault = _appSettingsService.ProxyGroupsExpandedByDefault;
-                    foreach (ProxyGroup group in loadResult.Groups)
-                    {
-                        group.IsExpanded = expandByDefault;
-                        ProxyGroups.Add(group);
-                    }
-
-                    int nodeCount = GetUniqueNodes().Count;
-                    bool hasGeoDataFailure = TryGetControllerFailureStatus(runtimePath, out string controllerFailureMessage);
-                    if (isIncompatibleProfile)
-                    {
-                        StatusMessage = loadResult.Source == ProxyGroupLoadSource.MihomoController
-                            ? string.Format(_localizedStrings["ProxiesStatusLoadedIncompatibleProfile"], nodeCount)
-                            : string.Format(_localizedStrings["ProxiesStatusFallbackLoadedIncompatibleProfile"], nodeCount);
-                    }
-                    else if (reapplyRuntime && !applied && hasGeoDataFailure)
-                    {
-                        StatusMessage = controllerFailureMessage;
-                    }
-                    else
-                    {
-                        StatusMessage = loadResult.Source == ProxyGroupLoadSource.RuntimeFile
-                            ? string.Format(_localizedStrings["ProxiesStatusFallbackLoaded"], nodeCount)
-                            : (reapplyRuntime && applied
-                                ? string.Format(_localizedStrings["ProxiesStatusLoaded"], nodeCount)
-                                : string.Format(_localizedStrings["ProxiesStatusLoadedNoApply"], nodeCount));
-                    }
-
-                    return;
-                }
-
-                StatusMessage = TryGetGeoDataFailureStatus(out string noGroupGeoDataFailureMessage)
-                    ? noGroupGeoDataFailureMessage
-                    : _localizedStrings["ProxiesStatusNoProxyGroups"];
-            }
-            catch (Exception ex)
-            {
-                StatusMessage = ex.Message;
-            }
-            finally
-            {
-                IsBusy = false;
-            }
-        }
-
-        private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            if (_isDisposed)
-            {
-                return;
-            }
-
-            if (e.PropertyName == nameof(LocalizedStrings.CurrentLanguage) || e.PropertyName == "Item[]")
-            {
-                Title = _localizedStrings["PageProxies"];
-            }
-        }
-
-        private async Task<ProxyGroupLoadResult> LoadProxyGroupsWithWarmupAsync(string runtimePath)
-        {
-            ProxyGroupLoadResult bestResult = await _mihomoService.GetProxyGroupsAsync(runtimePath);
-            if (IsControllerReady(bestResult))
-            {
-                return bestResult;
-            }
-
-            for (int attempt = 1; attempt < ControllerWarmupAttempts; attempt++)
-            {
-                await Task.Delay(ControllerWarmupDelay);
-
-                ProxyGroupLoadResult currentResult = await _mihomoService.GetProxyGroupsAsync(runtimePath);
-                if (currentResult.Groups.Count > 0)
-                {
-                    bestResult = currentResult;
-                }
-
-                if (IsControllerReady(currentResult))
-                {
-                    return currentResult;
-                }
-            }
-
-            return bestResult;
+            return groups
+                .SelectMany(group => group.Members)
+                .Select(member => member.Node.Name)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
         }
 
         private static bool IsControllerReady(ProxyGroupLoadResult result)
@@ -510,10 +828,23 @@ namespace ClashWinUI.ViewModels
             return true;
         }
 
-        private bool TryGetGeoDataFailureStatus(out string message)
+        private bool ShouldRetryWithApply(string runtimePath, ProxyGroupLoadResult loadResult)
         {
-            string? runtimePath = ActiveProfile is null ? null : _configService.GetRuntimePath(ActiveProfile);
-            return TryGetControllerFailureStatus(runtimePath, out message);
+            return !PathsEqual(_processService.CurrentConfigPath, runtimePath)
+                && (loadResult.Source != ProxyGroupLoadSource.MihomoController || !IsControllerReady(loadResult));
+        }
+
+        private void OnLocalizedStringsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            if (e.PropertyName == nameof(LocalizedStrings.CurrentLanguage) || e.PropertyName == "Item[]")
+            {
+                Title = _localizedStrings["PageProxies"];
+            }
         }
 
         private bool TryGetControllerFailureStatus(string? runtimePath, out string message)
@@ -527,6 +858,29 @@ namespace ClashWinUI.ViewModels
                 out message);
         }
 
+        private void StoreCurrentProxySnapshot()
+        {
+            if (!string.IsNullOrWhiteSpace(_currentRuntimeFingerprint) && ProxyGroups.Count > 0)
+            {
+                _pageWarmCacheService.StoreProxyGroups(_currentRuntimeFingerprint, ProxyGroups);
+            }
+        }
+
+        private void InvalidateRulesSnapshot()
+        {
+            if (!string.IsNullOrWhiteSpace(_currentRuntimeFingerprint))
+            {
+                _pageWarmCacheService.InvalidateRules(_currentRuntimeFingerprint);
+            }
+        }
+
+        private bool IsCurrentRequest(int requestVersion, CancellationToken cancellationToken)
+        {
+            return !_isDisposed
+                && !cancellationToken.IsCancellationRequested
+                && requestVersion == _loadVersion;
+        }
+
         private static bool PathsEqual(string? left, string? right)
         {
             if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
@@ -538,6 +892,44 @@ namespace ClashWinUI.ViewModels
                 System.IO.Path.GetFullPath(left.Trim()),
                 System.IO.Path.GetFullPath(right.Trim()),
                 StringComparison.OrdinalIgnoreCase);
+        }
+
+        private sealed class ProxyLoadContext
+        {
+            public ProxyLoadContext(ProfileItem profile, string runtimePath, string runtimeFingerprint, bool isIncompatibleProfile)
+            {
+                Profile = profile;
+                RuntimePath = runtimePath;
+                RuntimeFingerprint = runtimeFingerprint;
+                IsIncompatibleProfile = isIncompatibleProfile;
+            }
+
+            public ProfileItem Profile { get; }
+
+            public string RuntimePath { get; }
+
+            public string RuntimeFingerprint { get; }
+
+            public bool IsIncompatibleProfile { get; }
+        }
+
+        private sealed class ProxyRefreshResult
+        {
+            public ProxyRefreshResult(ProxyLoadContext context, ProxyGroupLoadResult loadResult, bool attemptedApply, bool applied)
+            {
+                Context = context;
+                LoadResult = loadResult;
+                AttemptedApply = attemptedApply;
+                Applied = applied;
+            }
+
+            public ProxyLoadContext Context { get; }
+
+            public ProxyGroupLoadResult LoadResult { get; }
+
+            public bool AttemptedApply { get; }
+
+            public bool Applied { get; }
         }
     }
 }

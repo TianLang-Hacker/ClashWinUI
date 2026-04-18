@@ -54,6 +54,7 @@ namespace ClashWinUI
                     services.AddSingleton<INavigationService, NavigationService>();
                     services.AddSingleton<IHomeChartStateService, HomeChartStateService>();
                     services.AddSingleton<IHomeOverviewSamplerService, HomeOverviewSamplerService>();
+                    services.AddSingleton<IPageWarmCacheService, PageWarmCacheService>();
                     services.AddSingleton<IUpdateService, UpdateService>();
                     services.AddSingleton<MainWindow>();
 

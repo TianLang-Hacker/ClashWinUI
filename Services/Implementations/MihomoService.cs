@@ -64,6 +64,7 @@ namespace ClashWinUI.Services.Implementations
         private readonly object _groupCacheSync = new();
         private readonly object _connectionStatsSync = new();
         private List<ProxyGroup> _lastRuntimeGroups = new();
+        private Dictionary<string, RuntimeGroupCacheEntry> _runtimeGroupCache = new(StringComparer.Ordinal);
         private Dictionary<string, ConnectionTrafficSnapshot> _connectionTrafficSnapshots = new(StringComparer.OrdinalIgnoreCase);
 
         private static readonly TimeSpan ApplyFailureLogDedupeWindow = TimeSpan.FromSeconds(20);
@@ -800,7 +801,7 @@ namespace ClashWinUI.Services.Implementations
 
         public async Task<ProxyGroupLoadResult> GetProxyGroupsAsync(string runtimePath, CancellationToken cancellationToken = default)
         {
-            List<ProxyGroup> runtimeGroups = ProxyGroupParser.ParseFromFile(runtimePath).ToList();
+            List<ProxyGroup> runtimeGroups = GetOrLoadRuntimeGroups(runtimePath);
             CacheRuntimeGroups(runtimeGroups);
 
             try
@@ -1765,9 +1766,54 @@ namespace ClashWinUI.Services.Implementations
         {
             lock (_groupCacheSync)
             {
-                _lastRuntimeGroups = runtimeGroups
-                    .Select(CloneProxyGroup)
-                    .ToList();
+                _lastRuntimeGroups = ModelSnapshotCloneHelper.CloneProxyGroups(runtimeGroups).ToList();
+            }
+        }
+
+        private List<ProxyGroup> GetOrLoadRuntimeGroups(string runtimePath)
+        {
+            string runtimeFingerprint = FileFingerprintHelper.GetFingerprintOrMissing(runtimePath);
+            lock (_groupCacheSync)
+            {
+                if (_runtimeGroupCache.TryGetValue(runtimeFingerprint, out RuntimeGroupCacheEntry? cachedEntry))
+                {
+                    cachedEntry.LastAccessedAt = DateTimeOffset.UtcNow;
+                    return ModelSnapshotCloneHelper.CloneProxyGroups(cachedEntry.Groups).ToList();
+                }
+            }
+
+            List<ProxyGroup> parsedGroups = ProxyGroupParser.ParseFromFile(runtimePath).ToList();
+            lock (_groupCacheSync)
+            {
+                _runtimeGroupCache[runtimeFingerprint] = new RuntimeGroupCacheEntry(ModelSnapshotCloneHelper.CloneProxyGroups(parsedGroups));
+                TrimRuntimeGroupCache();
+            }
+
+            return parsedGroups;
+        }
+
+        private void TrimRuntimeGroupCache()
+        {
+            while (_runtimeGroupCache.Count > 16)
+            {
+                string? oldestKey = null;
+                DateTimeOffset oldestAccess = DateTimeOffset.MaxValue;
+
+                foreach ((string key, RuntimeGroupCacheEntry entry) in _runtimeGroupCache)
+                {
+                    if (entry.LastAccessedAt < oldestAccess)
+                    {
+                        oldestAccess = entry.LastAccessedAt;
+                        oldestKey = key;
+                    }
+                }
+
+                if (oldestKey is null)
+                {
+                    break;
+                }
+
+                _runtimeGroupCache.Remove(oldestKey);
             }
         }
 
@@ -1795,34 +1841,7 @@ namespace ClashWinUI.Services.Implementations
 
         private static ProxyGroup CloneProxyGroup(ProxyGroup source)
         {
-            var clone = new ProxyGroup
-            {
-                Name = source.Name,
-                Type = source.Type,
-                ControllerName = source.ControllerName,
-                CurrentProxyName = source.CurrentProxyName,
-                IsExpanded = source.IsExpanded,
-            };
-
-            foreach (ProxyGroupMember member in source.Members)
-            {
-                clone.Members.Add(new ProxyGroupMember
-                {
-                    GroupName = member.GroupName,
-                    IsCurrent = member.IsCurrent,
-                    Node = new ProxyNode
-                    {
-                        Name = member.Node.Name,
-                        Type = member.Node.Type,
-                        ControllerName = member.Node.ControllerName,
-                        TransportText = member.Node.TransportText,
-                        SupportsUdp = member.Node.SupportsUdp,
-                        Network = member.Node.Network,
-                    }
-                });
-            }
-
-            return clone;
+            return ModelSnapshotCloneHelper.CloneProxyGroup(source);
         }
 
         private static IEnumerable<JsonProperty> EnumerateControllerGroups(JsonElement proxiesElement)
@@ -2347,6 +2366,19 @@ namespace ClashWinUI.Services.Implementations
             NotConverged = 0,
             HardConverged = 1,
             SoftConvergedAfterRestart = 2,
+        }
+
+        private sealed class RuntimeGroupCacheEntry
+        {
+            public RuntimeGroupCacheEntry(IReadOnlyList<ProxyGroup> groups)
+            {
+                Groups = groups;
+                LastAccessedAt = DateTimeOffset.UtcNow;
+            }
+
+            public IReadOnlyList<ProxyGroup> Groups { get; }
+
+            public DateTimeOffset LastAccessedAt { get; set; }
         }
 
         private sealed class ConnectionTrafficSnapshot
