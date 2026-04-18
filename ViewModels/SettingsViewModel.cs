@@ -54,12 +54,14 @@ namespace ClashWinUI.ViewModels
         private bool _isUpdatingFromThemeService;
         private bool _isUpdatingFromAppSettings;
         private bool _isUpdatingMixinInputs;
+        private bool _isInitializingState;
         private int _mixinApplyRequestVersion;
         private int _profileStateLoadVersion;
         private ProfileItem? _activeMixinProfile;
         private MixinSettings _currentMixinSettings = new();
         private SystemProxyState _currentSystemProxyState = SystemProxyState.Disabled();
         private TunRuntimeStatus _currentTunRuntimeStatus = TunRuntimeStatus.Disabled();
+        private SettingsTunPresentationOverride? _settingsTunPresentationOverride;
         private bool _isDisposed;
 
         [ObservableProperty]
@@ -199,37 +201,45 @@ namespace ClashWinUI.ViewModels
             _appSettingsService.SettingsChanged += OnAppSettingsChanged;
             _updateService.StateChanged += OnUpdateServiceStateChanged;
 
-            Title = _localizedStrings["PageSettings"];
-            SelectedLanguageTag = _localizedStrings.CurrentLanguage;
-            SelectedAppThemeTag = MapAppThemeToTag(_themeService.CurrentAppTheme);
-            SelectedBackdropTag = MapBackdropToTag(_themeService.CurrentBackdrop);
-            KernelPathInput = _kernelPathService.CustomKernelPath ?? _kernelPathService.DefaultKernelPath;
-            SelectedCloseBehaviorTag = MapCloseBehaviorToTag(_appSettingsService.CloseBehavior);
-            ProxyGroupsExpandedByDefault = _appSettingsService.ProxyGroupsExpandedByDefault;
+            _isInitializingState = true;
+            try
+            {
+                Title = _localizedStrings["PageSettings"];
+                SelectedLanguageTag = _localizedStrings.CurrentLanguage;
+                SelectedAppThemeTag = MapAppThemeToTag(_themeService.CurrentAppTheme);
+                SelectedBackdropTag = MapBackdropToTag(_themeService.CurrentBackdrop);
+                KernelPathInput = _kernelPathService.CustomKernelPath ?? _kernelPathService.DefaultKernelPath;
+                SelectedCloseBehaviorTag = MapCloseBehaviorToTag(_appSettingsService.CloseBehavior);
+                ProxyGroupsExpandedByDefault = _appSettingsService.ProxyGroupsExpandedByDefault;
 
-            HasActiveMixinProfile = false;
-            CurrentMixinProfileName = string.Empty;
-            CurrentMixinWorkspacePath = string.Empty;
-            MixinStatusMessage = string.Empty;
-            TunRuntimeStatusText = string.Empty;
-            TunRuntimeSummaryText = string.Empty;
-            GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
-            MixedPortInput = "0";
-            HttpPortInput = "0";
-            SocksPortInput = "0";
-            RedirPortInput = "0";
-            TProxyPortInput = "0";
-            SelectedModeTag = ModeRule;
-            SelectedLogLevelTag = LogInfo;
-            UpdateStatusHeader = string.Empty;
-            IsUpdatingApp = false;
-            CurrentAppVersionText = string.Empty;
-            IsCheckingForUpdates = false;
-            ShowUpdateDownloadProgress = false;
-            IsUpdateDownloadProgressIndeterminate = false;
-            UpdateDownloadProgressValue = 0;
-            UpdateDownloadProgressText = string.Empty;
-            IsLoadingProfileState = false;
+                HasActiveMixinProfile = false;
+                CurrentMixinProfileName = string.Empty;
+                CurrentMixinWorkspacePath = string.Empty;
+                MixinStatusMessage = string.Empty;
+                TunRuntimeStatusText = string.Empty;
+                TunRuntimeSummaryText = string.Empty;
+                GeoDataStatusMessage = GeoDataStatusTextHelper.BuildSettingsStatusMessage(_localizedStrings, _geoDataService.LastResult);
+                MixedPortInput = "0";
+                HttpPortInput = "0";
+                SocksPortInput = "0";
+                RedirPortInput = "0";
+                TProxyPortInput = "0";
+                SelectedModeTag = ModeRule;
+                SelectedLogLevelTag = LogInfo;
+                UpdateStatusHeader = string.Empty;
+                IsUpdatingApp = false;
+                CurrentAppVersionText = string.Empty;
+                IsCheckingForUpdates = false;
+                ShowUpdateDownloadProgress = false;
+                IsUpdateDownloadProgressIndeterminate = false;
+                UpdateDownloadProgressValue = 0;
+                UpdateDownloadProgressText = string.Empty;
+                IsLoadingProfileState = false;
+            }
+            finally
+            {
+                _isInitializingState = false;
+            }
 
             ApplyOverviewSnapshot();
             RefreshUpdateState();
@@ -258,6 +268,7 @@ namespace ClashWinUI.ViewModels
             }
 
             CancelProfileStateLoad();
+            ClearTunPresentationOverride();
 
             _profileStateLoadCancellation = new CancellationTokenSource();
             int requestVersion = Interlocked.Increment(ref _profileStateLoadVersion);
@@ -333,7 +344,7 @@ namespace ClashWinUI.ViewModels
 
         partial void OnSelectedLanguageTagChanged(string value)
         {
-            if (_isUpdatingFromLocalization)
+            if (_isInitializingState || _isUpdatingFromLocalization)
             {
                 return;
             }
@@ -343,7 +354,7 @@ namespace ClashWinUI.ViewModels
 
         partial void OnSelectedAppThemeTagChanged(string value)
         {
-            if (_isUpdatingFromThemeService)
+            if (_isInitializingState || _isUpdatingFromThemeService)
             {
                 return;
             }
@@ -361,7 +372,7 @@ namespace ClashWinUI.ViewModels
 
         partial void OnSelectedBackdropTagChanged(string value)
         {
-            if (_isUpdatingFromThemeService)
+            if (_isInitializingState || _isUpdatingFromThemeService)
             {
                 return;
             }
@@ -382,7 +393,7 @@ namespace ClashWinUI.ViewModels
 
         partial void OnSelectedCloseBehaviorTagChanged(string value)
         {
-            if (_isUpdatingFromAppSettings)
+            if (_isInitializingState || _isUpdatingFromAppSettings)
             {
                 return;
             }
@@ -400,7 +411,7 @@ namespace ClashWinUI.ViewModels
 
         partial void OnProxyGroupsExpandedByDefaultChanged(bool value)
         {
-            if (_isUpdatingFromAppSettings)
+            if (_isInitializingState || _isUpdatingFromAppSettings)
             {
                 return;
             }
@@ -414,26 +425,57 @@ namespace ClashWinUI.ViewModels
 
         partial void OnTunEnabledChanged(bool value)
         {
+            if (_isInitializingState)
+            {
+                return;
+            }
+
+            if (!value && !_isUpdatingMixinInputs)
+            {
+                ClearTunPresentationOverride();
+                ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+            }
+
             QueueImmediateMixinApply();
         }
 
         partial void OnAllowLanEnabledChanged(bool value)
         {
+            if (_isInitializingState)
+            {
+                return;
+            }
+
             QueueImmediateMixinApply();
         }
 
         partial void OnIpv6EnabledChanged(bool value)
         {
+            if (_isInitializingState)
+            {
+                return;
+            }
+
             QueueImmediateMixinApply();
         }
 
         partial void OnSelectedModeTagChanged(string value)
         {
+            if (_isInitializingState)
+            {
+                return;
+            }
+
             QueueImmediateMixinApply();
         }
 
         partial void OnSelectedLogLevelTagChanged(string value)
         {
+            if (_isInitializingState)
+            {
+                return;
+            }
+
             QueueImmediateMixinApply();
         }
 
@@ -562,6 +604,7 @@ namespace ClashWinUI.ViewModels
         private void ApplyLoadedProfileState(ActiveProfileLoadResult result)
         {
             IsLoadingProfileState = false;
+            ClearTunPresentationOverride();
 
             if (!result.HasActiveProfile)
             {
@@ -592,6 +635,7 @@ namespace ClashWinUI.ViewModels
 
         private void ApplyNoActiveProfileState(SystemProxyState systemProxyState, TunRuntimeStatus tunRuntimeStatus)
         {
+            ClearTunPresentationOverride();
             _activeMixinProfile = null;
             HasActiveMixinProfile = false;
             CurrentMixinProfileName = _localizedStrings["ProfilesNoActive"];
@@ -609,14 +653,37 @@ namespace ClashWinUI.ViewModels
             ApplyTunPresentation(state.TunRuntimeStatus, state.SystemProxyState);
         }
 
+        private void ClearTunPresentationOverride()
+        {
+            _settingsTunPresentationOverride = null;
+        }
+
+        private void SetTunEnabledPresentationOverride()
+        {
+            _settingsTunPresentationOverride = new SettingsTunPresentationOverride(
+                SettingsTunDisplayState.Enabled,
+                CreateEnabledTunPresentationStatus());
+            ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+        }
+
+        private void SetTunFailurePresentationOverride(MihomoFailureKind failureKind, string? detail)
+        {
+            _settingsTunPresentationOverride = new SettingsTunPresentationOverride(
+                SettingsTunDisplayState.Failure,
+                CreateFailureTunPresentationStatus(failureKind, detail));
+            ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+        }
+
         private void ApplyTunPresentation(TunRuntimeStatus runtimeStatus, SystemProxyState systemProxyState)
         {
             _currentTunRuntimeStatus = runtimeStatus;
             _currentSystemProxyState = systemProxyState;
 
-            (TunRuntimeStatusText, TunRuntimeSummaryText) = RuntimeNetworkStatusTextHelper.BuildTunPresentation(
+            TunRuntimeStatus presentationRuntimeStatus = _settingsTunPresentationOverride?.RuntimeStatus ?? runtimeStatus;
+
+            (TunRuntimeStatusText, TunRuntimeSummaryText) = RuntimeNetworkStatusTextHelper.BuildSettingsTunPresentation(
                 _localizedStrings,
-                runtimeStatus,
+                presentationRuntimeStatus,
                 systemProxyState);
         }
 
@@ -636,6 +703,11 @@ namespace ClashWinUI.ViewModels
             if (_isDisposed)
             {
                 return;
+            }
+
+            if (_settingsTunPresentationOverride?.DisplayState == SettingsTunDisplayState.Enabled)
+            {
+                _settingsTunPresentationOverride = null;
             }
 
             ApplyTunPresentation(snapshot.TunRuntimeStatus, snapshot.SystemProxyState);
@@ -813,6 +885,17 @@ namespace ClashWinUI.ViewModels
             }
 
             MixinSettings previousSettings = CloneMixinSettings(_currentMixinSettings);
+            bool isEnablingTun = nextSettings.TunEnabled && !previousSettings.TunEnabled;
+            if (isEnablingTun)
+            {
+                SetTunEnabledPresentationOverride();
+            }
+            else if (!nextSettings.TunEnabled)
+            {
+                ClearTunPresentationOverride();
+                ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+            }
+
             if (nextSettings.TunEnabled)
             {
                 TunPreparationResult tunPreparation = _tunService.ValidateEnvironment(_kernelPathService.ResolveKernelPath());
@@ -824,7 +907,8 @@ namespace ClashWinUI.ViewModels
                     }
 
                     string failedMessage = BuildTunPreparationFailureMessage(tunPreparation);
-                    MixinStatusMessage = failedMessage;
+                    SetTunFailurePresentationOverride(tunPreparation.FailureKind, tunPreparation.Message);
+                    MixinStatusMessage = string.Empty;
                     await RefreshTunRuntimeStatusAsync();
                     return (false, failedMessage);
                 }
@@ -853,16 +937,30 @@ namespace ClashWinUI.ViewModels
                         ApplyMixinSettings(previousSettings);
                     }
 
-                    string failedMessage = MihomoFailureTextHelper.TryBuildControllerFailureMessage(
-                        _localizedStrings,
-                        _processService,
-                        _geoDataService,
-                        _tunService,
-                        runtimePath,
-                        out string controllerMessage)
-                        ? controllerMessage
-                        : _localizedStrings["SettingsMixinStatusApplyFailed"];
-                    MixinStatusMessage = failedMessage;
+                    string failedMessage;
+                    if (TryBuildTunApplyFailurePresentation(runtimePath, out TunRuntimeStatus tunFailurePresentation, out string tunFailureMessage))
+                    {
+                        failedMessage = tunFailureMessage;
+                        _settingsTunPresentationOverride = new SettingsTunPresentationOverride(
+                            SettingsTunDisplayState.Failure,
+                            tunFailurePresentation);
+                        MixinStatusMessage = string.Empty;
+                        ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+                    }
+                    else
+                    {
+                        failedMessage = MihomoFailureTextHelper.TryBuildControllerFailureMessage(
+                            _localizedStrings,
+                            _processService,
+                            _geoDataService,
+                            _tunService,
+                            runtimePath,
+                            out string controllerMessage)
+                            ? controllerMessage
+                            : _localizedStrings["SettingsMixinStatusApplyFailed"];
+                        MixinStatusMessage = failedMessage;
+                    }
+
                     await RefreshTunRuntimeStatusAsync();
                     return (false, failedMessage);
                 }
@@ -875,6 +973,16 @@ namespace ClashWinUI.ViewModels
 
                 _currentMixinSettings = CloneMixinSettings(nextSettings);
                 ApplyMixinSettings(_currentMixinSettings);
+
+                if (isEnablingTun)
+                {
+                    SetTunEnabledPresentationOverride();
+                }
+                else
+                {
+                    ClearTunPresentationOverride();
+                    ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+                }
 
                 string successMessage = _localizedStrings["SettingsMixinStatusApplied"];
                 MixinStatusMessage = successMessage;
@@ -1012,15 +1120,101 @@ namespace ClashWinUI.ViewModels
 
         private string BuildTunPreparationFailureMessage(TunPreparationResult preparation)
         {
-            string detail = string.IsNullOrWhiteSpace(preparation.Message)
-                ? _localizedStrings["MihomoStatusUnknownReason"]
-                : preparation.Message.Trim();
+            return BuildTunFailureMessage(preparation.FailureKind, preparation.Message);
+        }
 
-            return preparation.FailureKind switch
+        private bool TryBuildTunApplyFailurePresentation(
+            string runtimePath,
+            out TunRuntimeStatus presentationStatus,
+            out string message)
+        {
+            presentationStatus = TunRuntimeStatus.Disabled();
+            message = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(runtimePath) || !_tunService.IsTunEnabled(runtimePath))
             {
-                MihomoFailureKind.TunPermission => string.Format(_localizedStrings["TunStatusPermissionFailureFormat"], detail),
-                MihomoFailureKind.TunDependency => string.Format(_localizedStrings["TunStatusDependencyFailureFormat"], detail),
-                _ => string.Format(_localizedStrings["TunStatusControllerFailureFormat"], detail),
+                return false;
+            }
+
+            MihomoFailureDiagnostic diagnostic = _processService.LastFailureDiagnostic;
+            bool isTunControllerFailure = diagnostic.Kind == MihomoFailureKind.None
+                || diagnostic.Kind == MihomoFailureKind.Unknown
+                || MihomoFailureKindHelper.IsTunFailure(diagnostic.Kind);
+            if (!isTunControllerFailure)
+            {
+                return false;
+            }
+
+            MihomoFailureKind failureKind = MihomoFailureKindHelper.IsTunFailure(diagnostic.Kind)
+                ? diagnostic.Kind
+                : MihomoFailureKind.Unknown;
+            message = BuildTunFailureMessage(failureKind, diagnostic.Message);
+            presentationStatus = CreateFailureTunPresentationStatus(failureKind, diagnostic.Message);
+            return true;
+        }
+
+        private string BuildTunFailureMessage(MihomoFailureKind failureKind, string? detail)
+        {
+            string normalizedDetail = NormalizeTunFailureDetail(detail);
+
+            return failureKind switch
+            {
+                MihomoFailureKind.TunPermission => string.Format(_localizedStrings["TunStatusPermissionFailureFormat"], normalizedDetail),
+                MihomoFailureKind.TunDependency => string.Format(_localizedStrings["TunStatusDependencyFailureFormat"], normalizedDetail),
+                MihomoFailureKind.TunAdapterMissing => string.Format(_localizedStrings["TunStatusAdapterMissingFormat"], normalizedDetail),
+                MihomoFailureKind.TunRouteMissing => string.Format(_localizedStrings["TunStatusRouteMissingFormat"], normalizedDetail),
+                MihomoFailureKind.TunDnsUnmanaged => string.Format(_localizedStrings["TunStatusDnsUnmanagedFormat"], normalizedDetail),
+                MihomoFailureKind.TunFirewallBlocked => string.Format(_localizedStrings["TunStatusFirewallBlockedFormat"], normalizedDetail),
+                _ => string.Format(_localizedStrings["TunStatusControllerFailureFormat"], normalizedDetail),
+            };
+        }
+
+        private string NormalizeTunFailureDetail(string? detail)
+        {
+            return string.IsNullOrWhiteSpace(detail)
+                ? _localizedStrings["MihomoStatusUnknownReason"]
+                : detail.Trim();
+        }
+
+        private static TunRuntimeStatus CreateEnabledTunPresentationStatus()
+        {
+            return new TunRuntimeStatus
+            {
+                IsConfigured = true,
+                IsHealthy = false,
+                DriverLoaded = false,
+                DriverVersion = string.Empty,
+                AdapterPresent = false,
+                AdapterName = string.Empty,
+                RouteAttached = false,
+                EffectiveStack = string.Empty,
+                FirewallEnabled = false,
+                DnsHijackConfigured = false,
+                DnsManaged = false,
+                DnsAutoGenerated = false,
+                FailureKind = MihomoFailureKind.None,
+                Message = string.Empty,
+            };
+        }
+
+        private static TunRuntimeStatus CreateFailureTunPresentationStatus(MihomoFailureKind failureKind, string? detail)
+        {
+            return new TunRuntimeStatus
+            {
+                IsConfigured = true,
+                IsHealthy = false,
+                DriverLoaded = false,
+                DriverVersion = string.Empty,
+                AdapterPresent = false,
+                AdapterName = string.Empty,
+                RouteAttached = false,
+                EffectiveStack = string.Empty,
+                FirewallEnabled = false,
+                DnsHijackConfigured = false,
+                DnsManaged = false,
+                DnsAutoGenerated = false,
+                FailureKind = failureKind == MihomoFailureKind.None ? MihomoFailureKind.Unknown : failureKind,
+                Message = detail?.Trim() ?? string.Empty,
             };
         }
 
@@ -1302,5 +1496,15 @@ namespace ClashWinUI.ViewModels
                     message);
             }
         }
+
+        private enum SettingsTunDisplayState
+        {
+            Enabled = 1,
+            Failure = 2,
+        }
+
+        private readonly record struct SettingsTunPresentationOverride(
+            SettingsTunDisplayState DisplayState,
+            TunRuntimeStatus RuntimeStatus);
     }
 }

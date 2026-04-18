@@ -25,6 +25,31 @@ namespace ClashWinUI.Helpers
             TunRuntimeStatus runtimeStatus,
             SystemProxyState systemProxyState)
         {
+            return BuildTunPresentationCore(
+                localizedStrings,
+                runtimeStatus,
+                systemProxyState,
+                localizedStrings["TunRuntimeStatusPending"]);
+        }
+
+        public static (string StatusText, string SummaryText) BuildSettingsTunPresentation(
+            LocalizedStrings localizedStrings,
+            TunRuntimeStatus runtimeStatus,
+            SystemProxyState systemProxyState)
+        {
+            return BuildTunPresentationCore(
+                localizedStrings,
+                runtimeStatus,
+                systemProxyState,
+                localizedStrings["TunRuntimeStatusEnabled"]);
+        }
+
+        private static (string StatusText, string SummaryText) BuildTunPresentationCore(
+            LocalizedStrings localizedStrings,
+            TunRuntimeStatus runtimeStatus,
+            SystemProxyState systemProxyState,
+            string pendingStatusText)
+        {
             ArgumentNullException.ThrowIfNull(localizedStrings);
             ArgumentNullException.ThrowIfNull(runtimeStatus);
             ArgumentNullException.ThrowIfNull(systemProxyState);
@@ -45,7 +70,7 @@ namespace ClashWinUI.Helpers
                 MihomoFailureKind.TunFirewallBlocked => string.Format(localizedStrings["TunStatusFirewallBlockedFormat"], detail),
                 _ when runtimeStatus.IsHealthy => localizedStrings["TunRuntimeStatusActive"],
                 _ when runtimeStatus.FailureKind != MihomoFailureKind.None => string.Format(localizedStrings["TunStatusControllerFailureFormat"], detail),
-                _ => localizedStrings["TunRuntimeStatusPending"],
+                _ => pendingStatusText,
             };
 
             if (runtimeStatus.IsHealthy)

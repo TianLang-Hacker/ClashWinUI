@@ -10,6 +10,7 @@
     xmlns:ui="using:CommunityToolkit.WinUI"
     xmlns:win="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     NavigationCacheMode="Enabled"
+    Background="Transparent"
     mc:Ignorable="d">
     <Page.Resources>
         <x:Double x:Key="SettingsCardSpacing">4</x:Double>
@@ -25,8 +26,8 @@
             </Style.Setters>
         </Style>
     </Page.Resources>
-    <ScrollViewer>
-        <Grid>
+    <ScrollViewer Background="Transparent">
+        <Grid Background="Transparent">
             <StackPanel
                 MaxWidth="1000"
                 HorizontalAlignment="Stretch"

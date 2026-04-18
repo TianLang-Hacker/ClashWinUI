@@ -486,6 +486,9 @@
   <data name="TunRuntimeStatusDisabled" xml:space="preserve">
     <value>未啟用</value>
   </data>
+  <data name="TunRuntimeStatusEnabled" xml:space="preserve">
+    <value>已啟用</value>
+  </data>
   <data name="TunRuntimeStatusActive" xml:space="preserve">
     <value>已生效</value>
   </data>

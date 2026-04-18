@@ -1,3 +1,4 @@
+using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using Microsoft.UI;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -13,6 +14,7 @@ namespace ClashWinUI.Services.Implementations
     public class ThemeService : IThemeService
     {
         private readonly Dictionary<Window, FrameworkElement> _registeredWindows = new();
+        private readonly IAppLogService _logService;
 
         private Window? _primaryWindow;
         private bool _isApplyingTheme;
@@ -20,6 +22,11 @@ namespace ClashWinUI.Services.Implementations
         public AppThemeMode CurrentAppTheme { get; private set; } = AppThemeMode.System;
         public BackdropMode CurrentBackdrop { get; private set; } = BackdropMode.Mica;
         public event EventHandler? ThemeChanged;
+
+        public ThemeService(IAppLogService logService)
+        {
+            _logService = logService;
+        }
 
         public void Initialize(Window window)
         {
@@ -68,6 +75,12 @@ namespace ClashWinUI.Services.Implementations
 
         public void ApplyAppTheme(AppThemeMode mode)
         {
+            if (CurrentAppTheme == mode && AreRegisteredWindowsAlreadyUsing(mode))
+            {
+                LogThemeOperation($"ApplyAppTheme skip (same-value): {mode}");
+                return;
+            }
+
             CurrentAppTheme = mode;
             _isApplyingTheme = true;
             try
@@ -82,6 +95,7 @@ namespace ClashWinUI.Services.Implementations
                 _isApplyingTheme = false;
             }
 
+            LogThemeOperation($"ApplyAppTheme applied: {mode}");
             ThemeChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -90,6 +104,13 @@ namespace ClashWinUI.Services.Implementations
             if (_primaryWindow is null)
             {
                 return false;
+            }
+
+            if (HasMatchingBackdrop(_primaryWindow, mode))
+            {
+                CurrentBackdrop = mode;
+                LogThemeOperation($"ApplyBackdrop skip (same-value): {mode}");
+                return true;
             }
 
             if (mode == BackdropMode.Acrylic)
@@ -101,6 +122,7 @@ namespace ClashWinUI.Services.Implementations
 
                 _primaryWindow.SystemBackdrop = new DesktopAcrylicBackdrop();
                 CurrentBackdrop = mode;
+                LogThemeOperation($"ApplyBackdrop applied: {mode}");
                 return true;
             }
 
@@ -114,19 +136,56 @@ namespace ClashWinUI.Services.Implementations
                 Kind = mode == BackdropMode.MicaAlt ? MicaKind.BaseAlt : MicaKind.Base,
             };
             CurrentBackdrop = mode;
+            LogThemeOperation($"ApplyBackdrop applied: {mode}");
             return true;
         }
 
         private void ApplyThemeToWindow(Window window, FrameworkElement root)
         {
-            root.RequestedTheme = CurrentAppTheme switch
+            ElementTheme targetTheme = CurrentAppTheme switch
             {
                 AppThemeMode.Light => ElementTheme.Light,
                 AppThemeMode.Dark => ElementTheme.Dark,
                 _ => ElementTheme.Default,
             };
 
+            if (root.RequestedTheme != targetTheme)
+            {
+                root.RequestedTheme = targetTheme;
+            }
+
             ApplyTitleBarColors(window, ResolveEffectiveTheme(root));
+        }
+
+        private bool AreRegisteredWindowsAlreadyUsing(AppThemeMode mode)
+        {
+            ElementTheme targetTheme = mode switch
+            {
+                AppThemeMode.Light => ElementTheme.Light,
+                AppThemeMode.Dark => ElementTheme.Dark,
+                _ => ElementTheme.Default,
+            };
+
+            foreach (FrameworkElement root in _registeredWindows.Values)
+            {
+                if (root.RequestedTheme != targetTheme)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool HasMatchingBackdrop(Window window, BackdropMode mode)
+        {
+            return mode switch
+            {
+                BackdropMode.Acrylic => window.SystemBackdrop is DesktopAcrylicBackdrop,
+                BackdropMode.Mica => window.SystemBackdrop is MicaBackdrop micaBackdrop && micaBackdrop.Kind == MicaKind.Base,
+                BackdropMode.MicaAlt => window.SystemBackdrop is MicaBackdrop micaAltBackdrop && micaAltBackdrop.Kind == MicaKind.BaseAlt,
+                _ => false,
+            };
         }
 
         private ElementTheme ResolveEffectiveTheme(FrameworkElement root)
@@ -157,6 +216,13 @@ namespace ClashWinUI.Services.Implementations
                 ThemeChanged?.Invoke(this, EventArgs.Empty);
                 break;
             }
+        }
+
+        private void LogThemeOperation(string message)
+        {
+#if DEBUG
+            _logService.Add($"[Theme] {message}", LogLevel.Debug);
+#endif
         }
 
         private static void ApplyTitleBarColors(Window window, ElementTheme effectiveTheme)
