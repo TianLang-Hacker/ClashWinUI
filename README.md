@@ -42,6 +42,7 @@ Welcome to participate in the development and maintenance of this project! Pleas
 * **Required Workloads & SDKs**:
     * .NET Desktop Development
     * WinUI Application Development
+    * Windows 11 SDK (10.0.28000.1721)
     * Windows 11 SDK (10.0.26100.7705)
     * Windows 11 SDK (10.0.22621.0)
     * Universal C Runtime
