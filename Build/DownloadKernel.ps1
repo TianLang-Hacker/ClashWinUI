@@ -5,10 +5,142 @@
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
 
 function Write-Log {
     param([string]$Message)
-    Write-Output $Message
+    [Console]::Out.WriteLine($Message)
+}
+
+function Get-PositiveInt64OrNull {
+    param($Value)
+
+    if ($null -eq $Value) {
+        return $null
+    }
+
+    try {
+        [Int64]$convertedValue = [Convert]::ToInt64($Value)
+        if ($convertedValue -gt 0) {
+            return $convertedValue
+        }
+    }
+    catch {
+    }
+
+    return $null
+}
+
+function Write-DownloadProgress {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Stage,
+        [Parameter(Mandatory = $true)] [string]$FileName,
+        [Parameter(Mandatory = $true)] [Int64]$BytesReceived,
+        $TotalBytes = $null
+    )
+
+    $totalBytesValue = Get-PositiveInt64OrNull -Value $TotalBytes
+    $isIndeterminate = $null -eq $totalBytesValue
+    $percentage = 0
+    if (-not $isIndeterminate) {
+        $percentage = [Math]::Min(100, [Math]::Round(($BytesReceived * 100.0) / $totalBytesValue, 2))
+    }
+
+    $payload = [ordered]@{
+        stage = $Stage
+        fileName = $FileName
+        bytesReceived = $BytesReceived
+        totalBytes = $totalBytesValue
+        percentage = $percentage
+        isIndeterminate = $isIndeterminate
+    }
+
+    [Console]::Out.WriteLine("CWUI_PROGRESS " + ($payload | ConvertTo-Json -Compress))
+}
+
+function Get-DownloadFileName {
+    param([Parameter(Mandatory = $true)] [string]$Url)
+
+    try {
+        $uri = [Uri]$Url
+        $name = [System.IO.Path]::GetFileName($uri.AbsolutePath)
+        if (-not [string]::IsNullOrWhiteSpace($name)) {
+            return $name
+        }
+    }
+    catch {
+    }
+
+    return "mihomo"
+}
+
+function Invoke-DownloadWithProgress {
+    param(
+        [Parameter(Mandatory = $true)] [string]$Uri,
+        [Parameter(Mandatory = $true)] [string]$OutputPath,
+        [Parameter(Mandatory = $true)] [hashtable]$Headers,
+        [Parameter(Mandatory = $true)] [string]$Stage,
+        [Parameter(Mandatory = $true)] [string]$FileName,
+        [int]$TimeoutSec = 180
+    )
+
+    $request = [System.Net.HttpWebRequest]::CreateHttp($Uri)
+    $request.Method = "GET"
+    $request.AllowAutoRedirect = $true
+    $request.Timeout = $TimeoutSec * 1000
+    $request.ReadWriteTimeout = $TimeoutSec * 1000
+    foreach ($key in $Headers.Keys) {
+        if ($key -ieq "User-Agent") {
+            $request.UserAgent = [string]$Headers[$key]
+        }
+        else {
+            $request.Headers[$key] = [string]$Headers[$key]
+        }
+    }
+
+    $response = $null
+    $source = $null
+    $target = $null
+    try {
+        $response = $request.GetResponse()
+        $totalBytes = Get-PositiveInt64OrNull -Value $response.ContentLength
+        $source = $response.GetResponseStream()
+        $target = [System.IO.File]::Create($OutputPath)
+        $buffer = New-Object byte[] 81920
+        [Int64]$bytesReceived = 0
+        $lastReportedPercentage = -1
+        $lastReportTime = [DateTime]::UtcNow.AddSeconds(-1)
+
+        Write-DownloadProgress -Stage $Stage -FileName $FileName -BytesReceived 0 -TotalBytes $totalBytes
+
+        while (($read = $source.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $target.Write($buffer, 0, $read)
+            $bytesReceived += $read
+
+            $percentage = if ($null -ne $totalBytes) {
+                [int][Math]::Floor(($bytesReceived * 100.0) / $totalBytes)
+            }
+            else {
+                -1
+            }
+
+            $now = [DateTime]::UtcNow
+            if ($percentage -ne $lastReportedPercentage -or ($now - $lastReportTime).TotalMilliseconds -ge 500) {
+                $lastReportedPercentage = $percentage
+                $lastReportTime = $now
+                Write-DownloadProgress -Stage $Stage -FileName $FileName -BytesReceived $bytesReceived -TotalBytes $totalBytes
+            }
+        }
+
+        Write-DownloadProgress -Stage $Stage -FileName $FileName -BytesReceived $bytesReceived -TotalBytes $totalBytes
+    }
+    finally {
+        if ($target) { $target.Dispose() }
+        if ($source) { $source.Dispose() }
+        if ($response) { $response.Dispose() }
+    }
 }
 
 function Get-ArchitectureToken {
@@ -83,7 +215,8 @@ function Download-Asset {
         $attemptCount++
         try {
             Write-Log "Downloading kernel asset: $candidate"
-            Invoke-WebRequest -Uri $candidate -OutFile $OutputPath -Headers $headers -TimeoutSec 180
+            $fileName = Get-DownloadFileName -Url $candidate
+            Invoke-DownloadWithProgress -Uri $candidate -OutputPath $OutputPath -Headers $headers -Stage "kernel" -FileName $fileName -TimeoutSec 180
             return $candidate
         }
         catch {
