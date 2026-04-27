@@ -26,6 +26,131 @@ namespace ClashWinUI.Services.Implementations
 
         public event EventHandler? SettingsChanged;
 
+        public bool WelcomeCompleted
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _settings.WelcomeCompleted;
+                }
+            }
+            set
+            {
+                bool changed;
+                lock (_gate)
+                {
+                    if (_settings.WelcomeCompleted == value)
+                    {
+                        return;
+                    }
+
+                    _settings.WelcomeCompleted = value;
+                    SaveSettingsUnsafe();
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    SettingsChanged?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public string LanguageTag
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _settings.LanguageTag;
+                }
+            }
+            set
+            {
+                string normalized = NormalizeLanguageTag(value);
+                bool changed;
+                lock (_gate)
+                {
+                    if (string.Equals(_settings.LanguageTag, normalized, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return;
+                    }
+
+                    _settings.LanguageTag = normalized;
+                    SaveSettingsUnsafe();
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    SettingsChanged?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public AppThemeMode AppThemeMode
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _settings.AppThemeMode;
+                }
+            }
+            set
+            {
+                bool changed;
+                lock (_gate)
+                {
+                    if (_settings.AppThemeMode == value)
+                    {
+                        return;
+                    }
+
+                    _settings.AppThemeMode = value;
+                    SaveSettingsUnsafe();
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    SettingsChanged?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
+        public BackdropMode BackdropMode
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _settings.BackdropMode;
+                }
+            }
+            set
+            {
+                bool changed;
+                lock (_gate)
+                {
+                    if (_settings.BackdropMode == value)
+                    {
+                        return;
+                    }
+
+                    _settings.BackdropMode = value;
+                    SaveSettingsUnsafe();
+                    changed = true;
+                }
+
+                if (changed)
+                {
+                    SettingsChanged?.Invoke(this, EventArgs.Empty);
+                }
+            }
+        }
+
         public CloseBehavior CloseBehavior
         {
             get
@@ -123,6 +248,13 @@ namespace ClashWinUI.Services.Implementations
             string content = JsonSerializer.Serialize(_settings, ClashJsonContext.Default.AppSettingsState);
 
             File.WriteAllText(_settingsFilePath, content);
+        }
+
+        private static string NormalizeLanguageTag(string? languageTag)
+        {
+            return string.IsNullOrWhiteSpace(languageTag)
+                ? string.Empty
+                : languageTag.Trim();
         }
     }
 }

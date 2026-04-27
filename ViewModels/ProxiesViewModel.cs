@@ -71,6 +71,9 @@ namespace ClashWinUI.ViewModels
         public partial bool IsBusy { get; set; }
 
         [ObservableProperty]
+        public partial bool IsProxyGroupsLoading { get; set; }
+
+        [ObservableProperty]
         public partial IReadOnlyList<ProxyGroup> ProxyGroups { get; set; }
 
         public ProxiesViewModel(
@@ -406,6 +409,7 @@ namespace ClashWinUI.ViewModels
             }
 
             IsBusy = true;
+            IsProxyGroupsLoading = true;
             Stopwatch totalStopwatch = Stopwatch.StartNew();
 
             try
@@ -473,9 +477,13 @@ namespace ClashWinUI.ViewModels
                     totalStopwatch.Elapsed,
                     TimeSpan.FromMilliseconds(120));
 
-                if (!_isDisposed && requestVersion == _loadVersion)
+                if (requestVersion == _loadVersion)
                 {
-                    IsBusy = false;
+                    IsProxyGroupsLoading = false;
+                    if (!_isDisposed)
+                    {
+                        IsBusy = false;
+                    }
                 }
             }
         }

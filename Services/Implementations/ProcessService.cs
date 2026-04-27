@@ -25,6 +25,7 @@ namespace ClashWinUI.Services.Implementations
         private readonly IKernelBootstrapService _kernelBootstrapService;
         private readonly ITunService _tunService;
         private readonly IAppLogService _logService;
+        private readonly IGeoDataService _geoDataService;
         private readonly HttpClient _controllerProbeClient = new();
         private readonly SemaphoreSlim _sync = new(1, 1);
 
@@ -37,12 +38,14 @@ namespace ClashWinUI.Services.Implementations
             IKernelPathService kernelPathService,
             IKernelBootstrapService kernelBootstrapService,
             ITunService tunService,
-            IAppLogService logService)
+            IAppLogService logService,
+            IGeoDataService geoDataService)
         {
             _kernelPathService = kernelPathService;
             _kernelBootstrapService = kernelBootstrapService;
             _tunService = tunService;
             _logService = logService;
+            _geoDataService = geoDataService;
         }
 
         public bool IsRunning => _mihomoProcess is { HasExited: false };
@@ -224,7 +227,9 @@ namespace ClashWinUI.Services.Implementations
                 }
 
                 string controller = $"{ControllerHost}:{ControllerPort}";
-                string arguments = $"-f \"{effectiveConfigPath}\" -ext-ctl {controller}";
+                string geoDataDirectory = _geoDataService.GeoDataDirectory;
+                Directory.CreateDirectory(geoDataDirectory);
+                string arguments = $"-d \"{geoDataDirectory}\" -f \"{effectiveConfigPath}\" -ext-ctl {controller}";
                 string workingDirectory = Path.GetDirectoryName(kernelPath) ?? AppContext.BaseDirectory;
                 int bindConflictDetected = 0;
                 ResetFailureDiagnostic();
@@ -345,7 +350,7 @@ namespace ClashWinUI.Services.Implementations
 
                 _mihomoProcess = process;
                 _currentConfigPath = effectiveConfigPath;
-                _logService.Add($"Mihomo started with config: {effectiveConfigPath}");
+                _logService.Add($"Mihomo started with config: {effectiveConfigPath}, GeoDataDir={geoDataDirectory}");
 
                 return true;
             }

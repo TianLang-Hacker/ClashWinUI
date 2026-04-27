@@ -15,17 +15,21 @@ namespace ClashWinUI.Services.Implementations
     {
         private readonly Dictionary<Window, FrameworkElement> _registeredWindows = new();
         private readonly IAppLogService _logService;
+        private readonly IAppSettingsService _appSettingsService;
 
         private Window? _primaryWindow;
         private bool _isApplyingTheme;
 
-        public AppThemeMode CurrentAppTheme { get; private set; } = AppThemeMode.System;
-        public BackdropMode CurrentBackdrop { get; private set; } = BackdropMode.Mica;
+        public AppThemeMode CurrentAppTheme { get; private set; }
+        public BackdropMode CurrentBackdrop { get; private set; }
         public event EventHandler? ThemeChanged;
 
-        public ThemeService(IAppLogService logService)
+        public ThemeService(IAppLogService logService, IAppSettingsService appSettingsService)
         {
             _logService = logService;
+            _appSettingsService = appSettingsService;
+            CurrentAppTheme = _appSettingsService.AppThemeMode;
+            CurrentBackdrop = _appSettingsService.BackdropMode;
         }
 
         public void Initialize(Window window)
@@ -95,6 +99,7 @@ namespace ClashWinUI.Services.Implementations
                 _isApplyingTheme = false;
             }
 
+            _appSettingsService.AppThemeMode = CurrentAppTheme;
             LogThemeOperation($"ApplyAppTheme applied: {mode}");
             ThemeChanged?.Invoke(this, EventArgs.Empty);
         }
@@ -122,6 +127,7 @@ namespace ClashWinUI.Services.Implementations
 
                 _primaryWindow.SystemBackdrop = new DesktopAcrylicBackdrop();
                 CurrentBackdrop = mode;
+                _appSettingsService.BackdropMode = CurrentBackdrop;
                 LogThemeOperation($"ApplyBackdrop applied: {mode}");
                 return true;
             }
@@ -136,6 +142,7 @@ namespace ClashWinUI.Services.Implementations
                 Kind = mode == BackdropMode.MicaAlt ? MicaKind.BaseAlt : MicaKind.Base,
             };
             CurrentBackdrop = mode;
+            _appSettingsService.BackdropMode = CurrentBackdrop;
             LogThemeOperation($"ApplyBackdrop applied: {mode}");
             return true;
         }

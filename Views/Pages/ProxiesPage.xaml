@@ -141,33 +141,33 @@
                 TextWrapping="WrapWholeWords" />
         </StackPanel>
 
-        <ScrollViewer
+        <Grid
             Grid.Row="2"
-            Margin="24,0,24,24"
-            HorizontalScrollBarVisibility="Disabled">
-            <ItemsControl ItemsSource="{Binding ProxyGroups}">
-                <ItemsControl.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <StackPanel Spacing="12">
-                            <StackPanel.ChildrenTransitions>
-                                <EntranceThemeTransition FromVerticalOffset="32" />
-                                <RepositionThemeTransition IsStaggeringEnabled="False" />
-                            </StackPanel.ChildrenTransitions>
-                        </StackPanel>
-                    </ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
+            Margin="24,0,24,24">
+            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                <ItemsControl ItemsSource="{Binding ProxyGroups}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <StackPanel Spacing="12">
+                                <StackPanel.ChildrenTransitions>
+                                    <EntranceThemeTransition FromVerticalOffset="32" />
+                                    <RepositionThemeTransition IsStaggeringEnabled="False" />
+                                </StackPanel.ChildrenTransitions>
+                            </StackPanel>
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
 
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="models:ProxyGroup">
-                        <controls:SettingsExpander
-                            Margin="0,0,0,8"
-                            IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
-                            <controls:SettingsExpander.Header>
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:ProxyGroup">
+                            <controls:SettingsExpander
+                                Margin="0,0,0,8"
+                                IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                                <controls:SettingsExpander.Header>
+                                    <Grid ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
 
                                     <StackPanel Spacing="6">
                                         <TextBlock
@@ -312,10 +312,27 @@
                                     </ItemsControl>
                                 </controls:SettingsCard>
                             </controls:SettingsExpander.Items>
-                        </controls:SettingsExpander>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </ScrollViewer>
+                            </controls:SettingsExpander>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+
+            <StackPanel
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                IsHitTestVisible="False"
+                Spacing="12"
+                Visibility="{Binding IsProxyGroupsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <ProgressRing
+                    Width="32"
+                    Height="32"
+                    IsActive="{Binding IsProxyGroupsLoading}" />
+                <TextBlock
+                    HorizontalAlignment="Center"
+                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                    Text="{Binding [ProxiesLoadingGroupsText], Source={StaticResource L}}" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Page>

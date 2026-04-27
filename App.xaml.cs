@@ -25,17 +25,25 @@ namespace ClashWinUI
 
         private Window? _window;
         private ITrayService? _trayService;
+        private int _startupPipelineStarted;
         private int _shutdownRequested;
         private int _skipProcessExitCleanup;
 
         public App()
         {
+            StartupTrace.Reset("App ctor");
+            StartupTrace.Write("App ctor: before InitializeComponent");
             InitializeComponent();
+            StartupTrace.Write("App ctor: after InitializeComponent");
 
+            AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
+            TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
+            StartupTrace.Write("App ctor: before host creation");
             _host = Host.CreateDefaultBuilder()
                 .ConfigureServices(static (_, services) =>
                 {
-                    services.AddSingleton(static _ => (LocalizedStrings)Application.Current.Resources["L"]);
+                    services.AddSingleton<LocalizedStrings>();
 
                     services.AddSingleton<IThemeService, ThemeService>();
                     services.AddSingleton<IAppLogService, AppLogService>();
@@ -66,11 +74,24 @@ namespace ClashWinUI
                     services.AddTransient<LogsViewModel>();
                     services.AddTransient<RulesViewModel>();
                     services.AddTransient<SettingsViewModel>();
+                    services.AddTransient<WelcomeWizardViewModel>();
                 })
                 .Build();
+            StartupTrace.Write("App ctor: host created");
+
+            StartupTrace.Write("App ctor: resolving LocalizedStrings");
+            LocalizedStrings localizedStrings = _host.Services.GetRequiredService<LocalizedStrings>();
+            StartupTrace.Write("App ctor: LocalizedStrings resolved");
+            StartupTrace.Write("App ctor: resolving AppSettingsService");
+            IAppSettingsService appSettingsService = _host.Services.GetRequiredService<IAppSettingsService>();
+            StartupTrace.Write("App ctor: AppSettingsService resolved");
+            StartupTrace.Write("App ctor: initializing localization");
+            localizedStrings.Initialize(appSettingsService);
+            StartupTrace.Write("App ctor: localization initialized");
 
             UnhandledException += OnUnhandledException;
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
+            StartupTrace.Write("App ctor: handlers attached");
         }
 
         public Window? ActiveWindow => _window;
@@ -85,26 +106,50 @@ namespace ClashWinUI
 
         protected override async void OnLaunched(LaunchActivatedEventArgs args)
         {
+            StartupTrace.Write("OnLaunched: start");
             try
             {
-                string startupConfigPath = ResolveStartupConfigPath();
-                if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
+                IAppSettingsService appSettingsService = _host.Services.GetRequiredService<IAppSettingsService>();
+                StartupTrace.Write($"OnLaunched: WelcomeCompleted={appSettingsService.WelcomeCompleted}");
+                string? startupConfigPath = null;
+
+                if (appSettingsService.WelcomeCompleted)
                 {
-                    Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
-                    Exit();
-                    return;
+                    StartupTrace.Write("OnLaunched: resolving startup config before window");
+                    startupConfigPath = ResolveStartupConfigPath();
+                    if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
+                    {
+                        Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                        Exit();
+                        return;
+                    }
                 }
 
+                StartupTrace.Write("OnLaunched: resolving MainWindow");
                 _window = _host.Services.GetRequiredService<MainWindow>();
-                _window.Activate();
+                StartupTrace.Write("OnLaunched: MainWindow resolved");
+                if (_window is MainWindow mainWindow)
+                {
+                    mainWindow.WelcomeCompleted += OnMainWindowWelcomeCompleted;
+                }
 
+                StartupTrace.Write("OnLaunched: before Activate");
+                _window.Activate();
+                StartupTrace.Write("OnLaunched: after Activate");
+
+                StartupTrace.Write("OnLaunched: before host StartAsync");
                 await _host.StartAsync();
-                _host.Services.GetRequiredService<IHomeOverviewSamplerService>().Start();
-                await InitializeStartupPipelineAsync(startupConfigPath);
-                _ = RunStartupUpdateCheckAsync();
+                StartupTrace.Write("OnLaunched: host started");
+                if (appSettingsService.WelcomeCompleted)
+                {
+                    StartupTrace.Write("OnLaunched: starting startup pipeline");
+                    await StartStartupPipelineAsync(startupConfigPath ?? ResolveStartupConfigPath());
+                    StartupTrace.Write("OnLaunched: startup pipeline completed");
+                }
             }
             catch (Exception ex)
             {
+                StartupTrace.WriteException("OnLaunched failed", ex);
                 _host.Services.GetRequiredService<IAppLogService>()
                     .Add($"OnLaunched failed: {ex}", LogLevel.Error);
             }
@@ -177,6 +222,50 @@ namespace ClashWinUI
             {
                 _shutdownSync.Release();
             }
+        }
+
+        private async void OnMainWindowWelcomeCompleted(object? sender, EventArgs e)
+        {
+            StartupTrace.Write("OnMainWindowWelcomeCompleted: start");
+            if (sender is MainWindow mainWindow)
+            {
+                mainWindow.WelcomeCompleted -= OnMainWindowWelcomeCompleted;
+            }
+
+            try
+            {
+                string startupConfigPath = ResolveStartupConfigPath();
+                if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
+                {
+                    Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                    Exit();
+                    return;
+                }
+
+                await StartStartupPipelineAsync(startupConfigPath);
+            }
+            catch (Exception ex)
+            {
+                StartupTrace.WriteException("Post-welcome startup failed", ex);
+                _host.Services.GetRequiredService<IAppLogService>()
+                    .Add($"Post-welcome startup failed: {ex}", LogLevel.Error);
+            }
+        }
+
+        private async Task StartStartupPipelineAsync(string startupConfigPath)
+        {
+            StartupTrace.Write("StartStartupPipelineAsync: requested");
+            if (Interlocked.Exchange(ref _startupPipelineStarted, 1) == 1)
+            {
+                StartupTrace.Write("StartStartupPipelineAsync: already started");
+                return;
+            }
+
+            _host.Services.GetRequiredService<IHomeOverviewSamplerService>().Start();
+            StartupTrace.Write("StartStartupPipelineAsync: sampler started");
+            await InitializeStartupPipelineAsync(startupConfigPath);
+            _ = RunStartupUpdateCheckAsync();
+            StartupTrace.Write("StartStartupPipelineAsync: update check launched");
         }
 
         private async Task InitializeStartupPipelineAsync(string startupConfigPath)
@@ -453,6 +542,7 @@ namespace ClashWinUI
 
         private async void OnUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
         {
+            StartupTrace.WriteException("XAML unhandled exception", e.Exception);
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             try
             {
@@ -484,6 +574,22 @@ namespace ClashWinUI
             {
                 e.Handled = true;
             }
+        }
+
+        private static void OnAppDomainUnhandledException(object sender, System.UnhandledExceptionEventArgs e)
+        {
+            if (e.ExceptionObject is Exception exception)
+            {
+                StartupTrace.WriteException("AppDomain unhandled exception", exception);
+                return;
+            }
+
+            StartupTrace.Write($"AppDomain unhandled exception: {e.ExceptionObject}");
+        }
+
+        private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            StartupTrace.WriteException("Unobserved task exception", e.Exception);
         }
 
         private static bool IsTrayIconException(Exception exception)

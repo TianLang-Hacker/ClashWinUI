@@ -1,3 +1,4 @@
+using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using System;
 using System.Diagnostics;
@@ -27,7 +28,12 @@ namespace ClashWinUI.Services.Implementations
             _ = EnsureKernelReadyAsync();
         }
 
-        public async Task<bool> EnsureKernelReadyAsync(CancellationToken cancellationToken = default)
+        public Task<bool> EnsureKernelReadyAsync(CancellationToken cancellationToken = default)
+        {
+            return EnsureKernelReadyAsync(progress: null, cancellationToken);
+        }
+
+        public async Task<bool> EnsureKernelReadyAsync(IProgress<DownloadProgressReport>? progress, CancellationToken cancellationToken = default)
         {
             await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -62,7 +68,7 @@ namespace ClashWinUI.Services.Implementations
                 }
 
                 _logService.Add("Kernel not found. Start download script...");
-                bool success = await RunDownloadScriptAsync(scriptPath, kernelDir, cancellationToken).ConfigureAwait(false);
+                bool success = await RunDownloadScriptAsync(scriptPath, kernelDir, progress, cancellationToken).ConfigureAwait(false);
 
                 if (success && File.Exists(kernelExecutablePath))
                 {
@@ -79,7 +85,11 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
-        private async Task<bool> RunDownloadScriptAsync(string scriptPath, string kernelDir, CancellationToken cancellationToken)
+        private async Task<bool> RunDownloadScriptAsync(
+            string scriptPath,
+            string kernelDir,
+            IProgress<DownloadProgressReport>? progress,
+            CancellationToken cancellationToken)
         {
             try
             {
@@ -104,6 +114,12 @@ namespace ClashWinUI.Services.Implementations
                 {
                     if (!string.IsNullOrWhiteSpace(e.Data))
                     {
+                        if (DownloadProgressReport.TryParseScriptLine(e.Data, out DownloadProgressReport report))
+                        {
+                            progress?.Report(report);
+                            return;
+                        }
+
                         _logService.Add(e.Data);
                     }
                 };

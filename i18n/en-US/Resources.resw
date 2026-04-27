@@ -714,6 +714,9 @@
   <data name="ProxiesTestUrlPlaceholder" xml:space="preserve">
     <value>Latency test URL</value>
   </data>
+  <data name="ProxiesLoadingGroupsText" xml:space="preserve">
+    <value>Loading proxy groups</value>
+  </data>
   <data name="ProxiesStatusNoActiveProfile" xml:space="preserve">
     <value>No active profile. Go to Profiles page first.</value>
   </data>
@@ -809,5 +812,86 @@
   </data>
   <data name="SettingsProfileLoadingStatus" xml:space="preserve">
     <value>Loading active profile diagnostics…</value>
+  </data>
+  <data name="WelcomeWizardTitle" xml:space="preserve">
+    <value>Welcome</value>
+  </data>
+  <data name="WelcomeWizardSubtitle" xml:space="preserve">
+    <value>Set up ClashWinUI before entering the app.</value>
+  </data>
+  <data name="WelcomeIntroTitle" xml:space="preserve">
+    <value>Welcome to use ClashWinUI！</value>
+  </data>
+  <data name="WelcomeThemeTitle" xml:space="preserve">
+    <value>Choose theme and language</value>
+  </data>
+  <data name="WelcomeKernelTitle" xml:space="preserve">
+    <value>Choose Mihomo kernel</value>
+  </data>
+  <data name="WelcomeKernelOnline" xml:space="preserve">
+    <value>Download Mihomo online</value>
+  </data>
+  <data name="WelcomeKernelCustom" xml:space="preserve">
+    <value>Use a custom kernel path</value>
+  </data>
+  <data name="WelcomeKernelCustomPathInvalid" xml:space="preserve">
+    <value>Please choose an existing mihomo.exe file.</value>
+  </data>
+  <data name="WelcomeImportTitle" xml:space="preserve">
+    <value>Import subscription</value>
+  </data>
+  <data name="WelcomeImportLocal" xml:space="preserve">
+    <value>Choose local config file</value>
+  </data>
+  <data name="WelcomeImportUrlLabel" xml:space="preserve">
+    <value>Get from URL</value>
+  </data>
+  <data name="WelcomeImportUrl" xml:space="preserve">
+    <value>Fetch</value>
+  </data>
+  <data name="WelcomeImportSuccess" xml:space="preserve">
+    <value>Import succeeded.</value>
+  </data>
+  <data name="WelcomeImportFailedFormat" xml:space="preserve">
+    <value>Import failed: {0}</value>
+  </data>
+  <data name="WelcomeDownloadTitle" xml:space="preserve">
+    <value>Preparing required files</value>
+  </data>
+  <data name="WelcomeDownloadKernelStatus" xml:space="preserve">
+    <value>Downloading Mihomo kernel...</value>
+  </data>
+  <data name="WelcomeDownloadGeoDataStatus" xml:space="preserve">
+    <value>Downloading GeoData files...</value>
+  </data>
+  <data name="WelcomeDownloadKernelFailed" xml:space="preserve">
+    <value>Mihomo kernel download failed. Please retry.</value>
+  </data>
+  <data name="WelcomeDownloadGeoDataFailedFormat" xml:space="preserve">
+    <value>GeoData download failed: {0}</value>
+  </data>
+  <data name="WelcomeDownloadFailedFormat" xml:space="preserve">
+    <value>Download failed: {0}</value>
+  </data>
+  <data name="WelcomeDownloadCompleted" xml:space="preserve">
+    <value>Required files are ready.</value>
+  </data>
+  <data name="WelcomeCompleteTitle" xml:space="preserve">
+    <value>Your setup is complete. Welcome.</value>
+  </data>
+  <data name="WelcomeRetryButton" xml:space="preserve">
+    <value>Retry</value>
+  </data>
+  <data name="WelcomeBackButton" xml:space="preserve">
+    <value>Previous</value>
+  </data>
+  <data name="WelcomeNextButton" xml:space="preserve">
+    <value>Next</value>
+  </data>
+  <data name="WelcomeSkipButton" xml:space="preserve">
+    <value>Skip</value>
+  </data>
+  <data name="WelcomeFinishButton" xml:space="preserve">
+    <value>Finish</value>
   </data>
 </root>

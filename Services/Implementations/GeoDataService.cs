@@ -29,9 +29,16 @@ namespace ClashWinUI.Services.Implementations
             _logService = logService;
         }
 
+        public string GeoDataDirectory => GetGeoDataDirectory();
+
         public GeoDataOperationResult LastResult { get; private set; } = GeoDataOperationResult.None;
 
-        public async Task<GeoDataOperationResult> EnsureGeoDataReadyAsync(CancellationToken cancellationToken = default)
+        public Task<GeoDataOperationResult> EnsureGeoDataReadyAsync(CancellationToken cancellationToken = default)
+        {
+            return EnsureGeoDataReadyAsync(progress: null, cancellationToken);
+        }
+
+        public async Task<GeoDataOperationResult> EnsureGeoDataReadyAsync(IProgress<DownloadProgressReport>? progress, CancellationToken cancellationToken = default)
         {
             await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -55,7 +62,7 @@ namespace ClashWinUI.Services.Implementations
                 }
 
                 _logService.Add($"GeoData missing or empty. Start ensure download: {BuildAssetsSummary(existingAssets)}", LogLevel.Warning);
-                return await DownloadGeoDataInternalAsync(forceRefresh: false, cancellationToken).ConfigureAwait(false);
+                return await DownloadGeoDataInternalAsync(forceRefresh: false, progress, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -63,13 +70,18 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
-        public async Task<GeoDataOperationResult> UpdateGeoDataAsync(CancellationToken cancellationToken = default)
+        public Task<GeoDataOperationResult> UpdateGeoDataAsync(CancellationToken cancellationToken = default)
+        {
+            return UpdateGeoDataAsync(progress: null, cancellationToken);
+        }
+
+        public async Task<GeoDataOperationResult> UpdateGeoDataAsync(IProgress<DownloadProgressReport>? progress, CancellationToken cancellationToken = default)
         {
             await _sync.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 _logService.Add("Start GeoData force refresh.", LogLevel.Info);
-                return await DownloadGeoDataInternalAsync(forceRefresh: true, cancellationToken).ConfigureAwait(false);
+                return await DownloadGeoDataInternalAsync(forceRefresh: true, progress, cancellationToken).ConfigureAwait(false);
             }
             finally
             {
@@ -77,10 +89,13 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
-        private async Task<GeoDataOperationResult> DownloadGeoDataInternalAsync(bool forceRefresh, CancellationToken cancellationToken)
+        private async Task<GeoDataOperationResult> DownloadGeoDataInternalAsync(
+            bool forceRefresh,
+            IProgress<DownloadProgressReport>? progress,
+            CancellationToken cancellationToken)
         {
             string scriptPath = Path.Combine(AppContext.BaseDirectory, "Build", "DownloadGeoData.ps1");
-            string geoDataDirectory = GetGeoDataDirectory();
+            string geoDataDirectory = GeoDataDirectory;
 
             if (!File.Exists(scriptPath))
             {
@@ -125,6 +140,12 @@ namespace ClashWinUI.Services.Implementations
 
                     if (!string.IsNullOrWhiteSpace(e.Data))
                     {
+                        if (DownloadProgressReport.TryParseScriptLine(e.Data, out DownloadProgressReport report))
+                        {
+                            progress?.Report(report);
+                            return;
+                        }
+
                         _logService.Add(e.Data);
                     }
                 };
@@ -283,8 +304,9 @@ namespace ClashWinUI.Services.Implementations
 
         private IReadOnlyList<GeoDataAssetStatus> InspectAssets()
         {
-            string geoDataDirectory = GetGeoDataDirectory();
+            string geoDataDirectory = GeoDataDirectory;
             Directory.CreateDirectory(geoDataDirectory);
+            TryCopyLegacyGeoDataAssets(geoDataDirectory);
 
             return AssetNames
                 .Select(assetName =>
@@ -311,7 +333,57 @@ namespace ClashWinUI.Services.Implementations
                 .ToList();
         }
 
+        private void TryCopyLegacyGeoDataAssets(string geoDataDirectory)
+        {
+            string legacyGeoDataDirectory = GetLegacyGeoDataDirectory();
+            if (string.Equals(
+                Path.GetFullPath(legacyGeoDataDirectory),
+                Path.GetFullPath(geoDataDirectory),
+                StringComparison.OrdinalIgnoreCase)
+                || !Directory.Exists(legacyGeoDataDirectory))
+            {
+                return;
+            }
+
+            foreach (string assetName in AssetNames)
+            {
+                try
+                {
+                    string sourcePath = Path.Combine(legacyGeoDataDirectory, assetName);
+                    string targetPath = Path.Combine(geoDataDirectory, assetName);
+                    if (File.Exists(targetPath) && new FileInfo(targetPath).Length > 0)
+                    {
+                        continue;
+                    }
+
+                    if (!File.Exists(sourcePath))
+                    {
+                        continue;
+                    }
+
+                    var sourceInfo = new FileInfo(sourcePath);
+                    if (sourceInfo.Length <= 0)
+                    {
+                        continue;
+                    }
+
+                    File.Copy(sourcePath, targetPath, overwrite: false);
+                    _logService.Add($"Copied legacy GeoData asset to new directory: {assetName} -> {targetPath}", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    _logService.Add($"Copy legacy GeoData asset failed: {assetName}, {ex.Message}", LogLevel.Warning);
+                }
+            }
+        }
+
         private static string GetGeoDataDirectory()
+        {
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return Path.Combine(userProfile, "ClashWinUI", "Geodata");
+        }
+
+        private static string GetLegacyGeoDataDirectory()
         {
             string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             return Path.Combine(userProfile, ".config", "mihomo");

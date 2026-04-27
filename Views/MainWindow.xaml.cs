@@ -30,9 +30,11 @@ namespace ClashWinUI.Views
         private readonly IAppSettingsService _appSettingsService;
         private readonly ITrayService _trayService;
         private readonly IHomeOverviewSamplerService _homeOverviewSamplerService;
+        private readonly WelcomeWizardViewModel _welcomeWizardViewModel;
         private readonly WndProcDelegate _windowProcDelegate;
 
         private MainShellControl? _shellControl;
+        private bool _isWelcomeVisible;
         private bool _isHiddenToTray;
         private bool _isShellFrozen;
         private bool _isShellTransitioning;
@@ -50,7 +52,8 @@ namespace ClashWinUI.Views
             IThemeService themeService,
             IAppSettingsService appSettingsService,
             ITrayService trayService,
-            IHomeOverviewSamplerService homeOverviewSamplerService)
+            IHomeOverviewSamplerService homeOverviewSamplerService,
+            WelcomeWizardViewModel welcomeWizardViewModel)
         {
             _viewModel = viewModel;
             _navigationService = navigationService;
@@ -58,23 +61,42 @@ namespace ClashWinUI.Views
             _appSettingsService = appSettingsService;
             _trayService = trayService;
             _homeOverviewSamplerService = homeOverviewSamplerService;
+            _welcomeWizardViewModel = welcomeWizardViewModel;
             _windowProcDelegate = WindowProc;
 
+            StartupTrace.Write("MainWindow ctor: before InitializeComponent");
             InitializeComponent();
+            StartupTrace.Write("MainWindow ctor: after InitializeComponent");
 
             ExtendsContentIntoTitleBar = true;
+            StartupTrace.Write("MainWindow ctor: ExtendsContentIntoTitleBar set");
             AppWindow.TitleBar.PreferredHeightOption = TitleBarHeightOption.Tall;
+            StartupTrace.Write("MainWindow ctor: title bar height set");
 
             InitializeMinimumWindowSize();
+            StartupTrace.Write("MainWindow ctor: minimum window size initialized");
             AppWindow.Changed += OnAppWindowChanged;
             AppWindow.Closing += OnAppWindowClosing;
             Closed += OnWindowClosed;
             PortSettingsWindow.OpenWindowsChanged += OnPortSettingsWindowsChanged;
+            StartupTrace.Write("MainWindow ctor: window event handlers attached");
 
             _themeService.Initialize(this);
-            CreateShell(resetNavigation: true);
+            StartupTrace.Write("MainWindow ctor: theme initialized");
+            if (_appSettingsService.WelcomeCompleted)
+            {
+                CreateShell(resetNavigation: true);
+            }
+            else
+            {
+                ShowWelcomeWizard();
+            }
+
             SyncMinimizedState();
+            StartupTrace.Write("MainWindow ctor: minimized state synced");
         }
+
+        public event EventHandler? WelcomeCompleted;
 
         public async Task RestoreFromBackgroundAsync()
         {
@@ -91,16 +113,46 @@ namespace ClashWinUI.Views
 
         private void CreateShell(bool resetNavigation)
         {
+            StartupTrace.Write($"MainWindow.CreateShell: start resetNavigation={resetNavigation}");
+            _welcomeWizardViewModel.Completed -= OnWelcomeWizardCompleted;
+            _isWelcomeVisible = false;
             _shellControl?.Dispose();
             _shellControl = new MainShellControl(_viewModel, _navigationService);
             ShellHost.Content = _shellControl;
             _shellControl.InitializeNavigation(resetNavigation);
             _isShellFrozen = false;
+            StartupTrace.Write("MainWindow.CreateShell: completed");
+        }
+
+        private void ShowWelcomeWizard()
+        {
+            StartupTrace.Write("MainWindow.ShowWelcomeWizard: start");
+            _shellControl?.Dispose();
+            _shellControl = null;
+            _isShellFrozen = false;
+            _isWelcomeVisible = true;
+            _welcomeWizardViewModel.Completed -= OnWelcomeWizardCompleted;
+            _welcomeWizardViewModel.Completed += OnWelcomeWizardCompleted;
+            ShellHost.Content = new WelcomeWizardControl(_welcomeWizardViewModel);
+            StartupTrace.Write("MainWindow.ShowWelcomeWizard: completed");
+        }
+
+        private void OnWelcomeWizardCompleted(object? sender, EventArgs e)
+        {
+            StartupTrace.Write("MainWindow.OnWelcomeWizardCompleted: start");
+            _welcomeWizardViewModel.Completed -= OnWelcomeWizardCompleted;
+            CreateShell(resetNavigation: true);
+            WelcomeCompleted?.Invoke(this, EventArgs.Empty);
         }
 
         private async Task FreezeShellAsync()
         {
             if (_isShellFrozen || _isShellTransitioning)
+            {
+                return;
+            }
+
+            if (_isWelcomeVisible)
             {
                 return;
             }
@@ -143,6 +195,11 @@ namespace ClashWinUI.Views
         private async Task ThawShellAsync()
         {
             if (!_isShellFrozen || _isShellTransitioning)
+            {
+                return;
+            }
+
+            if (_isWelcomeVisible)
             {
                 return;
             }
@@ -315,6 +372,7 @@ namespace ClashWinUI.Views
             Closed -= OnWindowClosed;
             PortSettingsWindow.OpenWindowsChanged -= OnPortSettingsWindowsChanged;
             _themeService.UnregisterWindow(this);
+            _welcomeWizardViewModel.Completed -= OnWelcomeWizardCompleted;
 
             _shellControl?.Dispose();
             _shellControl = null;

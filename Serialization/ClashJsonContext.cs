@@ -1,4 +1,5 @@
 using ClashWinUI.Models;
+using ClashWinUI.Services.Interfaces;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
@@ -6,6 +7,14 @@ namespace ClashWinUI.Serialization
 {
     internal sealed class AppSettingsState
     {
+        public bool WelcomeCompleted { get; set; } = false;
+
+        public string LanguageTag { get; set; } = string.Empty;
+
+        public AppThemeMode AppThemeMode { get; set; } = AppThemeMode.System;
+
+        public BackdropMode BackdropMode { get; set; } = BackdropMode.Mica;
+
         public CloseBehavior CloseBehavior { get; set; } = CloseBehavior.MinimizeToTray;
 
         public bool ProxyGroupsExpandedByDefault { get; set; } = false;

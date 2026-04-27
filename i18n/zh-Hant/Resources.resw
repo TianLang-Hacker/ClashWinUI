@@ -714,6 +714,9 @@
   <data name="ProxiesTestUrlPlaceholder" xml:space="preserve">
     <value>測速 URL</value>
   </data>
+  <data name="ProxiesLoadingGroupsText" xml:space="preserve">
+    <value>正在載入代理組</value>
+  </data>
   <data name="ProxiesStatusNoActiveProfile" xml:space="preserve">
     <value>目前沒有啟用中的設定，請先到訂閱頁面設定。</value>
   </data>
@@ -809,5 +812,86 @@
   </data>
   <data name="SettingsProfileLoadingStatus" xml:space="preserve">
     <value>正在載入目前設定診斷資訊…</value>
+  </data>
+  <data name="WelcomeWizardTitle" xml:space="preserve">
+    <value>歡迎</value>
+  </data>
+  <data name="WelcomeWizardSubtitle" xml:space="preserve">
+    <value>進入 ClashWinUI 前完成基礎設定。</value>
+  </data>
+  <data name="WelcomeIntroTitle" xml:space="preserve">
+    <value>歡迎使用 ClashWinUI！</value>
+  </data>
+  <data name="WelcomeThemeTitle" xml:space="preserve">
+    <value>選擇主題與語言</value>
+  </data>
+  <data name="WelcomeKernelTitle" xml:space="preserve">
+    <value>選擇 Mihomo 核心</value>
+  </data>
+  <data name="WelcomeKernelOnline" xml:space="preserve">
+    <value>線上下載 Mihomo</value>
+  </data>
+  <data name="WelcomeKernelCustom" xml:space="preserve">
+    <value>使用自訂核心路徑</value>
+  </data>
+  <data name="WelcomeKernelCustomPathInvalid" xml:space="preserve">
+    <value>請選擇已存在的 mihomo.exe 檔案。</value>
+  </data>
+  <data name="WelcomeImportTitle" xml:space="preserve">
+    <value>匯入訂閱</value>
+  </data>
+  <data name="WelcomeImportLocal" xml:space="preserve">
+    <value>選擇本機設定檔</value>
+  </data>
+  <data name="WelcomeImportUrlLabel" xml:space="preserve">
+    <value>從 URL 取得</value>
+  </data>
+  <data name="WelcomeImportUrl" xml:space="preserve">
+    <value>取得</value>
+  </data>
+  <data name="WelcomeImportSuccess" xml:space="preserve">
+    <value>匯入成功。</value>
+  </data>
+  <data name="WelcomeImportFailedFormat" xml:space="preserve">
+    <value>匯入失敗：{0}</value>
+  </data>
+  <data name="WelcomeDownloadTitle" xml:space="preserve">
+    <value>準備必要檔案</value>
+  </data>
+  <data name="WelcomeDownloadKernelStatus" xml:space="preserve">
+    <value>正在下載 Mihomo 核心...</value>
+  </data>
+  <data name="WelcomeDownloadGeoDataStatus" xml:space="preserve">
+    <value>正在下載 GeoData 檔案...</value>
+  </data>
+  <data name="WelcomeDownloadKernelFailed" xml:space="preserve">
+    <value>Mihomo 核心下載失敗，請重試。</value>
+  </data>
+  <data name="WelcomeDownloadGeoDataFailedFormat" xml:space="preserve">
+    <value>GeoData 下載失敗：{0}</value>
+  </data>
+  <data name="WelcomeDownloadFailedFormat" xml:space="preserve">
+    <value>下載失敗：{0}</value>
+  </data>
+  <data name="WelcomeDownloadCompleted" xml:space="preserve">
+    <value>必要檔案已準備完成。</value>
+  </data>
+  <data name="WelcomeCompleteTitle" xml:space="preserve">
+    <value>您的設定已完成，歡迎使用。</value>
+  </data>
+  <data name="WelcomeRetryButton" xml:space="preserve">
+    <value>重試</value>
+  </data>
+  <data name="WelcomeBackButton" xml:space="preserve">
+    <value>上一頁</value>
+  </data>
+  <data name="WelcomeNextButton" xml:space="preserve">
+    <value>下一頁</value>
+  </data>
+  <data name="WelcomeSkipButton" xml:space="preserve">
+    <value>跳過</value>
+  </data>
+  <data name="WelcomeFinishButton" xml:space="preserve">
+    <value>完成</value>
   </data>
 </root>
