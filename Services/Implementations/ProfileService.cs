@@ -474,7 +474,7 @@ namespace ClashWinUI.Services.Implementations
                 return bestContent;
             }
 
-            throw new InvalidOperationException("All subscription download attempts failed.");
+            throw new SubscriptionDownloadFailedException("All subscription download attempts failed.");
         }
 
         private bool TryRefreshSubscriptionSource(ProfileItem profile)

@@ -1,5 +1,6 @@
 using ClashWinUI.Helpers;
 using ClashWinUI.ViewModels;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
@@ -18,6 +19,7 @@ namespace ClashWinUI.Views.Pages
     public sealed partial class LogsPage : Page, IShellFreezablePage
     {
         private LogsViewModel? _viewModel;
+        private bool _isScrollQueued;
 
         public LogsPage()
         {
@@ -42,7 +44,7 @@ namespace ClashWinUI.Views.Pages
 
         private void CopyLogsButton_Click(object sender, RoutedEventArgs e)
         {
-            string logsText = _viewModel?.LogsText ?? string.Empty;
+            string logsText = _viewModel?.GetLogsText() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(logsText))
             {
                 return;
@@ -56,7 +58,7 @@ namespace ClashWinUI.Views.Pages
 
         private async void SaveLogsButton_Click(object sender, RoutedEventArgs e)
         {
-            string logsText = _viewModel?.LogsText ?? string.Empty;
+            string logsText = _viewModel?.GetLogsText() ?? string.Empty;
             if (string.IsNullOrWhiteSpace(logsText))
             {
                 return;
@@ -97,7 +99,7 @@ namespace ClashWinUI.Views.Pages
             DataContext = viewModel;
             _viewModel.FilteredLogEntries.CollectionChanged += OnFilteredLogEntriesCollectionChanged;
             _viewModel.PropertyChanged += OnViewModelPropertyChanged;
-            ScrollToBottomIfNeeded();
+            QueueScrollToBottomIfNeeded();
         }
 
         private void DetachViewModel()
@@ -113,6 +115,7 @@ namespace ClashWinUI.Views.Pages
             LogsViewModel viewModel = _viewModel;
             _viewModel.FilteredLogEntries.CollectionChanged -= OnFilteredLogEntriesCollectionChanged;
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            _isScrollQueued = false;
             _viewModel = null;
             DataContext = null;
             viewModel.Dispose();
@@ -140,7 +143,7 @@ namespace ClashWinUI.Views.Pages
         {
             if (e.Action is NotifyCollectionChangedAction.Add or NotifyCollectionChangedAction.Reset)
             {
-                ScrollToBottomIfNeeded();
+                QueueScrollToBottomIfNeeded();
             }
         }
 
@@ -148,7 +151,28 @@ namespace ClashWinUI.Views.Pages
         {
             if (e.PropertyName == nameof(LogsViewModel.IsAutoScrollEnabled) && _viewModel?.IsAutoScrollEnabled == true)
             {
+                QueueScrollToBottomIfNeeded();
+            }
+        }
+
+        private void QueueScrollToBottomIfNeeded()
+        {
+            if (_isScrollQueued
+                || _viewModel is null
+                || !_viewModel.IsAutoScrollEnabled
+                || _viewModel.FilteredLogEntries.Count == 0)
+            {
+                return;
+            }
+
+            _isScrollQueued = true;
+            if (!DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+            {
+                _isScrollQueued = false;
                 ScrollToBottomIfNeeded();
+            }))
+            {
+                _isScrollQueued = false;
             }
         }
 

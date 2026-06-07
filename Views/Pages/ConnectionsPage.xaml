@@ -232,8 +232,8 @@
                     Grid.Row="1"
                     HorizontalScrollMode="Enabled"
                     HorizontalScrollBarVisibility="Auto"
-                    VerticalScrollMode="Enabled"
-                    VerticalScrollBarVisibility="Auto"
+                    VerticalScrollMode="Disabled"
+                    VerticalScrollBarVisibility="Disabled"
                     ViewChanged="BodyScrollViewer_ViewChanged">
                     <ListView
                         x:Name="ConnectionsListView"
@@ -242,16 +242,22 @@
                         IsItemClickEnabled="False"
                         BorderThickness="0"
                         Background="Transparent"
+                        ShowsScrollingPlaceholders="True"
                         ScrollViewer.HorizontalScrollMode="Disabled"
                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                        ScrollViewer.VerticalScrollMode="Disabled"
-                        ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                        ScrollViewer.VerticalScrollMode="Enabled"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListView.ItemContainerTransitions>
                             <TransitionCollection />
                         </ListView.ItemContainerTransitions>
                         <ListView.ItemContainerStyle>
                             <StaticResource ResourceKey="ConnectionsListViewItemStyle" />
                         </ListView.ItemContainerStyle>
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel Orientation="Vertical" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
 
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="models:ConnectionEntry">

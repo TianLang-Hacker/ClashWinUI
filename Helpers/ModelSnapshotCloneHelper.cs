@@ -19,7 +19,6 @@ namespace ClashWinUI.Helpers
                 Type = source.Type,
                 ControllerName = source.ControllerName,
                 CurrentProxyName = source.CurrentProxyName,
-                IsExpanded = source.IsExpanded,
             };
 
             foreach (ProxyGroupMember member in source.Members)
@@ -42,6 +41,7 @@ namespace ClashWinUI.Helpers
                 });
             }
 
+            clone.IsExpanded = source.IsExpanded;
             return clone;
         }
 

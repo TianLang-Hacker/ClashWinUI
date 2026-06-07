@@ -498,10 +498,17 @@ namespace ClashWinUI.ViewModels
 
         private void RefreshChartAxes(double trafficAxisMax, double memoryAxisMax)
         {
-            SetAxisRange(_trafficYAxis, trafficAxisMax);
-            SetAxisRange(_memoryYAxis, memoryAxisMax);
-            OnPropertyChanged(nameof(TrafficYAxes));
-            OnPropertyChanged(nameof(MemoryYAxes));
+            bool trafficAxisChanged = SetAxisRange(_trafficYAxis, trafficAxisMax);
+            bool memoryAxisChanged = SetAxisRange(_memoryYAxis, memoryAxisMax);
+            if (trafficAxisChanged)
+            {
+                OnPropertyChanged(nameof(TrafficYAxes));
+            }
+
+            if (memoryAxisChanged)
+            {
+                OnPropertyChanged(nameof(MemoryYAxes));
+            }
         }
 
         private static ObservableCollection<double> CreateInitialChartValues()
@@ -519,6 +526,18 @@ namespace ClashWinUI.ViewModels
                     target.Add(value);
                 }
 
+                return;
+            }
+
+            if (ValuesEqual(target, source))
+            {
+                return;
+            }
+
+            if (CanShiftAppend(target, source))
+            {
+                target.RemoveAt(0);
+                target.Add(source[^1]);
                 return;
             }
 
@@ -646,12 +665,55 @@ namespace ClashWinUI.ViewModels
             axis.ShowSeparatorLines = true;
         }
 
-        private static void SetAxisRange(Axis axis, double axisMax)
+        private static bool SetAxisRange(Axis axis, double axisMax)
         {
+            double minStep = Math.Max(axisMax / 2d, 1);
+            bool changed = !NullableDoubleEquals(axis.MinLimit, 0)
+                || !NullableDoubleEquals(axis.MaxLimit, axisMax)
+                || !NullableDoubleEquals(axis.MinStep, minStep)
+                || !axis.ForceStepToMin;
+
             axis.MinLimit = 0;
             axis.MaxLimit = axisMax;
-            axis.MinStep = Math.Max(axisMax / 2d, 1);
+            axis.MinStep = minStep;
             axis.ForceStepToMin = true;
+            return changed;
+        }
+
+        private static bool ValuesEqual(IReadOnlyList<double> target, IReadOnlyList<double> source)
+        {
+            for (int i = 0; i < source.Count; i++)
+            {
+                if (Math.Abs(target[i] - source[i]) > double.Epsilon)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool CanShiftAppend(IReadOnlyList<double> target, IReadOnlyList<double> source)
+        {
+            if (source.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < source.Count - 1; i++)
+            {
+                if (Math.Abs(target[i + 1] - source[i]) > double.Epsilon)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool NullableDoubleEquals(double? left, double right)
+        {
+            return left.HasValue && Math.Abs(left.Value - right) <= double.Epsilon;
         }
 
         private static string FormatSpeedAxisValue(double value)

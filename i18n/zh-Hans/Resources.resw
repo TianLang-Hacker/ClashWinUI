@@ -708,6 +708,9 @@
   <data name="ProxiesTestNodeButton" xml:space="preserve">
     <value>测速节点</value>
   </data>
+  <data name="ProxiesShowMoreMembersButton" xml:space="preserve">
+    <value>显示更多</value>
+  </data>
   <data name="ProxiesCurrentProxyLabel" xml:space="preserve">
     <value>当前节点</value>
   </data>

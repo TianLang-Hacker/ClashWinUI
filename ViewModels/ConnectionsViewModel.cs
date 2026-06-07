@@ -17,12 +17,14 @@ namespace ClashWinUI.ViewModels
     public partial class ConnectionsViewModel : ObservableObject, IDisposable
     {
         private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan SearchDebounceDelay = TimeSpan.FromMilliseconds(200);
 
         private readonly LocalizedStrings _localizedStrings;
         private readonly IMihomoService _mihomoService;
         private readonly DispatcherQueue? _dispatcherQueue;
         private readonly List<ConnectionEntry> _allConnections = new();
         private DispatcherQueueTimer? _refreshTimer;
+        private DispatcherQueueTimer? _filterDebounceTimer;
         private int _refreshingFlag;
         private bool _isDisposed;
 
@@ -96,6 +98,7 @@ namespace ClashWinUI.ViewModels
 
             _isDisposed = true;
             StopAutoRefresh();
+            StopFilterDebounce();
             _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
             _allConnections.Clear();
             Connections.Clear();
@@ -134,7 +137,7 @@ namespace ClashWinUI.ViewModels
 
         partial void OnSearchKeywordChanged(string value)
         {
-            ApplyFilters();
+            QueueFilterRefresh();
         }
 
         private void OnRefreshTimerTick(DispatcherQueueTimer sender, object args)
@@ -220,11 +223,122 @@ namespace ClashWinUI.ViewModels
                 });
             }
 
-            Connections.Clear();
-            foreach (ConnectionEntry connection in filtered)
+            SynchronizeConnections(filtered.ToList());
+        }
+
+        private void QueueFilterRefresh()
+        {
+            if (_isDisposed)
             {
-                Connections.Add(connection);
+                return;
             }
+
+            if (_dispatcherQueue is null)
+            {
+                ApplyFilters();
+                return;
+            }
+
+            _filterDebounceTimer ??= CreateFilterDebounceTimer();
+            _filterDebounceTimer.Stop();
+            _filterDebounceTimer.Start();
+        }
+
+        private DispatcherQueueTimer CreateFilterDebounceTimer()
+        {
+            DispatcherQueueTimer timer = _dispatcherQueue!.CreateTimer();
+            timer.Interval = SearchDebounceDelay;
+            timer.IsRepeating = false;
+            timer.Tick += OnFilterDebounceTimerTick;
+            return timer;
+        }
+
+        private void OnFilterDebounceTimerTick(DispatcherQueueTimer sender, object args)
+        {
+            sender.Stop();
+            ApplyFilters();
+        }
+
+        private void StopFilterDebounce()
+        {
+            if (_filterDebounceTimer is null)
+            {
+                return;
+            }
+
+            _filterDebounceTimer.Stop();
+            _filterDebounceTimer.Tick -= OnFilterDebounceTimerTick;
+            _filterDebounceTimer = null;
+        }
+
+        private void SynchronizeConnections(IReadOnlyList<ConnectionEntry> desired)
+        {
+            for (int desiredIndex = 0; desiredIndex < desired.Count; desiredIndex++)
+            {
+                ConnectionEntry desiredConnection = desired[desiredIndex];
+                if (desiredIndex >= Connections.Count)
+                {
+                    Connections.Add(desiredConnection);
+                    continue;
+                }
+
+                ConnectionEntry currentConnection = Connections[desiredIndex];
+                if (string.Equals(currentConnection.Id, desiredConnection.Id, StringComparison.Ordinal))
+                {
+                    if (!ConnectionEquals(currentConnection, desiredConnection))
+                    {
+                        Connections[desiredIndex] = desiredConnection;
+                    }
+
+                    continue;
+                }
+
+                int existingIndex = IndexOfConnection(desiredConnection.Id, desiredIndex + 1);
+                if (existingIndex >= 0)
+                {
+                    Connections.Move(existingIndex, desiredIndex);
+                    if (!ConnectionEquals(Connections[desiredIndex], desiredConnection))
+                    {
+                        Connections[desiredIndex] = desiredConnection;
+                    }
+
+                    continue;
+                }
+
+                Connections.Insert(desiredIndex, desiredConnection);
+            }
+
+            while (Connections.Count > desired.Count)
+            {
+                Connections.RemoveAt(Connections.Count - 1);
+            }
+        }
+
+        private int IndexOfConnection(string id, int startIndex)
+        {
+            for (int i = startIndex; i < Connections.Count; i++)
+            {
+                if (string.Equals(Connections[i].Id, id, StringComparison.Ordinal))
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static bool ConnectionEquals(ConnectionEntry left, ConnectionEntry right)
+        {
+            return string.Equals(left.Id, right.Id, StringComparison.Ordinal)
+                && string.Equals(left.HostDisplay, right.HostDisplay, StringComparison.Ordinal)
+                && string.Equals(left.TypeDisplay, right.TypeDisplay, StringComparison.Ordinal)
+                && string.Equals(left.RuleDisplay, right.RuleDisplay, StringComparison.Ordinal)
+                && string.Equals(left.ChainDisplay, right.ChainDisplay, StringComparison.Ordinal)
+                && left.DownloadSpeed == right.DownloadSpeed
+                && left.UploadSpeed == right.UploadSpeed
+                && left.Download == right.Download
+                && left.Upload == right.Upload
+                && left.StartedAt == right.StartedAt;
         }
     }
 }

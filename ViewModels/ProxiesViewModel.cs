@@ -331,6 +331,17 @@ namespace ClashWinUI.ViewModels
             }
         }
 
+        [RelayCommand]
+        private void ShowMoreMembers(ProxyGroup? group)
+        {
+            if (group is null)
+            {
+                return;
+            }
+
+            group.ShowMoreMembers();
+        }
+
         private void ApplyImmediateSnapshot()
         {
             ActiveProfile = _profileService.GetActiveProfile();

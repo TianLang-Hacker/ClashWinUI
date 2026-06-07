@@ -31,13 +31,13 @@ namespace ClashWinUI.ViewModels
         private readonly IThemeService _themeService;
         private readonly DispatcherQueue _dispatcherQueue;
         private readonly List<LogEntry> _allEntries = new();
+        private readonly Queue<LogEntry> _pendingEntries = new();
+        private readonly object _pendingEntriesGate = new();
+        private bool _isAppendQueued;
         private bool _isDisposed;
 
         [ObservableProperty]
         public partial string Title { get; set; }
-
-        [ObservableProperty]
-        public partial string LogsText { get; set; }
 
         [ObservableProperty]
         public partial string SelectedLevelFilterTag { get; set; }
@@ -62,7 +62,6 @@ namespace ClashWinUI.ViewModels
             _themeService.ThemeChanged += OnThemeChanged;
 
             Title = _localizedStrings["PageLogs"];
-            LogsText = string.Empty;
             SelectedLevelFilterTag = LevelAllTag;
             SearchKeyword = string.Empty;
             IsAutoScrollEnabled = true;
@@ -91,8 +90,18 @@ namespace ClashWinUI.ViewModels
             _logService.LogAdded -= OnLogAdded;
             _themeService.ThemeChanged -= OnThemeChanged;
             _allEntries.Clear();
+            lock (_pendingEntriesGate)
+            {
+                _pendingEntries.Clear();
+                _isAppendQueued = false;
+            }
+
             FilteredLogEntries.Clear();
-            LogsText = string.Empty;
+        }
+
+        public string GetLogsText()
+        {
+            return string.Join(Environment.NewLine, _allEntries.ConvertAll(FormatEntry));
         }
 
         partial void OnSelectedLevelFilterTagChanged(string value)
@@ -112,13 +121,53 @@ namespace ClashWinUI.ViewModels
                 return;
             }
 
-            if (_dispatcherQueue.HasThreadAccess)
+            bool shouldQueue;
+            lock (_pendingEntriesGate)
             {
-                AppendEntry(entry);
+                _pendingEntries.Enqueue(entry);
+                shouldQueue = !_isAppendQueued;
+                _isAppendQueued = true;
+            }
+
+            if (!shouldQueue)
+            {
                 return;
             }
 
-            _dispatcherQueue.TryEnqueue(() => AppendEntry(entry));
+            if (_dispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, AppendPendingEntries))
+            {
+                return;
+            }
+
+            if (_dispatcherQueue.HasThreadAccess)
+            {
+                AppendPendingEntries();
+                return;
+            }
+
+            lock (_pendingEntriesGate)
+            {
+                _isAppendQueued = false;
+            }
+        }
+
+        private void AppendPendingEntries()
+        {
+            var pendingEntries = new List<LogEntry>();
+            lock (_pendingEntriesGate)
+            {
+                while (_pendingEntries.Count > 0)
+                {
+                    pendingEntries.Add(_pendingEntries.Dequeue());
+                }
+
+                _isAppendQueued = false;
+            }
+
+            foreach (LogEntry entry in pendingEntries)
+            {
+                AppendEntry(entry);
+            }
         }
 
         private void AppendEntry(LogEntry entry)
@@ -136,16 +185,10 @@ namespace ClashWinUI.ViewModels
                 RemoveFirstFilteredEntry(removedEntry);
             }
 
-            RefreshLogsText();
             if (MatchesCurrentFilters(entry))
             {
                 FilteredLogEntries.Add(new LogsListItem(entry.Level, FormatEntry(entry), CreateForegroundBrush(entry.Level)));
             }
-        }
-
-        private void RefreshLogsText()
-        {
-            LogsText = string.Join(Environment.NewLine, _allEntries.ConvertAll(FormatEntry));
         }
 
         private void ReloadEntries()
@@ -156,7 +199,6 @@ namespace ClashWinUI.ViewModels
                 _allEntries.Add(entry);
             }
 
-            RefreshLogsText();
             ApplyFilters();
         }
 
@@ -193,7 +235,6 @@ namespace ClashWinUI.ViewModels
             _logService.Clear();
             _allEntries.Clear();
             FilteredLogEntries.Clear();
-            LogsText = string.Empty;
         }
 
         private bool MatchesCurrentFilters(LogEntry entry)

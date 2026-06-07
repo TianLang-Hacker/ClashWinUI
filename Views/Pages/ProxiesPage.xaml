@@ -25,6 +25,16 @@
         <x:Double x:Key="ProxyCardPanelHeight">196</x:Double>
 
         <Style
+            x:Key="ProxyGroupListViewItemStyle"
+            TargetType="ListViewItem">
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+            <Setter Property="Transitions" Value="{x:Null}" />
+        </Style>
+
+        <Style
             x:Key="ProxyTagButtonStyle"
             TargetType="Button">
             <Setter Property="Padding" Value="12,4" />
@@ -144,30 +154,39 @@
         <Grid
             Grid.Row="2"
             Margin="24,0,24,24">
-            <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl ItemsSource="{Binding ProxyGroups}">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <StackPanel Spacing="12">
-                                <StackPanel.ChildrenTransitions>
-                                    <EntranceThemeTransition FromVerticalOffset="32" />
-                                    <RepositionThemeTransition IsStaggeringEnabled="False" />
-                                </StackPanel.ChildrenTransitions>
-                            </StackPanel>
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
+            <ListView
+                x:Name="ProxyGroupsListView"
+                ItemsSource="{Binding ProxyGroups}"
+                SelectionMode="None"
+                IsItemClickEnabled="False"
+                BorderThickness="0"
+                Background="Transparent"
+                ShowsScrollingPlaceholders="True"
+                ScrollViewer.HorizontalScrollMode="Disabled"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListView.ItemContainerTransitions>
+                    <TransitionCollection />
+                </ListView.ItemContainerTransitions>
+                <ListView.ItemContainerStyle>
+                    <StaticResource ResourceKey="ProxyGroupListViewItemStyle" />
+                </ListView.ItemContainerStyle>
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsStackPanel Orientation="Vertical" />
+                    </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
 
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="models:ProxyGroup">
-                            <controls:SettingsExpander
-                                Margin="0,0,0,8"
-                                IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
-                                <controls:SettingsExpander.Header>
-                                    <Grid ColumnSpacing="12">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="models:ProxyGroup">
+                        <controls:SettingsExpander
+                            Margin="0,0,0,8"
+                            IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                            <controls:SettingsExpander.Header>
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
 
                                     <StackPanel Spacing="6">
                                         <TextBlock
@@ -197,126 +216,144 @@
                                 <controls:SettingsCard
                                     HorizontalContentAlignment="Stretch"
                                     ContentAlignment="Left">
-                                    <ItemsControl ItemsSource="{Binding Members}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapGrid
-                                                    ItemHeight="{StaticResource ProxyCardPanelHeight}"
-                                                    ItemWidth="{StaticResource ProxyCardPanelWidth}"
-                                                    Orientation="Horizontal" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
+                                    <StackPanel Spacing="12">
+                                        <ItemsControl ItemsSource="{Binding VisibleMembers}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <WrapGrid
+                                                        ItemHeight="{StaticResource ProxyCardPanelHeight}"
+                                                        ItemWidth="{StaticResource ProxyCardPanelWidth}"
+                                                        Orientation="Horizontal" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
 
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="models:ProxyGroupMember">
-                                                <Border
-                                                    Width="{StaticResource ProxyCardWidth}"
-                                                    Height="{StaticResource ProxyCardHeight}"
-                                                    Margin="0,0,12,12"
-                                                    CornerRadius="16"
-                                                    Background="{Binding IsCurrent, Converter={StaticResource BooleanToCardBackgroundBrushConverter}}"
-                                                    BorderBrush="{Binding IsCurrent, Converter={StaticResource BooleanToCardBorderBrushConverter}}"
-                                                    BorderThickness="1">
-                                                    <Grid>
-                                                        <Button
-                                                            Command="{Binding DataContext.SelectProxyCommand, ElementName=RootPage}"
-                                                            CommandParameter="{Binding}"
-                                                            Style="{StaticResource ProxyCardActionButtonStyle}" />
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="models:ProxyGroupMember">
+                                                    <Border
+                                                        Width="{StaticResource ProxyCardWidth}"
+                                                        Height="{StaticResource ProxyCardHeight}"
+                                                        Margin="0,0,12,12"
+                                                        CornerRadius="16"
+                                                        Background="{Binding IsCurrent, Converter={StaticResource BooleanToCardBackgroundBrushConverter}}"
+                                                        BorderBrush="{Binding IsCurrent, Converter={StaticResource BooleanToCardBorderBrushConverter}}"
+                                                        BorderThickness="1">
+                                                        <Grid>
+                                                            <Button
+                                                                Command="{Binding DataContext.SelectProxyCommand, ElementName=RootPage}"
+                                                                CommandParameter="{Binding}"
+                                                                Style="{StaticResource ProxyCardActionButtonStyle}" />
 
-                                                        <Grid
-                                                            Padding="16"
-                                                            IsHitTestVisible="False"
-                                                            RowSpacing="12">
-                                                            <Grid.RowDefinitions>
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="Auto" />
-                                                                <RowDefinition Height="*" />
-                                                            </Grid.RowDefinitions>
+                                                            <Grid
+                                                                Padding="16"
+                                                                IsHitTestVisible="False"
+                                                                RowSpacing="12">
+                                                                <Grid.RowDefinitions>
+                                                                    <RowDefinition Height="Auto" />
+                                                                    <RowDefinition Height="Auto" />
+                                                                    <RowDefinition Height="*" />
+                                                                </Grid.RowDefinitions>
 
-                                                            <Grid ColumnSpacing="12">
-                                                                <Grid.ColumnDefinitions>
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                    <ColumnDefinition Width="*" />
-                                                                    <ColumnDefinition Width="Auto" />
-                                                                </Grid.ColumnDefinitions>
+                                                                <Grid ColumnSpacing="12">
+                                                                    <Grid.ColumnDefinitions>
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                        <ColumnDefinition Width="*" />
+                                                                        <ColumnDefinition Width="Auto" />
+                                                                    </Grid.ColumnDefinitions>
 
-                                                                <Border
-                                                                    Width="36"
-                                                                    Height="36"
-                                                                    CornerRadius="10"
-                                                                    Background="{ThemeResource AccentFillColorTertiaryBrush}">
-                                                                    <TextBlock
-                                                                        HorizontalAlignment="Center"
-                                                                        VerticalAlignment="Center"
-                                                                        FontWeight="SemiBold"
-                                                                        Text="{Binding Node.ProtocolMonogram}" />
-                                                                </Border>
+                                                                    <Border
+                                                                        Width="36"
+                                                                        Height="36"
+                                                                        CornerRadius="10"
+                                                                        Background="{ThemeResource AccentFillColorTertiaryBrush}">
+                                                                        <TextBlock
+                                                                            HorizontalAlignment="Center"
+                                                                            VerticalAlignment="Center"
+                                                                            FontWeight="SemiBold"
+                                                                            Text="{Binding Node.ProtocolMonogram}" />
+                                                                    </Border>
 
-                                                                <StackPanel
-                                                                    Grid.Column="1"
-                                                                    Spacing="2">
-                                                                    <TextBlock
-                                                                        FontSize="15"
-                                                                        FontWeight="SemiBold"
-                                                                        Text="{Binding Node.Name}"
-                                                                        TextWrapping="WrapWholeWords" />
-                                                                    <TextBlock
-                                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                        Text="{Binding Node.ProtocolDisplayText}" />
-                                                                </StackPanel>
+                                                                    <StackPanel
+                                                                        Grid.Column="1"
+                                                                        Spacing="2">
+                                                                        <TextBlock
+                                                                            FontSize="15"
+                                                                            FontWeight="SemiBold"
+                                                                            Text="{Binding Node.Name}"
+                                                                            TextWrapping="WrapWholeWords" />
+                                                                        <TextBlock
+                                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                            Text="{Binding Node.ProtocolDisplayText}" />
+                                                                    </StackPanel>
 
-                                                                <StackPanel
-                                                                    Grid.Column="2"
-                                                                    HorizontalAlignment="Right"
-                                                                    Spacing="4">
-                                                                    <ProgressRing
-                                                                        Width="16"
-                                                                        Height="16"
-                                                                        IsActive="{Binding Node.IsTesting}"
-                                                                        Visibility="{Binding Node.IsTesting, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                                                    <TextBlock
+                                                                    <StackPanel
+                                                                        Grid.Column="2"
                                                                         HorizontalAlignment="Right"
-                                                                        Foreground="{Binding Node.DelayLevel, Converter={StaticResource ProxyDelayLevelToBrushConverter}}"
-                                                                        Text="{Binding Node.DelayText}" />
+                                                                        Spacing="4">
+                                                                        <ProgressRing
+                                                                            Width="16"
+                                                                            Height="16"
+                                                                            IsActive="{Binding Node.IsTesting}"
+                                                                            Visibility="{Binding Node.IsTesting, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                                                        <TextBlock
+                                                                            HorizontalAlignment="Right"
+                                                                            Foreground="{Binding Node.DelayLevel, Converter={StaticResource ProxyDelayLevelToBrushConverter}}"
+                                                                            Text="{Binding Node.DelayText}" />
+                                                                    </StackPanel>
+                                                                </Grid>
+
+                                                                <StackPanel
+                                                                    Grid.Row="1"
+                                                                    Orientation="Horizontal"
+                                                                    Spacing="8">
+                                                                    <Button
+                                                                        Style="{StaticResource ProxyTagButtonStyle}"
+                                                                        Content="{Binding Node.ProtocolDisplayText}" />
+                                                                    <Button
+                                                                        Style="{StaticResource ProxyTagButtonStyle}"
+                                                                        Visibility="{Binding Node.TransportBadgeText, Converter={StaticResource StringToVisibilityConverter}}"
+                                                                        Content="{Binding Node.TransportBadgeText}" />
+                                                                    <Button
+                                                                        Style="{StaticResource ProxyTagButtonStyle}"
+                                                                        Content="{Binding Node.ConnectivityBadgeText}" />
                                                                 </StackPanel>
                                                             </Grid>
 
-                                                            <StackPanel
-                                                                Grid.Row="1"
-                                                                Orientation="Horizontal"
-                                                                Spacing="8">
-                                                                <Button
-                                                                    Style="{StaticResource ProxyTagButtonStyle}"
-                                                                    Content="{Binding Node.ProtocolDisplayText}" />
-                                                                <Button
-                                                                    Style="{StaticResource ProxyTagButtonStyle}"
-                                                                    Visibility="{Binding Node.TransportBadgeText, Converter={StaticResource StringToVisibilityConverter}}"
-                                                                    Content="{Binding Node.TransportBadgeText}" />
-                                                                <Button
-                                                                    Style="{StaticResource ProxyTagButtonStyle}"
-                                                                    Content="{Binding Node.ConnectivityBadgeText}" />
-                                                            </StackPanel>
+                                                            <Button
+                                                                HorizontalAlignment="Right"
+                                                                VerticalAlignment="Bottom"
+                                                                Margin="16"
+                                                                Command="{Binding DataContext.TestNodeCommand, ElementName=RootPage}"
+                                                                CommandParameter="{Binding}"
+                                                                Content="{Binding [ProxiesTestNodeButton], Source={StaticResource L}}" />
                                                         </Grid>
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
 
-                                                        <Button
-                                                            HorizontalAlignment="Right"
-                                                            VerticalAlignment="Bottom"
-                                                            Margin="16"
-                                                            Command="{Binding DataContext.TestNodeCommand, ElementName=RootPage}"
-                                                            CommandParameter="{Binding}"
-                                                            Content="{Binding [ProxiesTestNodeButton], Source={StaticResource L}}" />
-                                                    </Grid>
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+                                        <Grid Visibility="{Binding HasHiddenMembers, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock
+                                                VerticalAlignment="Center"
+                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                Text="{Binding MembersProgressText}" />
+                                            <Button
+                                                Grid.Column="1"
+                                                Command="{Binding DataContext.ShowMoreMembersCommand, ElementName=RootPage}"
+                                                CommandParameter="{Binding}"
+                                                Content="{Binding [ProxiesShowMoreMembersButton], Source={StaticResource L}}" />
+                                        </Grid>
+                                    </StackPanel>
                                 </controls:SettingsCard>
                             </controls:SettingsExpander.Items>
-                            </controls:SettingsExpander>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+                        </controls:SettingsExpander>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
 
             <StackPanel
                 HorizontalAlignment="Center"

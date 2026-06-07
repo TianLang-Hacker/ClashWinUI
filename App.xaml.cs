@@ -59,6 +59,7 @@ namespace ClashWinUI
                     services.AddSingleton<ITrayService, TrayService>();
                     services.AddSingleton<IMihomoService, MihomoService>();
                     services.AddSingleton<IProfileService, ProfileService>();
+                    services.AddSingleton<IProfileActivationService, ProfileActivationService>();
                     services.AddSingleton<INavigationService, NavigationService>();
                     services.AddSingleton<IHomeChartStateService, HomeChartStateService>();
                     services.AddSingleton<IHomeOverviewSamplerService, HomeOverviewSamplerService>();

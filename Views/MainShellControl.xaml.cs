@@ -3,7 +3,6 @@ using ClashWinUI.ViewModels;
 using ClashWinUI.Views.Pages;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using System;
 using System.ComponentModel;
 
@@ -68,16 +67,6 @@ namespace ClashWinUI.Views
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             DataContext = null;
             contentFrame.Content = null;
-        }
-
-        private void SettingsNavItem_PointerEntered(object sender, PointerRoutedEventArgs e)
-        {
-            AnimatedIcon.SetState(SettingsAnimatedIcon, "PointerOver");
-        }
-
-        private void SettingsNavItem_PointerExited(object sender, PointerRoutedEventArgs e)
-        {
-            AnimatedIcon.SetState(SettingsAnimatedIcon, "Normal");
         }
 
         private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
