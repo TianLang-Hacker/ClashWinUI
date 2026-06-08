@@ -255,6 +255,7 @@ namespace ClashWinUI.Services.Implementations.Config
             {
                 YamlMappingNode merged = BuildMergedMapping(workspace);
                 ApplyRuleOverrides(workspace, merged);
+                NormalizeRuntimeProxyPorts(merged);
                 NormalizeRuntimeTunSettings(merged);
                 SaveYamlMapping(workspace.RuntimePath, merged, useBom: true);
             }
@@ -521,6 +522,31 @@ namespace ClashWinUI.Services.Implementations.Config
         private static void AddScalar(YamlMappingNode root, string key, string value)
         {
             root.Add(new YamlScalarNode(key), new YamlScalarNode(value));
+        }
+
+        private static void NormalizeRuntimeProxyPorts(YamlMappingNode merged)
+        {
+            int? mixedPort = GetNullableInt(merged, "mixed-port");
+            if (!mixedPort.HasValue)
+            {
+                return;
+            }
+
+            RemovePortIfSameValue(merged, "port", mixedPort.Value);
+            RemovePortIfSameValue(merged, "socks-port", mixedPort.Value);
+        }
+
+        private static void RemovePortIfSameValue(YamlMappingNode mapping, string key, int expectedPort)
+        {
+            if (GetNullableInt(mapping, key) != expectedPort)
+            {
+                return;
+            }
+
+            if (TryGetChild(mapping, key, out YamlNode? existingKey, out _) && existingKey is not null)
+            {
+                mapping.Children.Remove(existingKey);
+            }
         }
 
         private static void NormalizeRuntimeTunSettings(YamlMappingNode merged)

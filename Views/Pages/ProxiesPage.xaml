@@ -180,6 +180,9 @@
                     <DataTemplate x:DataType="models:ProxyGroup">
                         <controls:SettingsExpander
                             Margin="0,0,0,8"
+                            Loaded="ProxyGroupExpander_Loaded"
+                            Expanded="ProxyGroupExpander_Expanded"
+                            Collapsed="ProxyGroupExpander_Collapsed"
                             IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
                             <controls:SettingsExpander.Header>
                                 <Grid ColumnSpacing="12">
@@ -214,6 +217,7 @@
 
                             <controls:SettingsExpander.Items>
                                 <controls:SettingsCard
+                                    x:Name="ProxyGroupContentHost"
                                     HorizontalContentAlignment="Stretch"
                                     ContentAlignment="Left">
                                     <StackPanel Spacing="12">

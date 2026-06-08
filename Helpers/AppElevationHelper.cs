@@ -51,6 +51,34 @@ namespace ClashWinUI.Helpers
             }
         }
 
+        public static ElevationRelaunchOutcome TryRelaunch()
+        {
+            ElevationTargetInfo target = ResolveElevationTarget();
+            if (!IsValidElevationTarget(target))
+            {
+                return ElevationRelaunchOutcome.Failed(
+                    target,
+                    $"Relaunch target executable is unavailable. Mode={target.LaunchMode}; Path={target.ExecutablePath}");
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = target.ExecutablePath,
+                    Arguments = string.Empty,
+                    WorkingDirectory = target.WorkingDirectory,
+                    UseShellExecute = true,
+                });
+
+                return ElevationRelaunchOutcome.Relaunched(target);
+            }
+            catch (Exception ex)
+            {
+                return ElevationRelaunchOutcome.Failed(target, ex.Message);
+            }
+        }
+
         private static ElevationTargetInfo ResolveElevationTarget()
         {
             if (TryResolvePackagedShellTarget(out string shellTarget))

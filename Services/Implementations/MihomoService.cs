@@ -110,7 +110,7 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
-            ProfileCompatibilityStatus compatibility = EnsureProfileCompatibility(configPath);
+            ProfileCompatibilityStatus compatibility = await EnsureProfileCompatibilityAsync(configPath, cancellationToken).ConfigureAwait(false);
             if (compatibility == ProfileCompatibilityStatus.Base64NotYaml)
             {
                 if (TryMarkIncompatibleWarned(configPath))
@@ -304,24 +304,24 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
-        private ProfileCompatibilityStatus EnsureProfileCompatibility(string configPath)
+        private async Task<ProfileCompatibilityStatus> EnsureProfileCompatibilityAsync(string configPath, CancellationToken cancellationToken)
         {
             try
             {
-                byte[] raw = File.ReadAllBytes(configPath);
+                byte[] raw = await File.ReadAllBytesAsync(configPath, cancellationToken).ConfigureAwait(false);
                 SubscriptionContentNormalizationResult normalization = SubscriptionContentNormalizer.Normalize(raw);
                 switch (normalization.Status)
                 {
                     case SubscriptionContentNormalizationStatus.AlreadyYaml:
                         return ProfileCompatibilityStatus.Compatible;
                     case SubscriptionContentNormalizationStatus.DecodedFromBase64:
-                        File.WriteAllBytes(configPath, normalization.Content);
+                        await File.WriteAllBytesAsync(configPath, normalization.Content, cancellationToken).ConfigureAwait(false);
                         _logService.Add($"Config normalized from Base64 to YAML before apply: {configPath}", LogLevel.Warning);
                         return ProfileCompatibilityStatus.Compatible;
                     case SubscriptionContentNormalizationStatus.Base64DecodedButNotYaml:
                         if (ShareLinkSubscriptionConverter.TryConvertToMihomoYaml(normalization.Content, out byte[] convertedYaml, out int convertedCount))
                         {
-                            File.WriteAllBytes(configPath, convertedYaml);
+                            await File.WriteAllBytesAsync(configPath, convertedYaml, cancellationToken).ConfigureAwait(false);
                             _logService.Add($"Config converted from share links to Mihomo YAML before apply. Nodes={convertedCount}: {configPath}", LogLevel.Warning);
                             return ProfileCompatibilityStatus.Compatible;
                         }
@@ -332,7 +332,7 @@ namespace ClashWinUI.Services.Implementations
                     case SubscriptionContentNormalizationStatus.Unrecognized:
                         if (ShareLinkSubscriptionConverter.TryConvertToMihomoYaml(normalization.Content, out byte[] convertedYamlUnknown, out int convertedCountUnknown))
                         {
-                            File.WriteAllBytes(configPath, convertedYamlUnknown);
+                            await File.WriteAllBytesAsync(configPath, convertedYamlUnknown, cancellationToken).ConfigureAwait(false);
                             _logService.Add($"Config converted from share links to Mihomo YAML before apply. Nodes={convertedCountUnknown}: {configPath}", LogLevel.Warning);
                             return ProfileCompatibilityStatus.Compatible;
                         }
@@ -341,6 +341,10 @@ namespace ClashWinUI.Services.Implementations
                     default:
                         return ProfileCompatibilityStatus.Unknown;
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch
             {

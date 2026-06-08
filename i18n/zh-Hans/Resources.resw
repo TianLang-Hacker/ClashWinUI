@@ -897,4 +897,55 @@
   <data name="WelcomeFinishButton" xml:space="preserve">
     <value>完成</value>
   </data>
+  <data name="TrayMenuHome" xml:space="preserve">
+    <value>首页</value>
+  </data>
+  <data name="TrayMenuRules" xml:space="preserve">
+    <value>规则</value>
+  </data>
+  <data name="TrayMenuModeRule" xml:space="preserve">
+    <value>规则</value>
+  </data>
+  <data name="TrayMenuModeGlobal" xml:space="preserve">
+    <value>全局</value>
+  </data>
+  <data name="TrayMenuModeDirect" xml:space="preserve">
+    <value>直连</value>
+  </data>
+  <data name="TrayMenuProfiles" xml:space="preserve">
+    <value>订阅</value>
+  </data>
+  <data name="TrayMenuProxies" xml:space="preserve">
+    <value>代理</value>
+  </data>
+  <data name="TrayMenuTunMode" xml:space="preserve">
+    <value>TUN 模式</value>
+  </data>
+  <data name="TrayMenuOpenProfilesDirectory" xml:space="preserve">
+    <value>打开配置文件目录</value>
+  </data>
+  <data name="TrayMenuMore" xml:space="preserve">
+    <value>更多</value>
+  </data>
+  <data name="TrayMenuRestartMihomo" xml:space="preserve">
+    <value>重启 Mihomo 核心</value>
+  </data>
+  <data name="TrayMenuRestartApp" xml:space="preserve">
+    <value>重启软件</value>
+  </data>
+  <data name="TrayMenuExit" xml:space="preserve">
+    <value>退出</value>
+  </data>
+  <data name="TrayMenuLoading" xml:space="preserve">
+    <value>正在加载...</value>
+  </data>
+  <data name="TrayMenuNoProfiles" xml:space="preserve">
+    <value>无可用配置</value>
+  </data>
+  <data name="TrayMenuNoProxies" xml:space="preserve">
+    <value>无可用代理</value>
+  </data>
+  <data name="TrayMenuOpenProxiesForMore" xml:space="preserve">
+    <value>打开代理页查看更多</value>
+  </data>
 </root>

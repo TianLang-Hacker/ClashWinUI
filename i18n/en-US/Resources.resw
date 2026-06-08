@@ -897,4 +897,55 @@
   <data name="WelcomeFinishButton" xml:space="preserve">
     <value>Finish</value>
   </data>
+  <data name="TrayMenuHome" xml:space="preserve">
+    <value>Home</value>
+  </data>
+  <data name="TrayMenuRules" xml:space="preserve">
+    <value>Rules</value>
+  </data>
+  <data name="TrayMenuModeRule" xml:space="preserve">
+    <value>Rule</value>
+  </data>
+  <data name="TrayMenuModeGlobal" xml:space="preserve">
+    <value>Global</value>
+  </data>
+  <data name="TrayMenuModeDirect" xml:space="preserve">
+    <value>Direct</value>
+  </data>
+  <data name="TrayMenuProfiles" xml:space="preserve">
+    <value>Profiles</value>
+  </data>
+  <data name="TrayMenuProxies" xml:space="preserve">
+    <value>Proxies</value>
+  </data>
+  <data name="TrayMenuTunMode" xml:space="preserve">
+    <value>TUN Mode</value>
+  </data>
+  <data name="TrayMenuOpenProfilesDirectory" xml:space="preserve">
+    <value>Open Profiles Folder</value>
+  </data>
+  <data name="TrayMenuMore" xml:space="preserve">
+    <value>More</value>
+  </data>
+  <data name="TrayMenuRestartMihomo" xml:space="preserve">
+    <value>Restart Mihomo Core</value>
+  </data>
+  <data name="TrayMenuRestartApp" xml:space="preserve">
+    <value>Restart App</value>
+  </data>
+  <data name="TrayMenuExit" xml:space="preserve">
+    <value>Exit</value>
+  </data>
+  <data name="TrayMenuLoading" xml:space="preserve">
+    <value>Loading...</value>
+  </data>
+  <data name="TrayMenuNoProfiles" xml:space="preserve">
+    <value>No profiles available</value>
+  </data>
+  <data name="TrayMenuNoProxies" xml:space="preserve">
+    <value>No proxies available</value>
+  </data>
+  <data name="TrayMenuOpenProxiesForMore" xml:space="preserve">
+    <value>Open Proxies page for more</value>
+  </data>
 </root>

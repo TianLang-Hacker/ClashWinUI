@@ -7,7 +7,10 @@ namespace ClashWinUI.Services.Interfaces
     {
         bool IsInitialized { get; }
 
-        void Initialize(Action showMainWindowAction, Func<Task> exitApplicationAsyncAction);
+        void Initialize(
+            Func<string, Task> showMainWindowAsyncAction,
+            Func<Task> restartApplicationAsyncAction,
+            Func<Task> exitApplicationAsyncAction);
         void Show();
         void Shutdown();
     }

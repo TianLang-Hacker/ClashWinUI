@@ -430,13 +430,19 @@ namespace ClashWinUI.ViewModels
                 return;
             }
 
-            if (!value && !_isUpdatingMixinInputs)
+            if (!_isUpdatingMixinInputs)
             {
-                ClearTunPresentationOverride();
-                ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+                if (value)
+                {
+                    SetTunEnabledPresentationOverride();
+                }
+                else
+                {
+                    ApplyTunDisabledPresentation();
+                }
             }
 
-            QueueImmediateMixinApply();
+            QueueImmediateMixinApply(deferForUiPaint: true);
         }
 
         partial void OnAllowLanEnabledChanged(bool value)
@@ -576,7 +582,9 @@ namespace ClashWinUI.ViewModels
                 cancellationToken.ThrowIfCancellationRequested();
                 MixinSettings settings = _configService.LoadMixin(activeProfile);
                 cancellationToken.ThrowIfCancellationRequested();
-                TunRuntimeStatus tunRuntimeStatus = ResolveTunRuntimeStatus(activeProfile);
+                TunRuntimeStatus tunRuntimeStatus = settings.TunEnabled
+                    ? ResolveTunRuntimeStatus(activeProfile)
+                    : TunRuntimeStatus.Disabled();
 
                 return ActiveProfileLoadResult.FromSuccess(
                     activeProfile,
@@ -591,7 +599,7 @@ namespace ClashWinUI.ViewModels
             }
             catch (Exception ex)
             {
-                TunRuntimeStatus tunRuntimeStatus = ResolveTunRuntimeStatus(activeProfile);
+                TunRuntimeStatus tunRuntimeStatus = TunRuntimeStatus.Disabled();
                 return ActiveProfileLoadResult.FromFailure(
                     activeProfile,
                     activeProfile.WorkspaceDirectory,
@@ -649,6 +657,12 @@ namespace ClashWinUI.ViewModels
 
         private void ApplyOverviewSnapshot()
         {
+            if (!TunEnabled && !_currentMixinSettings.TunEnabled && _settingsTunPresentationOverride?.DisplayState != SettingsTunDisplayState.Failure)
+            {
+                ApplyTunDisabledPresentation();
+                return;
+            }
+
             HomeOverviewState state = _homeOverviewSamplerService.GetState();
             ApplyTunPresentation(state.TunRuntimeStatus, state.SystemProxyState);
         }
@@ -674,12 +688,29 @@ namespace ClashWinUI.ViewModels
             ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
         }
 
+        private void ApplyTunDisabledPresentation()
+        {
+            ClearTunPresentationOverride();
+            ApplyTunPresentation(TunRuntimeStatus.Disabled(), _currentSystemProxyState);
+        }
+
+        private void ClearTunPresentationText()
+        {
+            TunRuntimeStatusText = string.Empty;
+            TunRuntimeSummaryText = string.Empty;
+        }
+
         private void ApplyTunPresentation(TunRuntimeStatus runtimeStatus, SystemProxyState systemProxyState)
         {
             _currentTunRuntimeStatus = runtimeStatus;
             _currentSystemProxyState = systemProxyState;
 
             TunRuntimeStatus presentationRuntimeStatus = _settingsTunPresentationOverride?.RuntimeStatus ?? runtimeStatus;
+            if (!presentationRuntimeStatus.IsConfigured)
+            {
+                ClearTunPresentationText();
+                return;
+            }
 
             (TunRuntimeStatusText, TunRuntimeSummaryText) = RuntimeNetworkStatusTextHelper.BuildSettingsTunPresentation(
                 _localizedStrings,
@@ -687,9 +718,27 @@ namespace ClashWinUI.ViewModels
                 systemProxyState);
         }
 
-        private async Task RefreshTunRuntimeStatusAsync()
+        private async Task RefreshTunRuntimeStatusAsync(int? requestVersion = null)
         {
+            if (_isDisposed || !IsMixinApplyRequestCurrent(requestVersion))
+            {
+                return;
+            }
+
             ProfileItem? activeProfile = _activeMixinProfile;
+            if (!TunEnabled && !_currentMixinSettings.TunEnabled)
+            {
+                if (_settingsTunPresentationOverride?.DisplayState == SettingsTunDisplayState.Failure)
+                {
+                    ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+                }
+                else
+                {
+                    ApplyTunDisabledPresentation();
+                }
+
+                return;
+            }
 
             Stopwatch stopwatch = Stopwatch.StartNew();
             (SystemProxyState SystemProxyState, TunRuntimeStatus TunRuntimeStatus) snapshot = await Task.Run(() =>
@@ -700,7 +749,7 @@ namespace ClashWinUI.ViewModels
             });
             stopwatch.Stop();
 
-            if (_isDisposed)
+            if (_isDisposed || !IsMixinApplyRequestCurrent(requestVersion))
             {
                 return;
             }
@@ -832,7 +881,7 @@ namespace ClashWinUI.ViewModels
             };
         }
 
-        private void QueueImmediateMixinApply()
+        private void QueueImmediateMixinApply(bool deferForUiPaint = false)
         {
             if (_isUpdatingMixinInputs || IsLoadingProfileState || _activeMixinProfile is null || !HasActiveMixinProfile)
             {
@@ -840,11 +889,22 @@ namespace ClashWinUI.ViewModels
             }
 
             int requestVersion = Interlocked.Increment(ref _mixinApplyRequestVersion);
-            _ = ProcessImmediateMixinApplyAsync(requestVersion);
+            _ = ProcessImmediateMixinApplyAsync(requestVersion, deferForUiPaint);
         }
 
-        private async Task ProcessImmediateMixinApplyAsync(int requestVersion)
+        private async Task ProcessImmediateMixinApplyAsync(int requestVersion, bool deferForUiPaint)
         {
+            await Task.Yield();
+            if (deferForUiPaint)
+            {
+                await Task.Delay(32);
+            }
+
+            if (_isDisposed || requestVersion != _mixinApplyRequestVersion)
+            {
+                return;
+            }
+
             await _mixinApplySemaphore.WaitAsync();
             try
             {
@@ -859,7 +919,7 @@ namespace ClashWinUI.ViewModels
                 }
 
                 MixinSettings settings = BuildMixinSettingsFromInputs();
-                await SaveAndApplyMixinSettingsAsync(settings, rollbackVisibleInputsOnFailure: true);
+                await SaveAndApplyMixinSettingsAsync(settings, rollbackVisibleInputsOnFailure: true, requestVersion);
             }
             finally
             {
@@ -869,9 +929,11 @@ namespace ClashWinUI.ViewModels
 
         private async Task<(bool Success, string Message)> SaveAndApplyMixinSettingsAsync(
             MixinSettings nextSettings,
-            bool rollbackVisibleInputsOnFailure)
+            bool rollbackVisibleInputsOnFailure,
+            int? requestVersion = null)
         {
-            if (_activeMixinProfile is null)
+            ProfileItem? activeProfile = _activeMixinProfile;
+            if (activeProfile is null)
             {
                 string message = _localizedStrings["SettingsMixinNoActiveProfile"];
                 MixinStatusMessage = message;
@@ -880,25 +942,34 @@ namespace ClashWinUI.ViewModels
 
             if (MixinSettingsEquals(_currentMixinSettings, nextSettings))
             {
-                await RefreshTunRuntimeStatusAsync();
+                await RefreshTunRuntimeStatusAsync(requestVersion);
                 return (true, string.Empty);
             }
 
             MixinSettings previousSettings = CloneMixinSettings(_currentMixinSettings);
             bool isEnablingTun = nextSettings.TunEnabled && !previousSettings.TunEnabled;
+            bool isDisablingTun = !nextSettings.TunEnabled && previousSettings.TunEnabled;
             if (isEnablingTun)
             {
                 SetTunEnabledPresentationOverride();
             }
+            else if (isDisablingTun)
+            {
+                ApplyTunDisabledPresentation();
+            }
             else if (!nextSettings.TunEnabled)
             {
-                ClearTunPresentationOverride();
-                ApplyTunPresentation(_currentTunRuntimeStatus, _currentSystemProxyState);
+                ApplyTunDisabledPresentation();
             }
 
             if (nextSettings.TunEnabled)
             {
-                TunPreparationResult tunPreparation = _tunService.ValidateEnvironment(_kernelPathService.ResolveKernelPath());
+                TunPreparationResult tunPreparation = await ValidateTunEnvironmentAsync();
+                if (!IsMixinApplyRequestCurrent(requestVersion))
+                {
+                    return (false, string.Empty);
+                }
+
                 if (!tunPreparation.Success)
                 {
                     if (rollbackVisibleInputsOnFailure)
@@ -909,38 +980,57 @@ namespace ClashWinUI.ViewModels
                     string failedMessage = BuildTunPreparationFailureMessage(tunPreparation);
                     SetTunFailurePresentationOverride(tunPreparation.FailureKind, tunPreparation.Message);
                     MixinStatusMessage = string.Empty;
-                    await RefreshTunRuntimeStatusAsync();
+                    await RefreshTunRuntimeStatusAsync(requestVersion);
                     return (false, failedMessage);
                 }
             }
 
             try
             {
-                _configService.SaveMixin(_activeMixinProfile, nextSettings);
-                string runtimePath = _configService.BuildRuntime(_activeMixinProfile);
+                string runtimePath = await SaveMixinAndBuildRuntimeOffUiAsync(activeProfile, nextSettings);
+                if (!IsMixinApplyRequestCurrent(requestVersion))
+                {
+                    return (false, string.Empty);
+                }
+
                 bool applied = await _mihomoService.ApplyConfigAsync(runtimePath);
+                if (!IsMixinApplyRequestCurrent(requestVersion))
+                {
+                    return (false, string.Empty);
+                }
+
                 if (!applied)
                 {
                     bool currentRuntimeUsesTarget = PathsEqual(_processService.CurrentConfigPath, runtimePath);
                     if (currentRuntimeUsesTarget)
                     {
-                        await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                        await ApplySystemProxyPolicyOffUiAsync(
                             _systemProxyService,
                             _processService,
                             _tunService,
                             runtimePath);
                     }
 
-                    RestorePersistedMixinSettings(previousSettings, rebuildRuntime: !currentRuntimeUsesTarget);
+                    await RestorePersistedMixinSettingsAsync(activeProfile, previousSettings, rebuildRuntime: !currentRuntimeUsesTarget);
+                    if (!IsMixinApplyRequestCurrent(requestVersion))
+                    {
+                        return (false, string.Empty);
+                    }
+
                     if (rollbackVisibleInputsOnFailure)
                     {
                         ApplyMixinSettings(previousSettings);
                     }
 
-                    string failedMessage;
-                    if (TryBuildTunApplyFailurePresentation(runtimePath, out TunRuntimeStatus tunFailurePresentation, out string tunFailureMessage))
+                    (bool hasTunFailurePresentation, TunRuntimeStatus tunFailurePresentation, string failedMessage) =
+                        await BuildApplyFailurePresentationOffUiAsync(runtimePath);
+                    if (!IsMixinApplyRequestCurrent(requestVersion))
                     {
-                        failedMessage = tunFailureMessage;
+                        return (false, string.Empty);
+                    }
+
+                    if (hasTunFailurePresentation)
+                    {
                         _settingsTunPresentationOverride = new SettingsTunPresentationOverride(
                             SettingsTunDisplayState.Failure,
                             tunFailurePresentation);
@@ -949,27 +1039,22 @@ namespace ClashWinUI.ViewModels
                     }
                     else
                     {
-                        failedMessage = MihomoFailureTextHelper.TryBuildControllerFailureMessage(
-                            _localizedStrings,
-                            _processService,
-                            _geoDataService,
-                            _tunService,
-                            runtimePath,
-                            out string controllerMessage)
-                            ? controllerMessage
-                            : _localizedStrings["SettingsMixinStatusApplyFailed"];
                         MixinStatusMessage = failedMessage;
                     }
 
-                    await RefreshTunRuntimeStatusAsync();
+                    await RefreshTunRuntimeStatusAsync(requestVersion);
                     return (false, failedMessage);
                 }
 
-                await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                await ApplySystemProxyPolicyOffUiAsync(
                     _systemProxyService,
                     _processService,
                     _tunService,
                     runtimePath);
+                if (!IsMixinApplyRequestCurrent(requestVersion))
+                {
+                    return (false, string.Empty);
+                }
 
                 _currentMixinSettings = CloneMixinSettings(nextSettings);
                 ApplyMixinSettings(_currentMixinSettings);
@@ -977,6 +1062,10 @@ namespace ClashWinUI.ViewModels
                 if (isEnablingTun)
                 {
                     SetTunEnabledPresentationOverride();
+                }
+                else if (isDisablingTun)
+                {
+                    ApplyTunDisabledPresentation();
                 }
                 else
                 {
@@ -986,12 +1075,17 @@ namespace ClashWinUI.ViewModels
 
                 string successMessage = _localizedStrings["SettingsMixinStatusApplied"];
                 MixinStatusMessage = successMessage;
-                await RefreshTunRuntimeStatusAsync();
+                await RefreshTunRuntimeStatusAsync(requestVersion);
                 return (true, successMessage);
             }
             catch (Exception ex)
             {
-                RestorePersistedMixinSettings(previousSettings, rebuildRuntime: true);
+                await RestorePersistedMixinSettingsAsync(activeProfile, previousSettings, rebuildRuntime: true);
+                if (!IsMixinApplyRequestCurrent(requestVersion))
+                {
+                    return (false, string.Empty);
+                }
+
                 if (rollbackVisibleInputsOnFailure)
                 {
                     ApplyMixinSettings(previousSettings);
@@ -999,24 +1093,87 @@ namespace ClashWinUI.ViewModels
 
                 string failedMessage = string.Format(_localizedStrings["SettingsMixinStatusLoadFailed"], ex.Message);
                 MixinStatusMessage = failedMessage;
-                await RefreshTunRuntimeStatusAsync();
+                await RefreshTunRuntimeStatusAsync(requestVersion);
                 return (false, failedMessage);
             }
         }
 
+        private bool IsMixinApplyRequestCurrent(int? requestVersion)
+        {
+            return !requestVersion.HasValue || requestVersion.Value == _mixinApplyRequestVersion;
+        }
+
+        private Task<TunPreparationResult> ValidateTunEnvironmentAsync()
+        {
+            return Task.Run(() => _tunService.ValidateEnvironment(_kernelPathService.ResolveKernelPath()));
+        }
+
+        private Task<string> SaveMixinAndBuildRuntimeOffUiAsync(ProfileItem profile, MixinSettings settings)
+        {
+            return Task.Run(() =>
+            {
+                _configService.SaveMixin(profile, settings);
+                return _configService.BuildRuntime(profile);
+            });
+        }
+
+        private static Task ApplySystemProxyPolicyOffUiAsync(
+            ISystemProxyService systemProxyService,
+            IProcessService processService,
+            ITunService tunService,
+            string runtimePath)
+        {
+            return Task.Run(() => SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                systemProxyService,
+                processService,
+                tunService,
+                runtimePath));
+        }
+
+        private Task RestorePersistedMixinSettingsAsync(ProfileItem profile, MixinSettings settings, bool rebuildRuntime)
+        {
+            return Task.Run(() => RestorePersistedMixinSettings(profile, settings, rebuildRuntime));
+        }
+
+        private Task<(bool HasTunFailurePresentation, TunRuntimeStatus TunFailurePresentation, string Message)> BuildApplyFailurePresentationOffUiAsync(string runtimePath)
+        {
+            return Task.Run(() =>
+            {
+                if (TryBuildTunApplyFailurePresentation(runtimePath, out TunRuntimeStatus tunFailurePresentation, out string tunFailureMessage))
+                {
+                    return (true, tunFailurePresentation, tunFailureMessage);
+                }
+
+                string failedMessage = MihomoFailureTextHelper.TryBuildControllerFailureMessage(
+                    _localizedStrings,
+                    _processService,
+                    _geoDataService,
+                    _tunService,
+                    runtimePath,
+                    out string controllerMessage)
+                    ? controllerMessage
+                    : _localizedStrings["SettingsMixinStatusApplyFailed"];
+                return (false, TunRuntimeStatus.Disabled(), failedMessage);
+            });
+        }
+
         private void RestorePersistedMixinSettings(MixinSettings settings, bool rebuildRuntime)
         {
-            if (_activeMixinProfile is null)
+            ProfileItem? activeProfile = _activeMixinProfile;
+            if (activeProfile is not null)
             {
-                return;
+                RestorePersistedMixinSettings(activeProfile, settings, rebuildRuntime);
             }
+        }
 
+        private void RestorePersistedMixinSettings(ProfileItem profile, MixinSettings settings, bool rebuildRuntime)
+        {
             try
             {
-                _configService.SaveMixin(_activeMixinProfile, settings);
+                _configService.SaveMixin(profile, settings);
                 if (rebuildRuntime)
                 {
-                    _configService.BuildRuntime(_activeMixinProfile);
+                    _configService.BuildRuntime(profile);
                 }
             }
             catch

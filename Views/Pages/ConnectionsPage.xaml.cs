@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using System;
 using System.Collections.Generic;
@@ -53,6 +54,7 @@ namespace ClashWinUI.Views.Pages
 
         private ConnectionsViewModel? _viewModel;
         private readonly ConnectionsColumnLayout _columnLayout;
+        private ScrollViewer? _connectionsScrollViewer;
         private bool _isSyncingHeaderScroll;
         private ConnectionColumn? _activeResizeColumn;
         private GridLength _closeColumnWidth = new(72);
@@ -151,6 +153,7 @@ namespace ClashWinUI.Views.Pages
             viewModel.StartAutoRefresh();
 
             ApplySessionOrResponsiveWidths(ActualWidth);
+            EnsureConnectionsScrollViewerHooked();
             SyncHeaderScrollToBody();
             base.OnNavigatedTo(e);
         }
@@ -247,7 +250,13 @@ namespace ClashWinUI.Views.Pages
             }
         }
 
-        private void BodyScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
+        private void ConnectionsListView_Loaded(object sender, RoutedEventArgs e)
+        {
+            EnsureConnectionsScrollViewerHooked();
+            SyncHeaderScrollToBody();
+        }
+
+        private void ConnectionsScrollViewer_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
         {
             SyncHeaderScrollToBody();
         }
@@ -434,12 +443,56 @@ namespace ClashWinUI.Views.Pages
             _isSyncingHeaderScroll = true;
             try
             {
-                HeaderScrollViewer.ChangeView(BodyScrollViewer.HorizontalOffset, null, null, true);
+                double horizontalOffset = _connectionsScrollViewer?.HorizontalOffset ?? 0;
+                HeaderScrollViewer.ChangeView(horizontalOffset, null, null, true);
             }
             finally
             {
                 _isSyncingHeaderScroll = false;
             }
+        }
+
+        private void EnsureConnectionsScrollViewerHooked()
+        {
+            ConnectionsListView.ApplyTemplate();
+            ScrollViewer? scrollViewer = FindDescendant<ScrollViewer>(ConnectionsListView);
+            if (ReferenceEquals(_connectionsScrollViewer, scrollViewer))
+            {
+                return;
+            }
+
+            if (_connectionsScrollViewer is not null)
+            {
+                _connectionsScrollViewer.ViewChanged -= ConnectionsScrollViewer_ViewChanged;
+            }
+
+            _connectionsScrollViewer = scrollViewer;
+            if (_connectionsScrollViewer is not null)
+            {
+                _connectionsScrollViewer.ViewChanged += ConnectionsScrollViewer_ViewChanged;
+            }
+        }
+
+        private static T? FindDescendant<T>(DependencyObject root)
+            where T : DependencyObject
+        {
+            int childCount = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < childCount; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                if (child is T match)
+                {
+                    return match;
+                }
+
+                T? nestedMatch = FindDescendant<T>(child);
+                if (nestedMatch is not null)
+                {
+                    return nestedMatch;
+                }
+            }
+
+            return null;
         }
 
         private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

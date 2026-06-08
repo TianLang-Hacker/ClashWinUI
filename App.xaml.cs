@@ -56,6 +56,7 @@ namespace ClashWinUI
                     services.AddSingleton<IAppSettingsService, AppSettingsService>();
                     services.AddSingleton<IProcessService, ProcessService>();
                     services.AddSingleton<ISystemProxyService, SystemProxyService>();
+                    services.AddSingleton<ITrayMenuActionService, TrayMenuActionService>();
                     services.AddSingleton<ITrayService, TrayService>();
                     services.AddSingleton<IMihomoService, MihomoService>();
                     services.AddSingleton<IProfileService, ProfileService>();
@@ -166,57 +167,39 @@ namespace ClashWinUI
             await _shutdownSync.WaitAsync();
             try
             {
+                await ShutdownCurrentInstanceAsync();
+                Exit();
+            }
+            finally
+            {
+                _shutdownSync.Release();
+            }
+        }
+
+        public async Task RequestRestartAsync()
+        {
+            if (Interlocked.Exchange(ref _shutdownRequested, 1) == 1)
+            {
+                return;
+            }
+
+            await _shutdownSync.WaitAsync();
+            try
+            {
                 IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
-                try
+                ElevationRelaunchOutcome outcome = AppElevationHelper.TryRelaunch();
+                if (outcome.Status != ElevationRelaunchStatus.Relaunched)
                 {
-                    _host.Services.GetRequiredService<IHomeOverviewSamplerService>().FlushState();
-                }
-                catch (Exception ex)
-                {
-                    logService.Add($"Flush home overview state failed during exit: {ex.Message}", LogLevel.Warning);
-                }
-
-                try
-                {
-                    await CleanupRuntimeAsync();
-                }
-                catch (Exception ex)
-                {
-                    logService.Add($"Cleanup runtime failed during exit: {ex.Message}", LogLevel.Warning);
+                    logService.Add(
+                        $"Application restart failed. Mode={outcome.Target.LaunchMode}; Path={outcome.Target.ExecutablePath}; Detail={outcome.Message}",
+                        LogLevel.Warning);
+                    Interlocked.Exchange(ref _shutdownRequested, 0);
+                    return;
                 }
 
-                try
-                {
-                    _trayService?.Shutdown();
-                    _trayService = null;
-                }
-                catch (Exception ex)
-                {
-                    logService.Add($"Tray shutdown failed during exit: {ex.Message}", LogLevel.Warning);
-                }
-
-                try
-                {
-                    if (_window is not null)
-                    {
-                        _window.Close();
-                        _window = null;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logService.Add($"Window close failed during exit: {ex.Message}", LogLevel.Warning);
-                }
-
-                try
-                {
-                    await _host.StopAsync(TimeSpan.FromSeconds(3));
-                }
-                catch (Exception ex)
-                {
-                    logService.Add($"Host stop failed during exit: {ex.Message}", LogLevel.Warning);
-                }
-
+                logService.Add(
+                    $"Application restart launched. Mode={outcome.Target.LaunchMode}; Path={outcome.Target.ExecutablePath}");
+                await ShutdownCurrentInstanceAsync();
                 Exit();
             }
             finally
@@ -490,7 +473,8 @@ namespace ClashWinUI
                 }
 
                 _trayService.Initialize(
-                    showMainWindowAction: ShowMainWindow,
+                    showMainWindowAsyncAction: ShowMainWindowAsync,
+                    restartApplicationAsyncAction: RequestRestartAsync,
                     exitApplicationAsyncAction: RequestExitAsync);
                 _trayService.Show();
             }
@@ -501,7 +485,12 @@ namespace ClashWinUI
             }
         }
 
-        private void ShowMainWindow()
+        private Task ShowMainWindow()
+        {
+            return ShowMainWindowAsync(MainViewModel.HomeRouteKey);
+        }
+
+        private async Task ShowMainWindowAsync(string routeKey)
         {
             if (_window is null)
             {
@@ -510,12 +499,76 @@ namespace ClashWinUI
 
             if (_window is MainWindow mainWindow)
             {
-                _ = mainWindow.RestoreFromBackgroundAsync();
-                return;
+                await mainWindow.RestoreFromBackgroundAsync();
+            }
+            else
+            {
+                WindowExtensions.Show(_window);
+                _window.Activate();
             }
 
-            WindowExtensions.Show(_window);
-            _window.Activate();
+            if (_host.Services.GetRequiredService<IAppSettingsService>().WelcomeCompleted)
+            {
+                MainViewModel mainViewModel = _host.Services.GetRequiredService<MainViewModel>();
+                if (mainViewModel.NavigateCommand.CanExecute(routeKey))
+                {
+                    mainViewModel.NavigateCommand.Execute(routeKey);
+                }
+            }
+        }
+
+        private async Task ShutdownCurrentInstanceAsync()
+        {
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+            try
+            {
+                _host.Services.GetRequiredService<IHomeOverviewSamplerService>().FlushState();
+            }
+            catch (Exception ex)
+            {
+                logService.Add($"Flush home overview state failed during exit: {ex.Message}", LogLevel.Warning);
+            }
+
+            try
+            {
+                await CleanupRuntimeAsync();
+            }
+            catch (Exception ex)
+            {
+                logService.Add($"Cleanup runtime failed during exit: {ex.Message}", LogLevel.Warning);
+            }
+
+            try
+            {
+                _trayService?.Shutdown();
+                _trayService = null;
+            }
+            catch (Exception ex)
+            {
+                logService.Add($"Tray shutdown failed during exit: {ex.Message}", LogLevel.Warning);
+            }
+
+            try
+            {
+                if (_window is not null)
+                {
+                    _window.Close();
+                    _window = null;
+                }
+            }
+            catch (Exception ex)
+            {
+                logService.Add($"Window close failed during exit: {ex.Message}", LogLevel.Warning);
+            }
+
+            try
+            {
+                await _host.StopAsync(TimeSpan.FromSeconds(3));
+            }
+            catch (Exception ex)
+            {
+                logService.Add($"Host stop failed during exit: {ex.Message}", LogLevel.Warning);
+            }
         }
 
         private async Task RunStartupUpdateCheckAsync()

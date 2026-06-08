@@ -227,89 +227,82 @@
                     </ScrollViewer>
                 </Border>
 
-                <ScrollViewer
-                    x:Name="BodyScrollViewer"
+                <ListView
+                    x:Name="ConnectionsListView"
                     Grid.Row="1"
-                    HorizontalScrollMode="Enabled"
-                    HorizontalScrollBarVisibility="Auto"
-                    VerticalScrollMode="Disabled"
-                    VerticalScrollBarVisibility="Disabled"
-                    ViewChanged="BodyScrollViewer_ViewChanged">
-                    <ListView
-                        x:Name="ConnectionsListView"
-                        ItemsSource="{Binding Connections}"
-                        SelectionMode="None"
-                        IsItemClickEnabled="False"
-                        BorderThickness="0"
-                        Background="Transparent"
-                        ShowsScrollingPlaceholders="True"
-                        ScrollViewer.HorizontalScrollMode="Disabled"
-                        ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                        ScrollViewer.VerticalScrollMode="Enabled"
-                        ScrollViewer.VerticalScrollBarVisibility="Auto">
-                        <ListView.ItemContainerTransitions>
-                            <TransitionCollection />
-                        </ListView.ItemContainerTransitions>
-                        <ListView.ItemContainerStyle>
-                            <StaticResource ResourceKey="ConnectionsListViewItemStyle" />
-                        </ListView.ItemContainerStyle>
-                        <ListView.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <ItemsStackPanel Orientation="Vertical" />
-                            </ItemsPanelTemplate>
-                        </ListView.ItemsPanel>
+                    ItemsSource="{Binding Connections}"
+                    SelectionMode="None"
+                    IsItemClickEnabled="False"
+                    BorderThickness="0"
+                    Background="Transparent"
+                    Loaded="ConnectionsListView_Loaded"
+                    ShowsScrollingPlaceholders="True"
+                    ScrollViewer.HorizontalScrollMode="Enabled"
+                    ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                    ScrollViewer.VerticalScrollMode="Enabled"
+                    ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListView.ItemContainerTransitions>
+                        <TransitionCollection />
+                    </ListView.ItemContainerTransitions>
+                    <ListView.ItemContainerStyle>
+                        <StaticResource ResourceKey="ConnectionsListViewItemStyle" />
+                    </ListView.ItemContainerStyle>
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel Orientation="Vertical" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
 
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:ConnectionEntry">
-                                <Border
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="0,0,0,1"
-                                    Padding="12,0">
-                                    <Grid Height="56" ColumnSpacing="12">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="{Binding CloseColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding HostColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding TypeColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding RuleColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding ChainColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding DownloadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding UploadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding DownloadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding UploadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                            <ColumnDefinition Width="{Binding DurationColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
-                                        </Grid.ColumnDefinitions>
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:ConnectionEntry">
+                            <Border
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="0,0,0,1"
+                                Padding="12,0">
+                                <Grid Height="56" ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="{Binding CloseColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding HostColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding TypeColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding RuleColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding ChainColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding DownloadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding UploadSpeedColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding DownloadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding UploadColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                        <ColumnDefinition Width="{Binding DurationColumnWidth, Source={StaticResource ConnectionsColumnLayoutResource}}" />
+                                    </Grid.ColumnDefinitions>
 
-                                        <Button
-                                            Grid.Column="0"
-                                            Width="36"
-                                            Height="36"
-                                            HorizontalAlignment="Left"
+                                    <Button
+                                        Grid.Column="0"
+                                        Width="36"
+                                        Height="36"
+                                        HorizontalAlignment="Left"
+                                        VerticalAlignment="Center"
+                                        Click="CloseConnectionButton_Click"
+                                        ToolTipService.ToolTip="{Binding [ConnectionsCloseTooltip], Source={StaticResource L}}">
+                                        <TextBlock
+                                            Text="&#x00D7;"
+                                            FontSize="18"
+                                            FontWeight="SemiBold"
                                             VerticalAlignment="Center"
-                                            Click="CloseConnectionButton_Click"
-                                            ToolTipService.ToolTip="{Binding [ConnectionsCloseTooltip], Source={StaticResource L}}">
-                                            <TextBlock
-                                                Text="&#x00D7;"
-                                                FontSize="18"
-                                                FontWeight="SemiBold"
-                                                VerticalAlignment="Center"
-                                                HorizontalAlignment="Center" />
-                                        </Button>
+                                            HorizontalAlignment="Center" />
+                                    </Button>
 
-                                        <TextBlock Grid.Column="1" Text="{Binding HostDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="2" Text="{Binding TypeDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="3" Text="{Binding RuleDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="4" Text="{Binding ChainDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="5" Text="{Binding DownloadSpeedText}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="6" Text="{Binding UploadSpeedText}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="7" Text="{Binding DownloadText}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="8" Text="{Binding UploadText}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                        <TextBlock Grid.Column="9" Text="{Binding DurationText}" Style="{StaticResource ConnectionsCellTextStyle}" />
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-                </ScrollViewer>
+                                    <TextBlock Grid.Column="1" Text="{Binding HostDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="2" Text="{Binding TypeDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="3" Text="{Binding RuleDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="4" Text="{Binding ChainDisplay}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="5" Text="{Binding DownloadSpeedText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="6" Text="{Binding UploadSpeedText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="7" Text="{Binding DownloadText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="8" Text="{Binding UploadText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                    <TextBlock Grid.Column="9" Text="{Binding DurationText}" Style="{StaticResource ConnectionsCellTextStyle}" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
             </Grid>
         </Border>
     </Grid>

@@ -34,6 +34,7 @@ namespace ClashWinUI.ViewModels
         private const int TestAllConcurrencyLimit = 8;
         private const int ControllerWarmupAttempts = 3;
         private static readonly TimeSpan ControllerWarmupDelay = TimeSpan.FromMilliseconds(250);
+        private static readonly TimeSpan RuntimeRefreshCoalesceDelay = TimeSpan.FromMilliseconds(150);
 
         private readonly LocalizedStrings _localizedStrings;
         private readonly IProfileService _profileService;
@@ -51,9 +52,19 @@ namespace ClashWinUI.ViewModels
         private CancellationTokenSource? _loadCancellation;
         private string _currentRuntimePath = string.Empty;
         private string _currentRuntimeFingerprint = string.Empty;
+        private string _loadedProfileId = string.Empty;
+        private string _loadedRuntimePath = string.Empty;
+        private string _loadedRuntimeFingerprint = string.Empty;
+        private string _queuedRefreshReason = "runtime-change";
+        private bool _hasLoadedRuntime;
+        private bool _isActive;
+        private bool _isProxyGroupsRefreshRunning;
+        private bool _isRuntimeRefreshQueued;
         private bool _isWatchingRuntimeChanges;
         private bool _isDisposed;
         private int _loadVersion;
+        private int _runtimeChangeVersion;
+        private int _loadedRuntimeChangeVersion;
 
         [ObservableProperty]
         public partial string Title { get; set; }
@@ -124,21 +135,63 @@ namespace ClashWinUI.ViewModels
 
         public Task InitializeAsync()
         {
+            return ActivateAsync();
+        }
+
+        public Task ActivateAsync()
+        {
+            if (_isDisposed)
+            {
+                return Task.CompletedTask;
+            }
+
+            _isActive = true;
+            StartWatchingRuntimeChanges();
+            return EnsureGroupsLoadedAsync(force: false, reapplyRuntime: false, reason: "init");
+        }
+
+        public void Deactivate()
+        {
+            _isActive = false;
+        }
+
+        private Task EnsureGroupsLoadedAsync(bool force, bool reapplyRuntime, string reason)
+        {
+            if (_isDisposed || _disposeCancellation.IsCancellationRequested)
+            {
+                return Task.CompletedTask;
+            }
+
+            ProfileItem? activeProfile = _profileService.GetActiveProfile();
+            ActiveProfile = activeProfile;
+            if (activeProfile is null)
+            {
+                ApplyNoActiveProfileSnapshot();
+                return Task.CompletedTask;
+            }
+
+            string runtimePath = _configService.GetWorkspace(activeProfile).RuntimePath;
+            _ = FileFingerprintHelper.TryGetFingerprint(runtimePath, out string runtimeFingerprint);
+            if (!force && HasLoadedRuntime(activeProfile, runtimePath, runtimeFingerprint))
+            {
+                return Task.CompletedTask;
+            }
+
             if (!TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken))
             {
                 return Task.CompletedTask;
             }
 
             Stopwatch immediateStopwatch = Stopwatch.StartNew();
-            ApplyImmediateSnapshot();
+            ApplyImmediateSnapshot(activeProfile, runtimePath, runtimeFingerprint);
             immediateStopwatch.Stop();
             PerformanceTraceHelper.LogElapsed(
                 "proxies init immediate",
                 immediateStopwatch.Elapsed,
                 TimeSpan.FromMilliseconds(16));
 
-            _ = RefreshGroupsAsync(requestVersion, cancellationToken, reapplyRuntime: false, reason: "init");
-            return Task.CompletedTask;
+            int runtimeChangeVersion = _runtimeChangeVersion;
+            return RefreshGroupsAsync(requestVersion, cancellationToken, reapplyRuntime, reason, runtimeChangeVersion);
         }
 
         public void StartWatchingRuntimeChanges()
@@ -148,6 +201,8 @@ namespace ClashWinUI.ViewModels
                 return;
             }
 
+            _profileService.ActiveProfileChanged += OnActiveProfileChanged;
+            _configService.ConfigurationChanged += OnConfigurationChanged;
             _mihomoService.ConfigApplied += OnMihomoConfigApplied;
             _isWatchingRuntimeChanges = true;
         }
@@ -159,6 +214,8 @@ namespace ClashWinUI.ViewModels
                 return;
             }
 
+            _profileService.ActiveProfileChanged -= OnActiveProfileChanged;
+            _configService.ConfigurationChanged -= OnConfigurationChanged;
             _mihomoService.ConfigApplied -= OnMihomoConfigApplied;
             _isWatchingRuntimeChanges = false;
         }
@@ -166,12 +223,7 @@ namespace ClashWinUI.ViewModels
         [RelayCommand]
         private async Task RefreshAsync()
         {
-            if (!TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken))
-            {
-                return;
-            }
-
-            await RefreshGroupsAsync(requestVersion, cancellationToken, reapplyRuntime: true, reason: "manual");
+            await EnsureGroupsLoadedAsync(force: true, reapplyRuntime: true, reason: "manual");
         }
 
         [RelayCommand]
@@ -342,21 +394,26 @@ namespace ClashWinUI.ViewModels
             group.ShowMoreMembers();
         }
 
-        private void ApplyImmediateSnapshot()
+        private void ApplyNoActiveProfileSnapshot()
         {
-            ActiveProfile = _profileService.GetActiveProfile();
+            CancelLoad();
+            ActiveProfile = null;
             _currentRuntimePath = string.Empty;
             _currentRuntimeFingerprint = string.Empty;
+            _loadedProfileId = string.Empty;
+            _loadedRuntimePath = string.Empty;
+            _loadedRuntimeFingerprint = string.Empty;
+            _hasLoadedRuntime = true;
+            _loadedRuntimeChangeVersion = _runtimeChangeVersion;
+            ProxyGroups = Array.Empty<ProxyGroup>();
+            StatusMessage = _localizedStrings["ProxiesStatusNoActiveProfile"];
+        }
 
-            if (ActiveProfile is null)
-            {
-                ProxyGroups = Array.Empty<ProxyGroup>();
-                StatusMessage = _localizedStrings["ProxiesStatusNoActiveProfile"];
-                return;
-            }
+        private void ApplyImmediateSnapshot(ProfileItem activeProfile, string runtimePath, string runtimeFingerprint)
+        {
+            ActiveProfile = activeProfile;
 
-            string runtimePath = _configService.GetWorkspace(ActiveProfile).RuntimePath;
-            if (FileFingerprintHelper.TryGetFingerprint(runtimePath, out string runtimeFingerprint)
+            if (!string.IsNullOrWhiteSpace(runtimeFingerprint)
                 && _pageWarmCacheService.TryGetProxyGroups(runtimeFingerprint, out IReadOnlyList<ProxyGroup> cachedGroups))
             {
                 _currentRuntimePath = runtimePath;
@@ -370,8 +427,26 @@ namespace ClashWinUI.ViewModels
                 return;
             }
 
-            ProxyGroups = Array.Empty<ProxyGroup>();
+            if (!IsSameLoadedRuntime(activeProfile, runtimePath, runtimeFingerprint))
+            {
+                ProxyGroups = Array.Empty<ProxyGroup>();
+            }
+
             StatusMessage = string.Empty;
+        }
+
+        private bool HasLoadedRuntime(ProfileItem activeProfile, string runtimePath, string runtimeFingerprint)
+        {
+            return _hasLoadedRuntime
+                && _loadedRuntimeChangeVersion == _runtimeChangeVersion
+                && IsSameLoadedRuntime(activeProfile, runtimePath, runtimeFingerprint);
+        }
+
+        private bool IsSameLoadedRuntime(ProfileItem activeProfile, string runtimePath, string runtimeFingerprint)
+        {
+            return string.Equals(_loadedProfileId, activeProfile.Id, StringComparison.OrdinalIgnoreCase)
+                && PathsEqual(_loadedRuntimePath, runtimePath)
+                && string.Equals(_loadedRuntimeFingerprint, runtimeFingerprint, StringComparison.Ordinal);
         }
 
         private bool TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken)
@@ -412,13 +487,14 @@ namespace ClashWinUI.ViewModels
             }
         }
 
-        private async Task RefreshGroupsAsync(int requestVersion, CancellationToken cancellationToken, bool reapplyRuntime, string reason)
+        private async Task RefreshGroupsAsync(int requestVersion, CancellationToken cancellationToken, bool reapplyRuntime, string reason, int runtimeChangeVersion)
         {
             if (!IsCurrentRequest(requestVersion, cancellationToken))
             {
                 return;
             }
 
+            _isProxyGroupsRefreshRunning = true;
             IsBusy = true;
             IsProxyGroupsLoading = true;
             Stopwatch totalStopwatch = Stopwatch.StartNew();
@@ -431,14 +507,11 @@ namespace ClashWinUI.ViewModels
                     return;
                 }
 
-                ProfileItem? activeProfile = ActiveProfile ?? _profileService.GetActiveProfile();
+                ProfileItem? activeProfile = _profileService.GetActiveProfile();
                 ActiveProfile = activeProfile;
                 if (activeProfile is null)
                 {
-                    ProxyGroups = Array.Empty<ProxyGroup>();
-                    _currentRuntimePath = string.Empty;
-                    _currentRuntimeFingerprint = string.Empty;
-                    StatusMessage = _localizedStrings["ProxiesStatusNoActiveProfile"];
+                    ApplyNoActiveProfileSnapshot();
                     return;
                 }
 
@@ -462,7 +535,7 @@ namespace ClashWinUI.ViewModels
                 }
 
                 Stopwatch applyStopwatch = Stopwatch.StartNew();
-                ApplyLoadedGroups(refreshResult);
+                ApplyLoadedGroups(refreshResult, runtimeChangeVersion);
                 applyStopwatch.Stop();
                 PerformanceTraceHelper.LogElapsed(
                     $"proxies init apply ({reason})",
@@ -490,6 +563,7 @@ namespace ClashWinUI.ViewModels
 
                 if (requestVersion == _loadVersion)
                 {
+                    _isProxyGroupsRefreshRunning = false;
                     IsProxyGroupsLoading = false;
                     if (!_isDisposed)
                     {
@@ -627,10 +701,15 @@ namespace ClashWinUI.ViewModels
             return bestResult;
         }
 
-        private void ApplyLoadedGroups(ProxyRefreshResult refreshResult)
+        private void ApplyLoadedGroups(ProxyRefreshResult refreshResult, int runtimeChangeVersion)
         {
             _currentRuntimePath = refreshResult.Context.RuntimePath;
             _currentRuntimeFingerprint = refreshResult.Context.RuntimeFingerprint;
+            _loadedProfileId = refreshResult.Context.Profile.Id;
+            _loadedRuntimePath = refreshResult.Context.RuntimePath;
+            _loadedRuntimeFingerprint = refreshResult.Context.RuntimeFingerprint;
+            _hasLoadedRuntime = true;
+            _loadedRuntimeChangeVersion = runtimeChangeVersion;
 
             if (refreshResult.LoadResult.Groups.Count > 0)
             {
@@ -731,22 +810,89 @@ namespace ClashWinUI.ViewModels
                 && !NonTestableNodeTypes.Contains(node.Type);
         }
 
+        private void OnActiveProfileChanged(object? sender, EventArgs e)
+        {
+            RequestRuntimeRefresh("profile-changed");
+        }
+
+        private void OnConfigurationChanged(object? sender, EventArgs e)
+        {
+            RequestRuntimeRefresh("configuration-changed");
+        }
+
         private void OnMihomoConfigApplied(object? sender, string configPath)
+        {
+            RequestRuntimeRefresh("config-applied");
+        }
+
+        private void RequestRuntimeRefresh(string reason)
         {
             if (_isDisposed || _dispatcherQueue is null)
             {
                 return;
             }
 
-            _dispatcherQueue.TryEnqueue(() =>
-            {
-                if (IsBusy || !TryBeginLoadSession(out int requestVersion, out CancellationToken cancellationToken))
-                {
-                    return;
-                }
+            _dispatcherQueue.TryEnqueue(() => QueueRuntimeRefresh(reason));
+        }
 
-                _ = RefreshGroupsAsync(requestVersion, cancellationToken, reapplyRuntime: false, reason: "config-applied");
-            });
+        private void QueueRuntimeRefresh(string reason)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            if ((_isRuntimeRefreshQueued || _isProxyGroupsRefreshRunning)
+                && string.Equals(reason, "config-applied", StringComparison.Ordinal))
+            {
+                _queuedRefreshReason = reason;
+                return;
+            }
+
+            _runtimeChangeVersion++;
+            _queuedRefreshReason = reason;
+            StartQueuedRuntimeRefresh();
+        }
+
+        private void StartQueuedRuntimeRefresh()
+        {
+            if (_isDisposed || !_isActive || _isRuntimeRefreshQueued)
+            {
+                return;
+            }
+
+            _isRuntimeRefreshQueued = true;
+            _ = RunQueuedRuntimeRefreshAsync();
+        }
+
+        private async Task RunQueuedRuntimeRefreshAsync()
+        {
+            int targetRuntimeChangeVersion = _runtimeChangeVersion;
+            bool hasNewerRuntimeChange = false;
+
+            try
+            {
+                await Task.Delay(RuntimeRefreshCoalesceDelay, _disposeCancellation.Token);
+                targetRuntimeChangeVersion = _runtimeChangeVersion;
+                string reason = _queuedRefreshReason;
+                await EnsureGroupsLoadedAsync(force: true, reapplyRuntime: false, reason);
+                hasNewerRuntimeChange = _runtimeChangeVersion != targetRuntimeChangeVersion;
+            }
+            catch (OperationCanceledException)
+            {
+                // Ignore when the page is released while a coalesced refresh is waiting.
+            }
+            finally
+            {
+                _isRuntimeRefreshQueued = false;
+                if (hasNewerRuntimeChange
+                    && _isActive
+                    && !_isDisposed
+                    && _loadedRuntimeChangeVersion != _runtimeChangeVersion)
+                {
+                    StartQueuedRuntimeRefresh();
+                }
+            }
         }
 
         private async Task<int> TestNodesAsync(IReadOnlyList<ProxyNode> nodes, CancellationToken cancellationToken)

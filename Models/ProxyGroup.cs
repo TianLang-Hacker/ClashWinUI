@@ -47,7 +47,37 @@ namespace ClashWinUI.Models
 
         partial void OnIsExpandedChanged(bool value)
         {
-            _visibleMemberLimit = value ? VisibleMembersBatchSize : 0;
+            if (value)
+            {
+                _visibleMemberLimit = Math.Max(_visibleMemberLimit, VisibleMembersBatchSize);
+                RefreshVisibleMembers();
+                return;
+            }
+
+            _visibleMemberLimit = 0;
+            OnPropertyChanged(nameof(HasHiddenMembers));
+            OnPropertyChanged(nameof(MembersProgressText));
+        }
+
+        public void BeginExpandMembers()
+        {
+            if (!IsExpanded)
+            {
+                return;
+            }
+
+            _visibleMemberLimit = Math.Max(_visibleMemberLimit, VisibleMembersBatchSize);
+            RefreshVisibleMembers();
+        }
+
+        public void CollapseMembersAfterAnimation()
+        {
+            if (IsExpanded)
+            {
+                return;
+            }
+
+            _visibleMemberLimit = 0;
             RefreshVisibleMembers();
         }
 
