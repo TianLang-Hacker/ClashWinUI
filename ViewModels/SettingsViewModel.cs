@@ -199,6 +199,9 @@ namespace ClashWinUI.ViewModels
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
             _appSettingsService.SettingsChanged += OnAppSettingsChanged;
+            _profileService.ActiveProfileChanged += OnProfileContextChanged;
+            _profileService.ProfilesChanged += OnProfileContextChanged;
+            _configService.ConfigurationChanged += OnProfileContextChanged;
             _updateService.StateChanged += OnUpdateServiceStateChanged;
 
             _isInitializingState = true;
@@ -256,6 +259,9 @@ namespace ClashWinUI.ViewModels
             CancelProfileStateLoad();
             _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
             _appSettingsService.SettingsChanged -= OnAppSettingsChanged;
+            _profileService.ActiveProfileChanged -= OnProfileContextChanged;
+            _profileService.ProfilesChanged -= OnProfileContextChanged;
+            _configService.ConfigurationChanged -= OnProfileContextChanged;
             _updateService.StateChanged -= OnUpdateServiceStateChanged;
             _mixinApplySemaphore.Dispose();
         }
@@ -1439,6 +1445,16 @@ namespace ClashWinUI.ViewModels
             }
 
             RefreshUpdateState();
+        }
+
+        private void OnProfileContextChanged(object? sender, EventArgs e)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _ = InitializeAsync();
         }
 
         private void RefreshUpdateState()

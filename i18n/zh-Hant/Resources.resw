@@ -141,6 +141,9 @@
   <data name="NavSettings" xml:space="preserve">
     <value>設定</value>
   </data>
+  <data name="NavLightweightMode" xml:space="preserve">
+    <value>輕量模式</value>
+  </data>
   <data name="PageOverview" xml:space="preserve">
     <value>概覽</value>
   </data>

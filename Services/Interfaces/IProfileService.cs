@@ -8,6 +8,7 @@ namespace ClashWinUI.Services.Interfaces
     public interface IProfileService
     {
         event System.EventHandler? ActiveProfileChanged;
+        event System.EventHandler? ProfilesChanged;
 
         string ProfilesDirectory { get; }
         IReadOnlyList<ProfileItem> GetProfiles();

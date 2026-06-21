@@ -2,6 +2,7 @@ using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Serialization;
 using ClashWinUI.Services.Interfaces;
+using ClashWinUI.Common;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,7 +15,7 @@ using System.Threading.Tasks;
 
 namespace ClashWinUI.Services.Implementations
 {
-    public class ProfileService : IProfileService
+    public class ProfileService : IProfileService, IDisposable
     {
         private const string IndexFileName = "profiles.json";
         private static readonly HttpClient HttpClient = CreateHttpClient();
@@ -49,21 +50,26 @@ namespace ClashWinUI.Services.Implementations
         private readonly IConfigService _configService;
         private readonly IAppLogService _logService;
         private readonly string _indexFilePath;
+        private readonly SynchronizationContext? _synchronizationContext;
+        private readonly FileSystemWatcher? _storeWatcher;
         private ProfileStoreState _store;
+        private int _reloadQueued;
 
         public event EventHandler? ActiveProfileChanged;
+        public event EventHandler? ProfilesChanged;
 
         public ProfileService(IConfigService configService, IAppLogService logService)
         {
             _configService = configService;
             _logService = logService;
+            _synchronizationContext = SynchronizationContext.Current;
 
-            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            ProfilesDirectory = Path.Combine(userProfile, "ClashWinUI", "Profiles");
+            ProfilesDirectory = AppDataPaths.ProfilesDirectoryPath;
             _indexFilePath = Path.Combine(ProfilesDirectory, IndexFileName);
 
             Directory.CreateDirectory(ProfilesDirectory);
             _store = LoadStore();
+            _storeWatcher = CreateStoreWatcher();
         }
 
         public string ProfilesDirectory { get; }
@@ -141,6 +147,7 @@ namespace ClashWinUI.Services.Implementations
             _configService.BuildRuntime(profile);
             SaveStore();
             NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
+            RaiseProfilesChanged();
             _logService.Add($"Subscription saved: {MaskSensitiveQuery(uri)}");
             return profile;
         }
@@ -188,6 +195,7 @@ namespace ClashWinUI.Services.Implementations
             _configService.BuildRuntime(profile);
             SaveStore();
             NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
+            RaiseProfilesChanged();
             _logService.Add($"Local profile imported: {localFilePath}");
             return profile;
         }
@@ -211,6 +219,7 @@ namespace ClashWinUI.Services.Implementations
             _configService.BuildRuntime(profile);
             SaveStore();
             NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
+            RaiseProfilesChanged();
             _logService.Add($"Active profile switched: {profile.DisplayName}");
             return true;
         }
@@ -260,8 +269,20 @@ namespace ClashWinUI.Services.Implementations
 
             SaveStore();
             NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
+            RaiseProfilesChanged();
             _logService.Add($"Profile deleted: {profile.DisplayName}");
             return true;
+        }
+
+        public void Dispose()
+        {
+            if (_storeWatcher is null)
+            {
+                return;
+            }
+
+            _storeWatcher.EnableRaisingEvents = false;
+            _storeWatcher.Dispose();
         }
 
         private void NotifyActiveProfileChangedIfNeeded(string? previousActiveProfileId, string? currentActiveProfileId)
@@ -271,7 +292,7 @@ namespace ClashWinUI.Services.Implementations
                 return;
             }
 
-            ActiveProfileChanged?.Invoke(this, EventArgs.Empty);
+            RaiseActiveProfileChanged();
         }
 
         private ProfileStoreState LoadStore()
@@ -334,6 +355,7 @@ namespace ClashWinUI.Services.Implementations
             if (changed)
             {
                 SaveStore();
+                RaiseProfilesChanged();
             }
         }
 
@@ -357,7 +379,91 @@ namespace ClashWinUI.Services.Implementations
             if (changed)
             {
                 SaveStore();
+                RaiseProfilesChanged();
             }
+        }
+
+        private FileSystemWatcher? CreateStoreWatcher()
+        {
+            try
+            {
+                Directory.CreateDirectory(ProfilesDirectory);
+                var watcher = new FileSystemWatcher(ProfilesDirectory, Path.GetFileName(_indexFilePath))
+                {
+                    NotifyFilter = NotifyFilters.CreationTime | NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true,
+                };
+                watcher.Changed += OnStoreFileChanged;
+                watcher.Created += OnStoreFileChanged;
+                watcher.Renamed += OnStoreFileChanged;
+                return watcher;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void OnStoreFileChanged(object sender, FileSystemEventArgs e)
+        {
+            if (Interlocked.Exchange(ref _reloadQueued, 1) == 1)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(150).ConfigureAwait(false);
+                    ReloadStoreFromDisk();
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _reloadQueued, 0);
+                }
+            });
+        }
+
+        private void ReloadStoreFromDisk()
+        {
+            ProfileStoreState reloaded = LoadStore();
+            string? previousActiveProfileId = _store.ActiveProfileId;
+            bool changed;
+
+            string currentPayload = JsonSerializer.Serialize(_store, ClashJsonContext.Default.ProfileStoreState);
+            string nextPayload = JsonSerializer.Serialize(reloaded, ClashJsonContext.Default.ProfileStoreState);
+            changed = !string.Equals(currentPayload, nextPayload, StringComparison.Ordinal);
+            if (!changed)
+            {
+                return;
+            }
+
+            _store = reloaded;
+            RaiseProfilesChanged();
+            NotifyActiveProfileChangedIfNeeded(previousActiveProfileId, _store.ActiveProfileId);
+        }
+
+        private void RaiseActiveProfileChanged()
+        {
+            if (_synchronizationContext is not null)
+            {
+                _synchronizationContext.Post(_ => ActiveProfileChanged?.Invoke(this, EventArgs.Empty), null);
+                return;
+            }
+
+            ActiveProfileChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void RaiseProfilesChanged()
+        {
+            if (_synchronizationContext is not null)
+            {
+                _synchronizationContext.Post(_ => ProfilesChanged?.Invoke(this, EventArgs.Empty), null);
+                return;
+            }
+
+            ProfilesChanged?.Invoke(this, EventArgs.Empty);
         }
 
         private static string BuildDisplayName(string raw)

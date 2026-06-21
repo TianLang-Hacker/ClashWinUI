@@ -80,6 +80,17 @@
             </NavigationViewItem>
         </NavigationView.MenuItems>
 
+        <NavigationView.FooterMenuItems>
+            <NavigationViewItem
+                x:Name="LightweightModeNavItem"
+                Content="{Binding [NavLightweightMode], Source={StaticResource L}}"
+                Tag="lightweight-mode">
+                <NavigationViewItem.Icon>
+                    <SymbolIcon Symbol="Stop" />
+                </NavigationViewItem.Icon>
+            </NavigationViewItem>
+        </NavigationView.FooterMenuItems>
+
         <Frame x:Name="contentFrame" />
     </NavigationView>
 </UserControl>

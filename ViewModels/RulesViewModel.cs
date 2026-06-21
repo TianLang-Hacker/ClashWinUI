@@ -75,6 +75,9 @@ namespace ClashWinUI.ViewModels
             _pageWarmCacheService = pageWarmCacheService;
 
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
+            _profileService.ActiveProfileChanged += OnRulesSourceChanged;
+            _profileService.ProfilesChanged += OnRulesSourceChanged;
+            _configService.ConfigurationChanged += OnRulesSourceChanged;
 
             Title = _localizedStrings["PageRules"];
             StatusMessage = string.Empty;
@@ -94,6 +97,9 @@ namespace ClashWinUI.ViewModels
             CancelSearchDebounce();
             _disposeCancellation.Cancel();
             _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
+            _profileService.ActiveProfileChanged -= OnRulesSourceChanged;
+            _profileService.ProfilesChanged -= OnRulesSourceChanged;
+            _configService.ConfigurationChanged -= OnRulesSourceChanged;
             _allRules = Array.Empty<RuntimeRuleItem>();
             Rules = Array.Empty<RuntimeRuleItem>();
             _activeProfile = null;
@@ -615,6 +621,16 @@ namespace ClashWinUI.ViewModels
             {
                 StatusMessage = string.Format(_localizedStrings["RulesStatusLoaded"], _allRules.Count);
             }
+        }
+
+        private void OnRulesSourceChanged(object? sender, EventArgs e)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _ = InitializeAsync();
         }
 
         private bool IsCurrentRequest(int requestVersion, CancellationToken cancellationToken)

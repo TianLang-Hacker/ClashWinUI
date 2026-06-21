@@ -68,6 +68,8 @@ namespace ClashWinUI.ViewModels
             _tunService = tunService;
             _systemProxyService = systemProxyService;
             _localizedStrings.PropertyChanged += OnLocalizedStringsPropertyChanged;
+            _profileService.ActiveProfileChanged += OnProfileStateChanged;
+            _profileService.ProfilesChanged += OnProfileStateChanged;
 
             Title = _localizedStrings["PageProfiles"];
             SubscriptionUrl = string.Empty;
@@ -84,6 +86,8 @@ namespace ClashWinUI.ViewModels
 
             _isDisposed = true;
             _localizedStrings.PropertyChanged -= OnLocalizedStringsPropertyChanged;
+            _profileService.ActiveProfileChanged -= OnProfileStateChanged;
+            _profileService.ProfilesChanged -= OnProfileStateChanged;
         }
 
         public Task InitializeAsync()
@@ -416,6 +420,17 @@ namespace ClashWinUI.ViewModels
 
             Title = _localizedStrings["PageProfiles"];
             ReloadProfiles();
+        }
+
+        private void OnProfileStateChanged(object? sender, EventArgs e)
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            ReloadProfiles();
+            QueueProfileMetadataRefresh();
         }
 
         private string GetApplyFailureStatus(string fallbackResourceKey, string? runtimePath)

@@ -10,6 +10,7 @@ namespace ClashWinUI.Views
 {
     public sealed partial class MainShellControl : UserControl, IDisposable
     {
+        private const string LightweightModeActionTag = "lightweight-mode";
         private readonly MainViewModel _viewModel;
         private readonly INavigationService _navigationService;
         private bool _isSynchronizingSelection;
@@ -69,7 +70,7 @@ namespace ClashWinUI.Views
             contentFrame.Content = null;
         }
 
-        private void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+        private async void NavigationView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             if (_isSynchronizingSelection)
             {
@@ -78,6 +79,17 @@ namespace ClashWinUI.Views
 
             if (args.SelectedItemContainer?.Tag is string routeKey)
             {
+                if (string.Equals(routeKey, LightweightModeActionTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    SyncNavigationSelection();
+                    if (Application.Current is App app)
+                    {
+                        await app.RequestLightweightModeAsync();
+                    }
+
+                    return;
+                }
+
                 _viewModel.NavigateCommand.Execute(routeKey);
             }
         }

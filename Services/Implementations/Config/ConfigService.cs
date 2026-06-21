@@ -3,6 +3,7 @@ using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Serialization;
 using ClashWinUI.Services.Interfaces;
+using ClashWinUI.Common;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -11,11 +12,13 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 using YamlDotNet.RepresentationModel;
 
 namespace ClashWinUI.Services.Implementations.Config
 {
-    public class ConfigService : IConfigService
+    public class ConfigService : IConfigService, IDisposable
     {
         private const string SourceFileName = "source.yaml";
         private const string MixinFileName = "mixin.yaml";
@@ -29,8 +32,11 @@ namespace ClashWinUI.Services.Implementations.Config
         private readonly IAppLogService _logService;
         private readonly IPageWarmCacheService _pageWarmCacheService;
         private readonly string _profilesRoot;
+        private readonly SynchronizationContext? _synchronizationContext;
+        private readonly FileSystemWatcher? _profilesWatcher;
         private readonly object _runtimeRulesCacheSync = new();
         private readonly Dictionary<string, IReadOnlyList<RuntimeRuleItem>> _runtimeRulesCache = new(StringComparer.Ordinal);
+        private int _configurationReloadQueued;
 
         public event EventHandler? ConfigurationChanged;
 
@@ -38,10 +44,11 @@ namespace ClashWinUI.Services.Implementations.Config
         {
             _logService = logService;
             _pageWarmCacheService = pageWarmCacheService;
+            _synchronizationContext = SynchronizationContext.Current;
 
-            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            _profilesRoot = Path.Combine(userProfile, "ClashWinUI", "Profiles");
+            _profilesRoot = AppDataPaths.ProfilesDirectoryPath;
             Directory.CreateDirectory(_profilesRoot);
+            _profilesWatcher = CreateProfilesWatcher();
         }
 
         public ProfileConfigWorkspace GetWorkspace(ProfileItem profile)
@@ -109,7 +116,7 @@ namespace ClashWinUI.Services.Implementations.Config
             WriteMixinSettings(workspace.MixinPath, settings);
             InvalidateRuntimeRulesCache();
             _pageWarmCacheService.Clear();
-            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
+            RaiseConfigurationChanged();
         }
 
         public string BuildRuntime(ProfileItem profile)
@@ -118,7 +125,7 @@ namespace ClashWinUI.Services.Implementations.Config
             BuildRuntimeInternal(workspace);
             InvalidateRuntimeRulesCache();
             _pageWarmCacheService.Clear();
-            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
+            RaiseConfigurationChanged();
             return workspace.RuntimePath;
         }
 
@@ -182,7 +189,18 @@ namespace ClashWinUI.Services.Implementations.Config
             SaveRulesOverrideState(workspace, disabledRuleIds);
             InvalidateRuntimeRulesCache();
             _pageWarmCacheService.Clear();
-            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
+            RaiseConfigurationChanged();
+        }
+
+        public void Dispose()
+        {
+            if (_profilesWatcher is null)
+            {
+                return;
+            }
+
+            _profilesWatcher.EnableRaisingEvents = false;
+            _profilesWatcher.Dispose();
         }
 
         private bool UpdateProfilePaths(ProfileItem profile, ProfileConfigWorkspace workspace)
@@ -264,6 +282,82 @@ namespace ClashWinUI.Services.Implementations.Config
                 _logService.Add($"Build runtime.yaml failed: {ex.Message}", LogLevel.Warning);
                 throw;
             }
+        }
+
+        private FileSystemWatcher? CreateProfilesWatcher()
+        {
+            try
+            {
+                var watcher = new FileSystemWatcher(_profilesRoot)
+                {
+                    IncludeSubdirectories = true,
+                    Filter = "*.*",
+                    NotifyFilter = NotifyFilters.CreationTime | NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    EnableRaisingEvents = true,
+                };
+                watcher.Changed += OnProfilesFileChanged;
+                watcher.Created += OnProfilesFileChanged;
+                watcher.Deleted += OnProfilesFileChanged;
+                watcher.Renamed += OnProfilesFileChanged;
+                return watcher;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void OnProfilesFileChanged(object sender, FileSystemEventArgs e)
+        {
+            if (!IsConfigFileChange(e.FullPath))
+            {
+                return;
+            }
+
+            if (Interlocked.Exchange(ref _configurationReloadQueued, 1) == 1)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(150).ConfigureAwait(false);
+                    InvalidateRuntimeRulesCache();
+                    _pageWarmCacheService.Clear();
+                    RaiseConfigurationChanged();
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _configurationReloadQueued, 0);
+                }
+            });
+        }
+
+        private void RaiseConfigurationChanged()
+        {
+            if (_synchronizationContext is not null)
+            {
+                _synchronizationContext.Post(_ => ConfigurationChanged?.Invoke(this, EventArgs.Empty), null);
+                return;
+            }
+
+            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private static bool IsConfigFileChange(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                return false;
+            }
+
+            string fileName = Path.GetFileName(path);
+            return string.Equals(fileName, SourceFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, MixinFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, RuntimeFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(fileName, RulesOverrideFileName, StringComparison.OrdinalIgnoreCase);
         }
 
         private YamlMappingNode BuildMergedMapping(ProfileConfigWorkspace workspace)

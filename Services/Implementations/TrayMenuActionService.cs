@@ -57,6 +57,7 @@ namespace ClashWinUI.Services.Implementations
             _logService = logService;
 
             _profileService.ActiveProfileChanged += OnMenuDataChanged;
+            _profileService.ProfilesChanged += OnMenuDataChanged;
             _configService.ConfigurationChanged += OnMenuDataChanged;
             _mihomoService.ConfigApplied += OnMihomoConfigApplied;
         }
@@ -249,6 +250,7 @@ namespace ClashWinUI.Services.Implementations
 
             _isDisposed = true;
             _profileService.ActiveProfileChanged -= OnMenuDataChanged;
+            _profileService.ProfilesChanged -= OnMenuDataChanged;
             _configService.ConfigurationChanged -= OnMenuDataChanged;
             _mihomoService.ConfigApplied -= OnMihomoConfigApplied;
             _refreshSemaphore.Dispose();

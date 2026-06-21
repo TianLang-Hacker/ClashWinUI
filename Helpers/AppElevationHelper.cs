@@ -79,6 +79,11 @@ namespace ClashWinUI.Helpers
             }
         }
 
+        public static ElevationRelaunchOutcome TryLaunchNewInstance()
+        {
+            return TryRelaunch();
+        }
+
         private static ElevationTargetInfo ResolveElevationTarget()
         {
             if (TryResolvePackagedShellTarget(out string shellTarget))

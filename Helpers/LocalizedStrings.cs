@@ -68,6 +68,8 @@ namespace ClashWinUI.Helpers
         public void Initialize(IAppSettingsService appSettingsService)
         {
             _appSettingsService = appSettingsService;
+            _appSettingsService.SettingsChanged -= OnAppSettingsChanged;
+            _appSettingsService.SettingsChanged += OnAppSettingsChanged;
             if (!string.IsNullOrWhiteSpace(appSettingsService.LanguageTag))
             {
                 SetLanguage(appSettingsService.LanguageTag);
@@ -103,6 +105,23 @@ namespace ClashWinUI.Helpers
             {
                 StartupTrace.Write("LocalizedStrings.SetLanguage: unchanged shared language");
             }
+        }
+
+        private void OnAppSettingsChanged(object? sender, EventArgs e)
+        {
+            if (_appSettingsService is null)
+            {
+                return;
+            }
+
+            string languageTag = _appSettingsService.LanguageTag;
+            if (string.IsNullOrWhiteSpace(languageTag)
+                || string.Equals(CurrentLanguage, NormalizeLanguage(languageTag), StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            SetLanguage(languageTag);
         }
 
         private string GetString(string key)

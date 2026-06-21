@@ -1,0 +1,134 @@
+using ClashWinUI.Models;
+using ClashWinUI.Serialization;
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Text;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ClashWinUI.Helpers
+{
+    internal sealed class AppControlChannel : IDisposable
+    {
+        private readonly string _pipeName;
+        private readonly Func<AppControlCommand, Task> _commandHandler;
+        private readonly CancellationTokenSource _cancellation = new();
+        private Task? _serverLoopTask;
+        private bool _isDisposed;
+
+        public AppControlChannel(AppProcessRole role, Func<AppControlCommand, Task> commandHandler)
+        {
+            _pipeName = GetPipeName(role);
+            _commandHandler = commandHandler;
+        }
+
+        public void Start()
+        {
+            if (_serverLoopTask is not null || _isDisposed)
+            {
+                return;
+            }
+
+            _serverLoopTask = RunServerLoopAsync(_cancellation.Token);
+        }
+
+        public void Dispose()
+        {
+            if (_isDisposed)
+            {
+                return;
+            }
+
+            _isDisposed = true;
+            _cancellation.Cancel();
+            try
+            {
+                _serverLoopTask?.GetAwaiter().GetResult();
+            }
+            catch
+            {
+                // Best-effort shutdown only.
+            }
+
+            _cancellation.Dispose();
+        }
+
+        public static async Task<bool> TrySendAsync(
+            AppProcessRole targetRole,
+            AppControlCommand command,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(command);
+
+            string payload = JsonSerializer.Serialize(command, ClashJsonContext.Default.AppControlCommand);
+
+            try
+            {
+                using var client = new NamedPipeClientStream(
+                    ".",
+                    GetPipeName(targetRole),
+                    PipeDirection.Out,
+                    PipeOptions.Asynchronous);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                linkedCts.CancelAfter(TimeSpan.FromSeconds(2));
+                await client.ConnectAsync(linkedCts.Token).ConfigureAwait(false);
+
+                using var writer = new StreamWriter(client, new UTF8Encoding(false), leaveOpen: true);
+                await writer.WriteAsync(payload.AsMemory(), linkedCts.Token).ConfigureAwait(false);
+                await writer.FlushAsync(linkedCts.Token).ConfigureAwait(false);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private async Task RunServerLoopAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    using var server = new NamedPipeServerStream(
+                        _pipeName,
+                        PipeDirection.In,
+                        1,
+                        PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous);
+
+                    await server.WaitForConnectionAsync(cancellationToken).ConfigureAwait(false);
+                    using var reader = new StreamReader(server, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+                    string payload = await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+                    if (string.IsNullOrWhiteSpace(payload))
+                    {
+                        continue;
+                    }
+
+                    AppControlCommand? command = JsonSerializer.Deserialize(payload, ClashJsonContext.Default.AppControlCommand);
+                    if (command is not null)
+                    {
+                        await _commandHandler(command).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch
+                {
+                    await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private static string GetPipeName(AppProcessRole role)
+        {
+            string roleSegment = role == AppProcessRole.Tray ? "tray" : "ui";
+            string userSegment = Environment.UserName.Replace('\\', '_').Replace('/', '_');
+            return $"ClashWinUI.{userSegment}.{roleSegment}";
+        }
+    }
+}

@@ -1,19 +1,21 @@
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using ClashWinUI.Helpers;
+using ClashWinUI.Common;
+using ClashWinUI.Serialization;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
-
+using System.Threading;
 namespace ClashWinUI.Services.Implementations
 {
-    public class ProcessService : IProcessService
+    public class ProcessService : IProcessService, IDisposable
     {
         private const string DefaultStartupFileName = "default-startup.yaml";
         private const int DefaultProxyPort = 7890;
@@ -28,11 +30,17 @@ namespace ClashWinUI.Services.Implementations
         private readonly IGeoDataService _geoDataService;
         private readonly HttpClient _controllerProbeClient = new();
         private readonly SemaphoreSlim _sync = new(1, 1);
+        private readonly string _runtimeStateFilePath;
+        private readonly SynchronizationContext? _synchronizationContext;
+        private readonly FileSystemWatcher? _runtimeStateWatcher;
 
         private Process? _mihomoProcess;
         private string? _currentConfigPath;
         private MihomoFailureDiagnostic _lastFailureDiagnostic = MihomoFailureDiagnostic.None;
         private MihomoFailureDiagnostic _lastTunKernelFailureDiagnostic = MihomoFailureDiagnostic.None;
+        private int _runtimeStateReloadQueued;
+
+        public event EventHandler? RuntimeStateChanged;
 
         public ProcessService(
             IKernelPathService kernelPathService,
@@ -46,6 +54,10 @@ namespace ClashWinUI.Services.Implementations
             _tunService = tunService;
             _logService = logService;
             _geoDataService = geoDataService;
+            _synchronizationContext = SynchronizationContext.Current;
+            _runtimeStateFilePath = AppDataPaths.RuntimeStateFilePath;
+            AppDataPaths.EnsureStateDirectory();
+            _runtimeStateWatcher = CreateRuntimeStateWatcher();
         }
 
         public bool IsRunning => _mihomoProcess is { HasExited: false };
@@ -57,6 +69,47 @@ namespace ClashWinUI.Services.Implementations
         public string? CurrentConfigPath => _currentConfigPath;
 
         public MihomoFailureDiagnostic LastFailureDiagnostic => _lastFailureDiagnostic;
+
+        public RuntimeStateSnapshot? GetPersistedRuntimeState()
+        {
+            try
+            {
+                if (!File.Exists(_runtimeStateFilePath))
+                {
+                    return null;
+                }
+
+                string payload = File.ReadAllText(_runtimeStateFilePath);
+                if (string.IsNullOrWhiteSpace(payload))
+                {
+                    return null;
+                }
+
+                return JsonSerializer.Deserialize(payload, ClashJsonContext.Default.RuntimeStateSnapshot);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public bool TryAttachToPersistedRuntime()
+        {
+            RuntimeStateSnapshot? snapshot = GetPersistedRuntimeState();
+            if (!ApplyRuntimeSnapshot(snapshot, raiseEvent: false))
+            {
+                return false;
+            }
+
+            bool reachable = IsControllerReachableAsync(CancellationToken.None).GetAwaiter().GetResult();
+            if (!reachable)
+            {
+                ClearAttachedProcess(disposeCurrent: true);
+                _currentConfigPath = null;
+            }
+
+            return reachable;
+        }
 
         public long? GetMihomoMemoryUsageBytes()
         {
@@ -187,6 +240,7 @@ namespace ClashWinUI.Services.Implementations
                 {
                     _currentConfigPath = effectiveConfigPath;
                     ResetFailureDiagnostic();
+                    PersistRuntimeState();
                     _logService.Add("Mihomo process already running. Reuse existing instance.");
                     return true;
                 }
@@ -198,8 +252,7 @@ namespace ClashWinUI.Services.Implementations
                     if (controllerReachable)
                     {
                         Process keepProcess = SelectProcessToKeep(existingOwnedProcesses);
-                        _mihomoProcess = keepProcess;
-                        _currentConfigPath = effectiveConfigPath;
+                        AttachProcess(keepProcess, effectiveConfigPath, persistState: true, raiseEvent: true);
                         ResetFailureDiagnostic();
                         _logService.Add($"Detected existing Mihomo process (PID={keepProcess.Id}). Reuse existing instance.");
 
@@ -289,7 +342,16 @@ namespace ClashWinUI.Services.Implementations
 
                 process.Exited += (_, _) =>
                 {
+                    Process? previousProcess = _mihomoProcess;
+                    if (previousProcess is not null && previousProcess.Id != process.Id)
+                    {
+                        return;
+                    }
+
+                    ClearAttachedProcess(disposeCurrent: false);
                     _currentConfigPath = null;
+                    PersistRuntimeState();
+                    RaiseRuntimeStateChanged();
                     _logService.Add("Mihomo process exited.", LogLevel.Warning);
                 };
 
@@ -348,8 +410,7 @@ namespace ClashWinUI.Services.Implementations
                     return false;
                 }
 
-                _mihomoProcess = process;
-                _currentConfigPath = effectiveConfigPath;
+                AttachProcess(process, effectiveConfigPath, persistState: true, raiseEvent: true);
                 _logService.Add($"Mihomo started with config: {effectiveConfigPath}, GeoDataDir={geoDataDirectory}");
 
                 return true;
@@ -412,6 +473,9 @@ namespace ClashWinUI.Services.Implementations
 
                     TryTerminateProcess(orphan, "orphan Mihomo process during shutdown");
                 }
+
+                PersistRuntimeState();
+                RaiseRuntimeStateChanged();
             }
             finally
             {
@@ -423,6 +487,13 @@ namespace ClashWinUI.Services.Implementations
         {
             _lastFailureDiagnostic = MihomoFailureDiagnostic.None;
             _lastTunKernelFailureDiagnostic = MihomoFailureDiagnostic.None;
+        }
+
+        public void Dispose()
+        {
+            _runtimeStateWatcher?.Dispose();
+            _sync.Dispose();
+            _controllerProbeClient.Dispose();
         }
 
         internal bool TryGetRecentTunFailureDiagnostic(TimeSpan freshnessWindow, out MihomoFailureDiagnostic diagnostic)
@@ -487,6 +558,215 @@ namespace ClashWinUI.Services.Implementations
             }
 
             return processes;
+        }
+
+        private FileSystemWatcher? CreateRuntimeStateWatcher()
+        {
+            try
+            {
+                string? directory = Path.GetDirectoryName(_runtimeStateFilePath);
+                if (string.IsNullOrWhiteSpace(directory))
+                {
+                    return null;
+                }
+
+                Directory.CreateDirectory(directory);
+                var watcher = new FileSystemWatcher(directory, Path.GetFileName(_runtimeStateFilePath))
+                {
+                    NotifyFilter = NotifyFilters.CreationTime | NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size,
+                    IncludeSubdirectories = false,
+                    EnableRaisingEvents = true,
+                };
+                watcher.Changed += OnRuntimeStateFileChanged;
+                watcher.Created += OnRuntimeStateFileChanged;
+                watcher.Deleted += OnRuntimeStateFileChanged;
+                watcher.Renamed += OnRuntimeStateFileChanged;
+                return watcher;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void OnRuntimeStateFileChanged(object sender, FileSystemEventArgs e)
+        {
+            if (Interlocked.Exchange(ref _runtimeStateReloadQueued, 1) == 1)
+            {
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(150).ConfigureAwait(false);
+                    ApplyRuntimeSnapshot(GetPersistedRuntimeState(), raiseEvent: true);
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _runtimeStateReloadQueued, 0);
+                }
+            });
+        }
+
+        private bool ApplyRuntimeSnapshot(RuntimeStateSnapshot? snapshot, bool raiseEvent)
+        {
+            bool changed = false;
+
+            if (snapshot is null || !snapshot.IsRunning || snapshot.ProcessId <= 0)
+            {
+                changed = ClearAttachedProcess(disposeCurrent: true) || !string.IsNullOrWhiteSpace(_currentConfigPath);
+                _currentConfigPath = null;
+            }
+            else
+            {
+                Process? nextProcess = TryGetProcessById(snapshot.ProcessId);
+                if (nextProcess is null)
+                {
+                    changed = ClearAttachedProcess(disposeCurrent: true) || !string.IsNullOrWhiteSpace(_currentConfigPath);
+                    _currentConfigPath = null;
+                }
+                else
+                {
+                    string expectedKernelPath = _kernelPathService.ResolveKernelPath();
+                    string? processPath = TryGetProcessPath(nextProcess);
+                    if (string.IsNullOrWhiteSpace(processPath)
+                        || !string.Equals(
+                            NormalizeExecutablePath(processPath),
+                            NormalizeExecutablePath(expectedKernelPath),
+                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        nextProcess.Dispose();
+                        changed = ClearAttachedProcess(disposeCurrent: true) || !string.IsNullOrWhiteSpace(_currentConfigPath);
+                        _currentConfigPath = null;
+                    }
+                    else
+                    {
+                        changed = AttachProcess(nextProcess, snapshot.CurrentConfigPath, persistState: false, raiseEvent: false) || changed;
+                    }
+                }
+            }
+
+            if (changed && raiseEvent)
+            {
+                RaiseRuntimeStateChanged();
+            }
+
+            return changed;
+        }
+
+        private bool AttachProcess(Process process, string? configPath, bool persistState, bool raiseEvent)
+        {
+            bool changed = false;
+            if (_mihomoProcess is null || _mihomoProcess.Id != process.Id)
+            {
+                Process? previousProcess = _mihomoProcess;
+                _mihomoProcess = process;
+                if (previousProcess is not null && previousProcess.Id != process.Id)
+                {
+                    previousProcess.Dispose();
+                }
+
+                changed = true;
+            }
+
+            string normalizedConfigPath = string.IsNullOrWhiteSpace(configPath)
+                ? string.Empty
+                : Path.GetFullPath(configPath.Trim().Trim('"'));
+            if (!string.Equals(_currentConfigPath ?? string.Empty, normalizedConfigPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _currentConfigPath = normalizedConfigPath;
+                changed = true;
+            }
+
+            if (persistState)
+            {
+                PersistRuntimeState();
+            }
+
+            if (changed && raiseEvent)
+            {
+                RaiseRuntimeStateChanged();
+            }
+
+            return changed;
+        }
+
+        private bool ClearAttachedProcess(bool disposeCurrent)
+        {
+            bool changed = _mihomoProcess is not null;
+            if (_mihomoProcess is not null && disposeCurrent)
+            {
+                _mihomoProcess.Dispose();
+            }
+
+            _mihomoProcess = null;
+            return changed;
+        }
+
+        private void PersistRuntimeState()
+        {
+            try
+            {
+                AppDataPaths.EnsureStateDirectory();
+                RuntimeStateSnapshot snapshot;
+                if (_mihomoProcess is { HasExited: false } process)
+                {
+                    snapshot = new RuntimeStateSnapshot
+                    {
+                        IsRunning = true,
+                        ProcessId = process.Id,
+                        ControllerHost = ControllerHost,
+                        ControllerPort = ControllerPort,
+                        CurrentConfigPath = _currentConfigPath ?? string.Empty,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    };
+                }
+                else
+                {
+                    snapshot = new RuntimeStateSnapshot
+                    {
+                        IsRunning = false,
+                        ProcessId = 0,
+                        ControllerHost = ControllerHost,
+                        ControllerPort = ControllerPort,
+                        CurrentConfigPath = string.Empty,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                    };
+                }
+
+                string payload = JsonSerializer.Serialize(snapshot, ClashJsonContext.Default.RuntimeStateSnapshot);
+                File.WriteAllText(_runtimeStateFilePath, payload);
+            }
+            catch
+            {
+                // Runtime state persistence is best-effort.
+            }
+        }
+
+        private void RaiseRuntimeStateChanged()
+        {
+            if (_synchronizationContext is not null)
+            {
+                _synchronizationContext.Post(_ => RuntimeStateChanged?.Invoke(this, EventArgs.Empty), null);
+                return;
+            }
+
+            RuntimeStateChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        private static Process? TryGetProcessById(int processId)
+        {
+            try
+            {
+                Process process = Process.GetProcessById(processId);
+                return process.HasExited ? null : process;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static string NormalizeExecutablePath(string path)

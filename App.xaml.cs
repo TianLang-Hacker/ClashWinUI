@@ -9,6 +9,7 @@ using ClashWinUI.Views;
 using H.NotifyIcon;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using System;
 using System.Net.Http;
@@ -22,19 +23,26 @@ namespace ClashWinUI
         private readonly IHost _host;
         private readonly HttpClient _controllerProbeClient = new();
         private readonly SemaphoreSlim _shutdownSync = new(1, 1);
+        private readonly AppProcessBootstrapResult _bootstrapResult;
+        private readonly DispatcherQueue? _dispatcherQueue;
 
         private Window? _window;
         private ITrayService? _trayService;
+        private AppControlChannel? _controlChannel;
         private int _startupPipelineStarted;
+        private int _uiServicesStarted;
         private int _shutdownRequested;
         private int _skipProcessExitCleanup;
 
         public App()
         {
             StartupTrace.Reset("App ctor");
+            _bootstrapResult = AppProcessBootstrapper.Current;
+            _dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             StartupTrace.Write("App ctor: before InitializeComponent");
             InitializeComponent();
             StartupTrace.Write("App ctor: after InitializeComponent");
+            StartupTrace.Write($"App ctor: role={_bootstrapResult.Role}");
 
             AppDomain.CurrentDomain.UnhandledException += OnAppDomainUnhandledException;
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
@@ -98,6 +106,9 @@ namespace ClashWinUI
 
         public Window? ActiveWindow => _window;
         public IServiceProvider Services => _host.Services;
+        internal AppProcessRole ProcessRole => _bootstrapResult.Role;
+        internal bool IsUiRole => _bootstrapResult.Role == AppProcessRole.Ui;
+        internal bool IsTrayRole => _bootstrapResult.Role == AppProcessRole.Tray;
 
         public bool IsShuttingDown => Interlocked.CompareExchange(ref _shutdownRequested, 0, 0) == 1;
 
@@ -112,41 +123,14 @@ namespace ClashWinUI
             try
             {
                 IAppSettingsService appSettingsService = _host.Services.GetRequiredService<IAppSettingsService>();
-                StartupTrace.Write($"OnLaunched: WelcomeCompleted={appSettingsService.WelcomeCompleted}");
-                string? startupConfigPath = null;
-
-                if (appSettingsService.WelcomeCompleted)
+                StartupTrace.Write($"OnLaunched: role={_bootstrapResult.Role}, WelcomeCompleted={appSettingsService.WelcomeCompleted}");
+                if (IsUiRole)
                 {
-                    StartupTrace.Write("OnLaunched: resolving startup config before window");
-                    startupConfigPath = ResolveStartupConfigPath();
-                    if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
-                    {
-                        Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
-                        Exit();
-                        return;
-                    }
+                    await LaunchUiRoleAsync(appSettingsService);
                 }
-
-                StartupTrace.Write("OnLaunched: resolving MainWindow");
-                _window = _host.Services.GetRequiredService<MainWindow>();
-                StartupTrace.Write("OnLaunched: MainWindow resolved");
-                if (_window is MainWindow mainWindow)
+                else
                 {
-                    mainWindow.WelcomeCompleted += OnMainWindowWelcomeCompleted;
-                }
-
-                StartupTrace.Write("OnLaunched: before Activate");
-                _window.Activate();
-                StartupTrace.Write("OnLaunched: after Activate");
-
-                StartupTrace.Write("OnLaunched: before host StartAsync");
-                await _host.StartAsync();
-                StartupTrace.Write("OnLaunched: host started");
-                if (appSettingsService.WelcomeCompleted)
-                {
-                    StartupTrace.Write("OnLaunched: starting startup pipeline");
-                    await StartStartupPipelineAsync(startupConfigPath ?? ResolveStartupConfigPath());
-                    StartupTrace.Write("OnLaunched: startup pipeline completed");
+                    await LaunchTrayRoleAsync(appSettingsService);
                 }
             }
             catch (Exception ex)
@@ -167,7 +151,25 @@ namespace ClashWinUI
             await _shutdownSync.WaitAsync();
             try
             {
-                await ShutdownCurrentInstanceAsync();
+                if (IsUiRole && AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray))
+                {
+                    bool delegated = await AppControlChannel.TrySendAsync(
+                        AppProcessRole.Tray,
+                        new AppControlCommand
+                        {
+                            CommandType = AppControlCommandType.ShutdownApp,
+                            CreatedAt = DateTimeOffset.UtcNow,
+                        });
+                    if (delegated)
+                    {
+                        Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                        await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: false);
+                        Exit();
+                        return;
+                    }
+                }
+
+                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: true);
                 Exit();
             }
             finally
@@ -199,7 +201,39 @@ namespace ClashWinUI
 
                 logService.Add(
                     $"Application restart launched. Mode={outcome.Target.LaunchMode}; Path={outcome.Target.ExecutablePath}");
-                await ShutdownCurrentInstanceAsync();
+                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: true);
+                Exit();
+            }
+            finally
+            {
+                _shutdownSync.Release();
+            }
+        }
+
+        public async Task RequestLightweightModeAsync()
+        {
+            if (!IsUiRole)
+            {
+                return;
+            }
+
+            if (!await EnsureTrayCompanionAsync())
+            {
+                _host.Services.GetRequiredService<IAppLogService>()
+                    .Add("Lightweight mode request ignored because tray companion is unavailable.", LogLevel.Warning);
+                return;
+            }
+
+            if (Interlocked.Exchange(ref _shutdownRequested, 1) == 1)
+            {
+                return;
+            }
+
+            await _shutdownSync.WaitAsync();
+            try
+            {
+                Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: false);
                 Exit();
             }
             finally
@@ -226,7 +260,8 @@ namespace ClashWinUI
                     return;
                 }
 
-                await StartStartupPipelineAsync(startupConfigPath);
+                await StartRuntimeStartupPipelineAsync(startupConfigPath, initializeTrayOnCompletion: false);
+                await EnsureTrayCompanionAsync();
             }
             catch (Exception ex)
             {
@@ -236,23 +271,99 @@ namespace ClashWinUI
             }
         }
 
-        private async Task StartStartupPipelineAsync(string startupConfigPath)
+        private async Task LaunchUiRoleAsync(IAppSettingsService appSettingsService)
         {
-            StartupTrace.Write("StartStartupPipelineAsync: requested");
-            if (Interlocked.Exchange(ref _startupPipelineStarted, 1) == 1)
+            string? startupConfigPath = null;
+            if (appSettingsService.WelcomeCompleted && _bootstrapResult.ShouldOwnStartupPipeline)
             {
-                StartupTrace.Write("StartStartupPipelineAsync: already started");
+                StartupTrace.Write("LaunchUiRoleAsync: resolving startup config before window");
+                startupConfigPath = ResolveStartupConfigPath();
+                if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
+                {
+                    Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                    Exit();
+                    return;
+                }
+            }
+
+            StartupTrace.Write("LaunchUiRoleAsync: resolving MainWindow");
+            _window = _host.Services.GetRequiredService<MainWindow>();
+            StartupTrace.Write("LaunchUiRoleAsync: MainWindow resolved");
+            if (_window is MainWindow mainWindow)
+            {
+                mainWindow.WelcomeCompleted += OnMainWindowWelcomeCompleted;
+            }
+
+            _window.Activate();
+            await _host.StartAsync();
+            InitializeControlChannel();
+
+            if (!appSettingsService.WelcomeCompleted)
+            {
                 return;
             }
 
-            _host.Services.GetRequiredService<IHomeOverviewSamplerService>().Start();
-            StartupTrace.Write("StartStartupPipelineAsync: sampler started");
-            await InitializeStartupPipelineAsync(startupConfigPath);
-            _ = RunStartupUpdateCheckAsync();
-            StartupTrace.Write("StartStartupPipelineAsync: update check launched");
+            if (_bootstrapResult.ShouldOwnStartupPipeline)
+            {
+                await StartRuntimeStartupPipelineAsync(startupConfigPath ?? ResolveStartupConfigPath(), initializeTrayOnCompletion: false);
+                await EnsureTrayCompanionAsync();
+            }
+            else
+            {
+                await TryAttachToPersistedRuntimeAsync(waitForStartupOwner: false);
+                StartUiServices();
+            }
+
+            await ApplyPendingLaunchCommandAsync();
         }
 
-        private async Task InitializeStartupPipelineAsync(string startupConfigPath)
+        private async Task LaunchTrayRoleAsync(IAppSettingsService appSettingsService)
+        {
+            await _host.StartAsync();
+            InitializeControlChannel();
+
+            if (!appSettingsService.WelcomeCompleted)
+            {
+                InitializeTray();
+                return;
+            }
+
+            bool attached = await TryAttachToPersistedRuntimeAsync(waitForStartupOwner: AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui));
+            if (!attached)
+            {
+                string startupConfigPath = ResolveStartupConfigPath();
+                if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
+                {
+                    Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                    Exit();
+                    return;
+                }
+
+                await StartRuntimeStartupPipelineAsync(startupConfigPath, initializeTrayOnCompletion: true);
+                return;
+            }
+
+            InitializeTray();
+        }
+
+        private async Task StartRuntimeStartupPipelineAsync(string startupConfigPath, bool initializeTrayOnCompletion)
+        {
+            StartupTrace.Write("StartRuntimeStartupPipelineAsync: requested");
+            if (Interlocked.Exchange(ref _startupPipelineStarted, 1) == 1)
+            {
+                StartupTrace.Write("StartRuntimeStartupPipelineAsync: already started");
+                return;
+            }
+
+            if (IsUiRole)
+            {
+                StartUiServices();
+            }
+
+            await InitializeStartupPipelineAsync(startupConfigPath, initializeTrayOnCompletion);
+        }
+
+        private async Task InitializeStartupPipelineAsync(string startupConfigPath, bool initializeTrayOnCompletion)
         {
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             IKernelBootstrapService kernelBootstrapService = _host.Services.GetRequiredService<IKernelBootstrapService>();
@@ -268,7 +379,10 @@ namespace ClashWinUI
                 if (!kernelReady)
                 {
                     logService.Add("Kernel bootstrap failed. Skip Mihomo startup.", LogLevel.Error);
-                    InitializeTray();
+                    if (initializeTrayOnCompletion)
+                    {
+                        InitializeTray();
+                    }
                     return;
                 }
 
@@ -342,7 +456,10 @@ namespace ClashWinUI
                 if (!controllerReady)
                 {
                     logService.Add($"Mihomo controller not ready: {processService.ControllerHost}:{processService.ControllerPort}", LogLevel.Error);
-                    InitializeTray();
+                    if (initializeTrayOnCompletion)
+                    {
+                        InitializeTray();
+                    }
                     return;
                 }
 
@@ -362,7 +479,10 @@ namespace ClashWinUI
             }
             finally
             {
-                InitializeTray();
+                if (initializeTrayOnCompletion)
+                {
+                    InitializeTray();
+                }
             }
         }
 
@@ -463,6 +583,11 @@ namespace ClashWinUI
 
         private void InitializeTray()
         {
+            if (!IsTrayRole)
+            {
+                return;
+            }
+
             try
             {
                 _trayService ??= _host.Services.GetRequiredService<ITrayService>();
@@ -492,6 +617,12 @@ namespace ClashWinUI
 
         private async Task ShowMainWindowAsync(string routeKey)
         {
+            if (IsTrayRole)
+            {
+                await ShowOrLaunchUiAsync(routeKey);
+                return;
+            }
+
             if (_window is null)
             {
                 return;
@@ -517,7 +648,7 @@ namespace ClashWinUI
             }
         }
 
-        private async Task ShutdownCurrentInstanceAsync()
+        private async Task ShutdownCurrentInstanceAsync(bool includeRuntimeCleanup)
         {
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             try
@@ -531,7 +662,21 @@ namespace ClashWinUI
 
             try
             {
-                await CleanupRuntimeAsync();
+                if (includeRuntimeCleanup)
+                {
+                    if (IsTrayRole && AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui))
+                    {
+                        await AppControlChannel.TrySendAsync(
+                            AppProcessRole.Ui,
+                            new AppControlCommand
+                            {
+                                CommandType = AppControlCommandType.ShutdownUi,
+                                CreatedAt = DateTimeOffset.UtcNow,
+                            });
+                    }
+
+                    await CleanupRuntimeAsync();
+                }
             }
             catch (Exception ex)
             {
@@ -546,6 +691,16 @@ namespace ClashWinUI
             catch (Exception ex)
             {
                 logService.Add($"Tray shutdown failed during exit: {ex.Message}", LogLevel.Warning);
+            }
+
+            try
+            {
+                _controlChannel?.Dispose();
+                _controlChannel = null;
+            }
+            catch (Exception ex)
+            {
+                logService.Add($"Control channel shutdown failed during exit: {ex.Message}", LogLevel.Warning);
             }
 
             try
@@ -569,6 +724,167 @@ namespace ClashWinUI
             {
                 logService.Add($"Host stop failed during exit: {ex.Message}", LogLevel.Warning);
             }
+        }
+
+        private void StartUiServices()
+        {
+            if (Interlocked.Exchange(ref _uiServicesStarted, 1) == 1)
+            {
+                return;
+            }
+
+            _host.Services.GetRequiredService<IHomeOverviewSamplerService>().Start();
+            _ = RunStartupUpdateCheckAsync();
+        }
+
+        private async Task<bool> EnsureTrayCompanionAsync()
+        {
+            if (AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray))
+            {
+                return true;
+            }
+
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+            ElevationRelaunchOutcome outcome = AppElevationHelper.TryLaunchNewInstance();
+            if (outcome.Status != ElevationRelaunchStatus.Relaunched)
+            {
+                logService.Add(
+                    $"Tray companion launch failed. Mode={outcome.Target.LaunchMode}; Path={outcome.Target.ExecutablePath}; Detail={outcome.Message}",
+                    LogLevel.Warning);
+                return false;
+            }
+
+            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray))
+                {
+                    return true;
+                }
+
+                await Task.Delay(200);
+            }
+
+            return AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray);
+        }
+
+        private async Task<bool> TryAttachToPersistedRuntimeAsync(bool waitForStartupOwner)
+        {
+            IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
+            if (processService.TryAttachToPersistedRuntime())
+            {
+                return true;
+            }
+
+            if (!waitForStartupOwner)
+            {
+                return false;
+            }
+
+            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(5);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(250);
+                if (processService.TryAttachToPersistedRuntime())
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private async Task ApplyPendingLaunchCommandAsync()
+        {
+            PendingLaunchCommand? pendingLaunch = PendingLaunchStore.TryConsume();
+            if (pendingLaunch is null || string.IsNullOrWhiteSpace(pendingLaunch.RouteKey))
+            {
+                return;
+            }
+
+            await ShowMainWindowAsync(pendingLaunch.RouteKey);
+        }
+
+        private void InitializeControlChannel()
+        {
+            _controlChannel?.Dispose();
+            _controlChannel = new AppControlChannel(_bootstrapResult.Role, HandleControlCommandAsync);
+            _controlChannel.Start();
+        }
+
+        private async Task HandleControlCommandAsync(AppControlCommand command)
+        {
+            switch (command.CommandType)
+            {
+                case AppControlCommandType.ShowRoute:
+                    await DispatchToUiThreadAsync(() => ShowMainWindowAsync(string.IsNullOrWhiteSpace(command.RouteKey)
+                        ? MainViewModel.HomeRouteKey
+                        : command.RouteKey));
+                    break;
+                case AppControlCommandType.ShutdownUi:
+                    if (IsUiRole)
+                    {
+                        await DispatchToUiThreadAsync(RequestLightweightModeAsync);
+                    }
+                    break;
+                case AppControlCommandType.ShutdownApp:
+                    await DispatchToUiThreadAsync(RequestExitAsync);
+                    break;
+            }
+        }
+
+        private async Task ShowOrLaunchUiAsync(string routeKey)
+        {
+            string normalizedRoute = string.IsNullOrWhiteSpace(routeKey) ? MainViewModel.HomeRouteKey : routeKey;
+            if (AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui))
+            {
+                bool forwarded = await AppControlChannel.TrySendAsync(
+                    AppProcessRole.Ui,
+                    AppControlCommand.CreateShowRoute(normalizedRoute));
+                if (forwarded)
+                {
+                    return;
+                }
+            }
+
+            PendingLaunchStore.Save(normalizedRoute);
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+            ElevationRelaunchOutcome outcome = AppElevationHelper.TryLaunchNewInstance();
+            if (outcome.Status != ElevationRelaunchStatus.Relaunched)
+            {
+                logService.Add(
+                    $"UI launch failed. Mode={outcome.Target.LaunchMode}; Path={outcome.Target.ExecutablePath}; Detail={outcome.Message}",
+                    LogLevel.Warning);
+            }
+        }
+
+        private Task DispatchToUiThreadAsync(Func<Task> action)
+        {
+            ArgumentNullException.ThrowIfNull(action);
+
+            if (_dispatcherQueue is null || _dispatcherQueue.HasThreadAccess)
+            {
+                return action();
+            }
+
+            var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!_dispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    await action();
+                    tcs.TrySetResult(null);
+                }
+                catch (Exception ex)
+                {
+                    tcs.TrySetException(ex);
+                }
+            }))
+            {
+                tcs.TrySetException(new InvalidOperationException("Failed to enqueue operation to the UI thread."));
+            }
+
+            return tcs.Task;
         }
 
         private async Task RunStartupUpdateCheckAsync()
@@ -618,7 +934,10 @@ namespace ClashWinUI
                     return;
                 }
 
-                await CleanupRuntimeAsync();
+                if (ShouldCleanupRuntimeOnUnexpectedExit())
+                {
+                    await CleanupRuntimeAsync();
+                }
             }
             catch
             {
@@ -754,14 +1073,23 @@ namespace ClashWinUI
 
             try
             {
+                _controlChannel?.Dispose();
                 _trayService?.Shutdown();
                 _host.Services.GetRequiredService<IHomeOverviewSamplerService>().FlushState();
-                CleanupRuntimeAsync().GetAwaiter().GetResult();
+                if (ShouldCleanupRuntimeOnUnexpectedExit())
+                {
+                    CleanupRuntimeAsync().GetAwaiter().GetResult();
+                }
             }
             catch
             {
                 // Ignore cleanup errors for best-effort handling.
             }
+        }
+
+        private bool ShouldCleanupRuntimeOnUnexpectedExit()
+        {
+            return IsTrayRole || !AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray);
         }
     }
 }

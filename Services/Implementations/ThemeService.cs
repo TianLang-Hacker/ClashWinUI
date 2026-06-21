@@ -30,6 +30,7 @@ namespace ClashWinUI.Services.Implementations
             _appSettingsService = appSettingsService;
             CurrentAppTheme = _appSettingsService.AppThemeMode;
             CurrentBackdrop = _appSettingsService.BackdropMode;
+            _appSettingsService.SettingsChanged += OnAppSettingsChanged;
         }
 
         public void Initialize(Window window)
@@ -230,6 +231,19 @@ namespace ClashWinUI.Services.Implementations
 #if DEBUG
             _logService.Add($"[Theme] {message}", LogLevel.Debug);
 #endif
+        }
+
+        private void OnAppSettingsChanged(object? sender, EventArgs e)
+        {
+            if (CurrentAppTheme != _appSettingsService.AppThemeMode)
+            {
+                ApplyAppTheme(_appSettingsService.AppThemeMode);
+            }
+
+            if (CurrentBackdrop != _appSettingsService.BackdropMode)
+            {
+                ApplyBackdrop(_appSettingsService.BackdropMode);
+            }
         }
 
         private static void ApplyTitleBarColors(Window window, ElementTheme effectiveTheme)

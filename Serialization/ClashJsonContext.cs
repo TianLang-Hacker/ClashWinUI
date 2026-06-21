@@ -60,6 +60,9 @@ namespace ClashWinUI.Serialization
     [JsonSerializable(typeof(RulesOverrideState))]
     [JsonSerializable(typeof(MihomoApplyConfigPayload))]
     [JsonSerializable(typeof(MihomoProxySelectionPayload))]
+    [JsonSerializable(typeof(AppControlCommand))]
+    [JsonSerializable(typeof(PendingLaunchCommand))]
+    [JsonSerializable(typeof(RuntimeStateSnapshot))]
     internal partial class ClashJsonContext : JsonSerializerContext
     {
     }
