@@ -7,7 +7,7 @@ namespace ClashWinUI.Helpers
 {
     public static class SystemProxyRuntimePolicyHelper
     {
-        public static Task ApplyForRuntimeAsync(
+        public static async Task ApplyForRuntimeAsync(
             ISystemProxyService systemProxyService,
             IProcessService processService,
             ITunService tunService,
@@ -16,16 +16,17 @@ namespace ClashWinUI.Helpers
         {
             if (string.IsNullOrWhiteSpace(runtimePath))
             {
-                return Task.CompletedTask;
+                return;
             }
 
             if (tunService.IsTunEnabled(runtimePath))
             {
-                return systemProxyService.DisableAsync(cancellationToken);
+                await systemProxyService.DisableAsync(cancellationToken).ConfigureAwait(false);
+                return;
             }
 
             int proxyPort = processService.ResolveProxyPort(runtimePath);
-            return systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList, cancellationToken);
+            await systemProxyService.EnableAsync("127.0.0.1", proxyPort, AppConstants.SystemProxyBypassList, cancellationToken).ConfigureAwait(false);
         }
     }
 }

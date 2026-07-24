@@ -2,6 +2,7 @@ using ClashWinUI.Models;
 using ClashWinUI.ViewModels;
 using System;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace ClashWinUI.Helpers
 {
@@ -41,24 +42,54 @@ namespace ClashWinUI.Helpers
 
             if (uiRunning && trayRunning)
             {
-                AppControlChannel.TrySendAsync(
+                bool forwarded = AppControlChannel.TrySendAsync(
                     AppProcessRole.Ui,
                     AppControlCommand.CreateShowRoute(MainViewModel.HomeRouteKey)).GetAwaiter().GetResult();
 
-                _current = new AppProcessBootstrapResult
+                if (forwarded)
                 {
-                    ShouldExit = true,
-                    Role = AppProcessRole.Ui,
-                };
-                return _current;
+                    _current = new AppProcessBootstrapResult
+                    {
+                        ShouldExit = true,
+                        Role = AppProcessRole.Ui,
+                    };
+                    return _current;
+                }
+
+                // UI mutex exists but control channel is dead (stale/zombie UI).
+                // Fall through and try to reclaim the UI role.
             }
 
             AppProcessRole desiredRole = uiRunning && !trayRunning
                 ? AppProcessRole.Tray
                 : AppProcessRole.Ui;
 
+            // When reclaiming a stale UI while tray is alive, prefer UI.
+            if (uiRunning && trayRunning)
+            {
+                desiredRole = AppProcessRole.Ui;
+            }
+
             if (!TryAcquireRole(desiredRole, out Mutex? roleMutex))
             {
+                // One more chance: if UI looked running but is stale, wait briefly and retry UI.
+                if (desiredRole == AppProcessRole.Ui)
+                {
+                    WaitUntilRoleApparentlyFree(AppProcessRole.Ui, TimeSpan.FromSeconds(2));
+                    if (TryAcquireRole(AppProcessRole.Ui, out roleMutex))
+                    {
+                        _roleMutex = roleMutex;
+                        _current = new AppProcessBootstrapResult
+                        {
+                            ShouldExit = false,
+                            Role = AppProcessRole.Ui,
+                            ShouldOwnStartupPipeline = !IsRoleRunning(AppProcessRole.Tray),
+                            ShouldSpawnTrayCompanion = !IsRoleRunning(AppProcessRole.Tray),
+                        };
+                        return _current;
+                    }
+                }
+
                 _current = new AppProcessBootstrapResult
                 {
                     ShouldExit = true,
@@ -68,12 +99,13 @@ namespace ClashWinUI.Helpers
             }
 
             _roleMutex = roleMutex;
+            bool peerTrayRunning = desiredRole == AppProcessRole.Ui && IsRoleRunning(AppProcessRole.Tray);
             _current = new AppProcessBootstrapResult
             {
                 ShouldExit = false,
                 Role = desiredRole,
-                ShouldOwnStartupPipeline = desiredRole == AppProcessRole.Ui && !trayRunning,
-                ShouldSpawnTrayCompanion = desiredRole == AppProcessRole.Ui && !trayRunning,
+                ShouldOwnStartupPipeline = desiredRole == AppProcessRole.Ui && !peerTrayRunning,
+                ShouldSpawnTrayCompanion = desiredRole == AppProcessRole.Ui && !peerTrayRunning,
             };
             return _current;
         }
@@ -87,6 +119,47 @@ namespace ClashWinUI.Helpers
             catch
             {
                 return false;
+            }
+        }
+
+        public static void ReleaseRole()
+        {
+            Mutex? mutex = Interlocked.Exchange(ref _roleMutex, null);
+            if (mutex is null)
+            {
+                return;
+            }
+
+            try
+            {
+                mutex.ReleaseMutex();
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+
+            try
+            {
+                mutex.Dispose();
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+        }
+
+        private static void WaitUntilRoleApparentlyFree(AppProcessRole role, TimeSpan timeout)
+        {
+            DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (!IsRoleRunning(role))
+                {
+                    return;
+                }
+
+                Thread.Sleep(100);
             }
         }
 

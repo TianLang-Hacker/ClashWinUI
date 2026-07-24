@@ -164,13 +164,13 @@ namespace ClashWinUI
                     {
                         Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
                         await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: false);
-                        Exit();
+                        TerminateProcessHard();
                         return;
                     }
                 }
 
                 await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: true);
-                Exit();
+                TerminateProcessHard();
             }
             finally
             {
@@ -189,7 +189,19 @@ namespace ClashWinUI
             try
             {
                 IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
-                ElevationRelaunchOutcome outcome = AppElevationHelper.TryRelaunch();
+
+                // Peer must exit first so delayed relaunch can acquire role mutexes.
+                AppProcessRole peerRole = IsTrayRole ? AppProcessRole.Ui : AppProcessRole.Tray;
+                if (AppProcessBootstrapper.IsRoleRunning(peerRole))
+                {
+                    await AppControlChannel.TrySendAsync(peerRole, AppControlCommand.CreateExitSelf());
+                    await WaitUntilRoleExitsAsync(peerRole, TimeSpan.FromSeconds(5));
+                }
+
+                // This instance owns runtime cleanup and the delayed relaunch.
+                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: true);
+
+                ElevationRelaunchOutcome outcome = AppElevationHelper.TryRelaunchDelayed(delaySeconds: 2);
                 if (outcome.Status != ElevationRelaunchStatus.Relaunched)
                 {
                     logService.Add(
@@ -200,9 +212,28 @@ namespace ClashWinUI
                 }
 
                 logService.Add(
-                    $"Application restart launched. Mode={outcome.Target.LaunchMode}; Path={outcome.Target.ExecutablePath}");
-                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: true);
-                Exit();
+                    $"Application restart scheduled. Mode={outcome.Target.LaunchMode}; Path={outcome.Target.ExecutablePath}");
+                TerminateProcessHard();
+            }
+            finally
+            {
+                _shutdownSync.Release();
+            }
+        }
+
+        public async Task RequestExitSelfAsync()
+        {
+            if (Interlocked.Exchange(ref _shutdownRequested, 1) == 1)
+            {
+                return;
+            }
+
+            await _shutdownSync.WaitAsync();
+            try
+            {
+                Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: false);
+                TerminateProcessHard();
             }
             finally
             {
@@ -224,21 +255,59 @@ namespace ClashWinUI
                 return;
             }
 
+            // If a previous exit attempt got stuck, force-kill this UI process.
             if (Interlocked.Exchange(ref _shutdownRequested, 1) == 1)
             {
+                TerminateProcessHard();
                 return;
             }
 
-            await _shutdownSync.WaitAsync();
             try
             {
-                Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
-                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: false);
-                Exit();
+                // Don't hang forever on shutdown locks/services while trying to free memory.
+                bool lockTaken = await _shutdownSync.WaitAsync(TimeSpan.FromSeconds(2));
+                try
+                {
+                    Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                    Task shutdownTask = ShutdownCurrentInstanceAsync(includeRuntimeCleanup: false);
+                    Task completed = await Task.WhenAny(shutdownTask, Task.Delay(TimeSpan.FromSeconds(2)));
+                    if (!ReferenceEquals(completed, shutdownTask))
+                    {
+                        _host.Services.GetRequiredService<IAppLogService>()
+                            .Add("Lightweight mode shutdown timed out; forcing UI process exit.", LogLevel.Warning);
+                    }
+                }
+                finally
+                {
+                    if (lockTaken)
+                    {
+                        try
+                        {
+                            _shutdownSync.Release();
+                        }
+                        catch
+                        {
+                            // Best-effort only.
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    _host.Services.GetRequiredService<IAppLogService>()
+                        .Add($"Lightweight mode shutdown failed: {ex.Message}", LogLevel.Warning);
+                }
+                catch
+                {
+                    // Best-effort only.
+                }
             }
             finally
             {
-                _shutdownSync.Release();
+                // Always hard-exit so tray memory drops back to a single process.
+                TerminateProcessHard();
             }
         }
 
@@ -311,6 +380,7 @@ namespace ClashWinUI
             else
             {
                 await TryAttachToPersistedRuntimeAsync(waitForStartupOwner: false);
+                await EnsureSystemProxyPolicyForCurrentRuntimeAsync();
                 StartUiServices();
             }
 
@@ -335,7 +405,7 @@ namespace ClashWinUI
                 if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
                 {
                     Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
-                    Exit();
+                    TerminateProcessHard();
                     return;
                 }
 
@@ -343,6 +413,9 @@ namespace ClashWinUI
                 return;
             }
 
+            // Attaching to an existing Mihomo instance still needs system-proxy policy applied
+            // in this process session (ownership is per-process).
+            await EnsureSystemProxyPolicyForCurrentRuntimeAsync();
             InitializeTray();
         }
 
@@ -724,6 +797,9 @@ namespace ClashWinUI
             {
                 logService.Add($"Host stop failed during exit: {ex.Message}", LogLevel.Warning);
             }
+
+            // Release role mutex before process teardown so peer relaunch is not blocked by zombies.
+            AppProcessBootstrapper.ReleaseRole();
         }
 
         private void StartUiServices()
@@ -812,30 +888,38 @@ namespace ClashWinUI
             _controlChannel.Start();
         }
 
-        private async Task HandleControlCommandAsync(AppControlCommand command)
+        private Task HandleControlCommandAsync(AppControlCommand command)
         {
             switch (command.CommandType)
             {
                 case AppControlCommandType.ShowRoute:
-                    await DispatchToUiThreadAsync(() => ShowMainWindowAsync(string.IsNullOrWhiteSpace(command.RouteKey)
+                    // Fire-and-forget so the control channel never blocks on UI work.
+                    _ = DispatchToUiThreadAsync(() => ShowMainWindowAsync(string.IsNullOrWhiteSpace(command.RouteKey)
                         ? MainViewModel.HomeRouteKey
                         : command.RouteKey));
                     break;
                 case AppControlCommandType.ShutdownUi:
                     if (IsUiRole)
                     {
-                        await DispatchToUiThreadAsync(RequestLightweightModeAsync);
+                        _ = DispatchToUiThreadAsync(RequestLightweightModeAsync);
                     }
                     break;
                 case AppControlCommandType.ShutdownApp:
-                    await DispatchToUiThreadAsync(RequestExitAsync);
+                    _ = DispatchToUiThreadAsync(RequestExitAsync);
+                    break;
+                case AppControlCommandType.ExitSelf:
+                    _ = DispatchToUiThreadAsync(RequestExitSelfAsync);
                     break;
             }
+
+            return Task.CompletedTask;
         }
 
         private async Task ShowOrLaunchUiAsync(string routeKey)
         {
             string normalizedRoute = string.IsNullOrWhiteSpace(routeKey) ? MainViewModel.HomeRouteKey : routeKey;
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+
             if (AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui))
             {
                 bool forwarded = await AppControlChannel.TrySendAsync(
@@ -845,10 +929,26 @@ namespace ClashWinUI
                 {
                     return;
                 }
+
+                // Mutex still present but UI control channel is dead: wait for stale process to free the role.
+                logService.Add("UI role is occupied but unresponsive. Waiting for stale UI process to exit...", LogLevel.Warning);
+                await WaitUntilRoleExitsAsync(AppProcessRole.Ui, TimeSpan.FromSeconds(3));
+                if (AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui))
+                {
+                    // Retry once more in case the process is recovering.
+                    forwarded = await AppControlChannel.TrySendAsync(
+                        AppProcessRole.Ui,
+                        AppControlCommand.CreateShowRoute(normalizedRoute));
+                    if (forwarded)
+                    {
+                        return;
+                    }
+
+                    logService.Add("Stale UI process still holding role mutex. Launching a replacement UI instance.", LogLevel.Warning);
+                }
             }
 
             PendingLaunchStore.Save(normalizedRoute);
-            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
             ElevationRelaunchOutcome outcome = AppElevationHelper.TryLaunchNewInstance();
             if (outcome.Status != ElevationRelaunchStatus.Relaunched)
             {
@@ -901,8 +1001,154 @@ namespace ClashWinUI
             }
         }
 
+        private async Task EnsureSystemProxyPolicyForCurrentRuntimeAsync()
+        {
+            try
+            {
+                IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
+                ISystemProxyService systemProxyService = _host.Services.GetRequiredService<ISystemProxyService>();
+                ITunService tunService = _host.Services.GetRequiredService<ITunService>();
+                string? configPath = processService.CurrentConfigPath;
+                if (string.IsNullOrWhiteSpace(configPath))
+                {
+                    RuntimeStateSnapshot? snapshot = processService.GetPersistedRuntimeState();
+                    configPath = snapshot?.CurrentConfigPath;
+                }
+
+                if (string.IsNullOrWhiteSpace(configPath))
+                {
+                    // Attach/tray paths can race before CurrentConfigPath is populated.
+                    // Fall back to the active-profile runtime so system proxy still applies.
+                    configPath = ResolveStartupConfigPath();
+                }
+
+                if (string.IsNullOrWhiteSpace(configPath))
+                {
+                    return;
+                }
+
+                // Retry a few times: enabling right after controller attach can race with
+                // Windows shell/policy readers and previously failed on first write.
+                for (int attempt = 1; attempt <= 3; attempt++)
+                {
+                    await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                        systemProxyService,
+                        processService,
+                        tunService,
+                        configPath).ConfigureAwait(false);
+
+                    if (tunService.IsTunEnabled(configPath))
+                    {
+                        if (!systemProxyService.GetCurrentState().IsEnabled)
+                        {
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        SystemProxyState state = systemProxyService.GetCurrentState();
+                        int expectedPort = processService.ResolveProxyPort(configPath);
+                        string expectedServer = $"127.0.0.1:{expectedPort}";
+                        if (state.IsEnabled &&
+                            state.ProxyServer.Contains($"{expectedPort}", StringComparison.Ordinal))
+                        {
+                            return;
+                        }
+                    }
+
+                    if (attempt < 3)
+                    {
+                        await Task.Delay(100 * attempt).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _host.Services.GetRequiredService<IAppLogService>()
+                    .Add($"Apply system proxy policy for current runtime failed: {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        private void TerminateProcessHard()
+        {
+            try
+            {
+                AppProcessBootstrapper.ReleaseRole();
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+
+            try
+            {
+                _controlChannel?.Dispose();
+                _controlChannel = null;
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+
+            try
+            {
+                _window?.Close();
+                _window = null;
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+
+            // Prefer immediate process termination. Application.Exit() can keep a WinUI process
+            // alive when background work or COM apartments are still pumping.
+            try
+            {
+                Environment.Exit(0);
+            }
+            catch
+            {
+                // Fall through to Kill.
+            }
+
+            try
+            {
+                System.Diagnostics.Process.GetCurrentProcess().Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Last resort failed; nothing else we can do.
+            }
+        }
+
+        private static async Task WaitUntilRoleExitsAsync(AppProcessRole role, TimeSpan timeout)
+        {
+            DateTimeOffset deadline = DateTimeOffset.UtcNow + timeout;
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (!AppProcessBootstrapper.IsRoleRunning(role))
+                {
+                    return;
+                }
+
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+        }
+
         private async Task CleanupRuntimeAsync()
         {
+            // UI + tray share one Mihomo runtime and system-proxy session. Only the last
+            // remaining role should disable proxy / stop the core.
+            bool peerRunning = IsTrayRole
+                ? AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui)
+                : AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray);
+            if (peerRunning)
+            {
+                _host.Services.GetRequiredService<IAppLogService>()
+                    .Add("Skip runtime cleanup because peer process role is still running.");
+                return;
+            }
+
             ISystemProxyService systemProxyService = _host.Services.GetRequiredService<ISystemProxyService>();
             IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
 
@@ -1089,7 +1335,14 @@ namespace ClashWinUI
 
         private bool ShouldCleanupRuntimeOnUnexpectedExit()
         {
-            return IsTrayRole || !AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray);
+            // Shared runtime/proxy must stay alive while the peer role is still running.
+            // A dying tray process previously tore down system proxy even when UI was open.
+            if (IsTrayRole)
+            {
+                return !AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui);
+            }
+
+            return !AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Tray);
         }
     }
 }

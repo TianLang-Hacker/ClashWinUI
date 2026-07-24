@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Threading.Tasks;
+using Windows.UI;
 
 namespace ClashWinUI.Services.Implementations
 {
@@ -23,6 +24,14 @@ namespace ClashWinUI.Services.Implementations
     {
         private const string TrayIconRelativePath = "Assets\\ClashWinUI.ico";
         private const string TrayToolTipText = "Clash WinUI";
+        private const string ModeRadioGroupName = "ClashWinUI.Tray.Mode";
+        private const string ProfileRadioGroupName = "ClashWinUI.Tray.Profile";
+        private const double MenuMinWidth = 280d;
+        private const double MenuItemMinWidth = 256d;
+        private const double MenuItemMinHeight = 36d;
+
+        private static readonly Thickness MenuItemPadding = new(12, 8, 12, 8);
+
         private readonly IAppLogService _logService;
         private readonly ITrayMenuActionService _menuActionService;
         private readonly IThemeService _themeService;
@@ -131,21 +140,23 @@ namespace ClashWinUI.Services.Implementations
             var menu = new MenuFlyout
             {
                 MenuFlyoutPresenterStyle = CreateMenuFlyoutPresenterStyle(),
+                ShouldConstrainToRootBounds = false,
+                AreOpenCloseAnimationsEnabled = true,
             };
 
-            menu.Items.Add(CreateRouteItem(T("TrayMenuHome"), MainViewModel.HomeRouteKey, Symbol.Home));
+            menu.Items.Add(CreateRouteItem(T("TrayMenuHome"), MainViewModel.HomeRouteKey, "\uE80F"));
             menu.Items.Add(BuildRulesMenu(snapshot, hasActiveProfile));
             menu.Items.Add(BuildProfilesMenu(snapshot, isLoaded));
             menu.Items.Add(BuildProxiesMenu(snapshot, isLoaded));
             menu.Items.Add(BuildTunMenuItem(snapshot, hasActiveProfile));
-            menu.Items.Add(CreateActionItem(T("TrayMenuOpenProfilesDirectory"), Symbol.Folder, () =>
+            menu.Items.Add(CreateActionItem(T("TrayMenuOpenProfilesDirectory"), "\uE8B7", () =>
             {
                 _menuActionService.OpenProfilesDirectory();
                 return Task.FromResult(true);
             }));
             menu.Items.Add(BuildMoreMenu(hasActiveProfile));
-            menu.Items.Add(new MenuFlyoutSeparator());
-            menu.Items.Add(CreateActionItem(T("TrayMenuExit"), Symbol.Cancel, ExecuteExitCommandAsync));
+            menu.Items.Add(CreateSeparator());
+            menu.Items.Add(CreateActionItem(T("TrayMenuExit"), "\uE711", ExecuteExitCommandAsync));
 
             return menu;
         }
@@ -154,7 +165,7 @@ namespace ClashWinUI.Services.Implementations
         {
             return CreateSubItem(
                 T("TrayMenuRules"),
-                Symbol.Bullets,
+                "\uE8FD",
                 new MenuFlyoutItemBase[]
                 {
                     CreateModeItem(T("TrayMenuModeRule"), "rule", snapshot.Mode, hasActiveProfile),
@@ -168,7 +179,7 @@ namespace ClashWinUI.Services.Implementations
         {
             return CreateSubItem(
                 T("TrayMenuProfiles"),
-                Symbol.Library,
+                "\uE8F1",
                 BuildProfilesMenuItems(snapshot, isLoaded));
         }
 
@@ -176,7 +187,7 @@ namespace ClashWinUI.Services.Implementations
         {
             return CreateSubItem(
                 T("TrayMenuProxies"),
-                Symbol.Globe,
+                "\uE774",
                 BuildProxyGroupMenuItems(snapshot, isLoaded));
         }
 
@@ -197,9 +208,10 @@ namespace ClashWinUI.Services.Implementations
 
             foreach (TrayProfileMenuItem profile in snapshot.Profiles)
             {
-                items.Add(CreateToggleActionItem(
+                items.Add(CreateRadioActionItem(
                     profile.DisplayName,
-                    Symbol.Library,
+                    "\uE8F1",
+                    ProfileRadioGroupName,
                     profile.IsActive,
                     () => _menuActionService.ActivateProfileAsync(profile.Id)));
             }
@@ -226,7 +238,7 @@ namespace ClashWinUI.Services.Implementations
             {
                 items.Add(CreateSubItem(
                     FormatProxyGroupText(group),
-                    Symbol.Globe,
+                    "\uE774",
                     BuildProxyNodeMenuItems(group),
                     group.Nodes.Count > 0));
             }
@@ -237,6 +249,8 @@ namespace ClashWinUI.Services.Implementations
         private IReadOnlyList<MenuFlyoutItemBase> BuildProxyNodeMenuItems(TrayProxyGroupMenuItem group)
         {
             var items = new List<MenuFlyoutItemBase>();
+            string radioGroupName = $"ClashWinUI.Tray.Proxy.{group.ControllerName}:{group.Name}";
+
             foreach (TrayProxyNodeMenuItem node in group.Nodes)
             {
                 string controllerGroupName = string.IsNullOrWhiteSpace(group.ControllerName)
@@ -245,20 +259,21 @@ namespace ClashWinUI.Services.Implementations
                 string controllerNodeName = string.IsNullOrWhiteSpace(node.ControllerName)
                     ? node.Name
                     : node.ControllerName;
-                items.Add(CreateToggleActionItem(
+                items.Add(CreateRadioActionItem(
                     node.Name,
-                    Symbol.Globe,
+                    "\uE968",
+                    radioGroupName,
                     node.IsCurrent,
                     () => _menuActionService.SelectProxyAsync(controllerGroupName, controllerNodeName)));
             }
 
             if (group.HasMoreNodes)
             {
-                items.Add(new MenuFlyoutSeparator());
+                items.Add(CreateSeparator());
                 items.Add(CreateRouteItem(
                     T("TrayMenuOpenProxiesForMore"),
                     MainViewModel.ProxiesRouteKey,
-                    Symbol.More));
+                    "\uE712"));
             }
 
             return items;
@@ -269,7 +284,7 @@ namespace ClashWinUI.Services.Implementations
             bool targetState = !snapshot.TunEnabled;
             return CreateToggleActionItem(
                 T("TrayMenuTunMode"),
-                Symbol.Switch,
+                "\uE8AB",
                 snapshot.TunEnabled,
                 () => _menuActionService.SetTunEnabledAsync(targetState),
                 hasActiveProfile);
@@ -279,85 +294,112 @@ namespace ClashWinUI.Services.Implementations
         {
             return CreateSubItem(
                 T("TrayMenuMore"),
-                Symbol.More,
+                "\uE712",
                 new MenuFlyoutItemBase[]
                 {
                     CreateActionItem(
                         T("TrayMenuRestartMihomo"),
-                        Symbol.Refresh,
-                        () => _menuActionService.RestartMihomoCoreAsync(),
+                        "\uE72C",
+                        async () => await Task.Run(async () => await _menuActionService.RestartMihomoCoreAsync()),
                         hasActiveProfile),
                     CreateActionItem(
                         T("TrayMenuRestartApp"),
-                        Symbol.Sync,
+                        "\uE777",
                         ExecuteRestartApplicationCommandAsync),
                 });
         }
 
-        private MenuFlyoutItem CreateRouteItem(string text, string routeKey, Symbol symbol)
+        private MenuFlyoutItem CreateRouteItem(string text, string routeKey, string glyph)
         {
-            return CreateActionItem(text, symbol, () => ExecuteShowWindowCommandAsync(routeKey));
+            return CreateActionItem(text, glyph, () => ExecuteShowWindowCommandAsync(routeKey));
         }
 
-        private MenuFlyoutItem CreateActionItem(string text, Symbol symbol, Func<Task<bool>> action, bool isEnabled = true)
+        private MenuFlyoutItem CreateActionItem(string text, string glyph, Func<Task<bool>> action, bool isEnabled = true)
         {
-            return new MenuFlyoutItem
+            var item = new MenuFlyoutItem
             {
                 Text = text,
-                Icon = new SymbolIcon(symbol),
+                Icon = CreateFluentIcon(glyph),
                 IsEnabled = isEnabled,
-                MinWidth = 240,
                 Command = new AsyncRelayCommand(async () =>
                 {
                     await ExecuteMenuActionAsync(text, action);
                 }),
             };
+            ApplyMenuItemChrome(item);
+            return item;
         }
 
-        private ToggleMenuFlyoutItem CreateModeItem(string text, string mode, string currentMode, bool isEnabled)
+        private RadioMenuFlyoutItem CreateModeItem(string text, string mode, string currentMode, bool isEnabled)
         {
-            return CreateToggleActionItem(
+            return CreateRadioActionItem(
                 text,
-                Symbol.Bullets,
+                "\uE8FD",
+                ModeRadioGroupName,
                 string.Equals(mode, currentMode, StringComparison.OrdinalIgnoreCase),
                 () => _menuActionService.ApplyModeAsync(mode),
                 isEnabled);
         }
 
-        private ToggleMenuFlyoutItem CreateToggleActionItem(
+        private RadioMenuFlyoutItem CreateRadioActionItem(
             string text,
-            Symbol symbol,
+            string glyph,
+            string groupName,
             bool isChecked,
             Func<Task<bool>> action,
             bool isEnabled = true)
         {
-            return new ToggleMenuFlyoutItem
+            var item = new RadioMenuFlyoutItem
             {
                 Text = text,
-                Icon = new SymbolIcon(symbol),
+                Icon = CreateFluentIcon(glyph),
+                GroupName = groupName,
                 IsChecked = isChecked,
                 IsEnabled = isEnabled,
-                MinWidth = 240,
                 Command = new AsyncRelayCommand(async () =>
                 {
                     await ExecuteMenuActionAsync(text, action);
                 }),
             };
+            ApplyMenuItemChrome(item);
+            return item;
         }
 
-        private static MenuFlyoutSubItem CreateSubItem(
+        private ToggleMenuFlyoutItem CreateToggleActionItem(
             string text,
-            Symbol symbol,
+            string glyph,
+            bool isChecked,
+            Func<Task<bool>> action,
+            bool isEnabled = true)
+        {
+            var item = new ToggleMenuFlyoutItem
+            {
+                Text = text,
+                Icon = CreateFluentIcon(glyph),
+                IsChecked = isChecked,
+                IsEnabled = isEnabled,
+                Command = new AsyncRelayCommand(async () =>
+                {
+                    await ExecuteMenuActionAsync(text, action);
+                }),
+            };
+            ApplyMenuItemChrome(item);
+            return item;
+        }
+
+        private MenuFlyoutSubItem CreateSubItem(
+            string text,
+            string glyph,
             IEnumerable<MenuFlyoutItemBase> children,
             bool isEnabled = true)
         {
             var item = new MenuFlyoutSubItem
             {
                 Text = text,
-                Icon = new SymbolIcon(symbol),
+                Icon = CreateFluentIcon(glyph),
                 IsEnabled = isEnabled,
-                MinWidth = 240,
             };
+            ApplyMenuItemChrome(item);
 
             foreach (MenuFlyoutItemBase child in children)
             {
@@ -367,41 +409,152 @@ namespace ClashWinUI.Services.Implementations
             return item;
         }
 
-        private static MenuFlyoutItem CreateDisabledItem(string text)
+        private MenuFlyoutItem CreateDisabledItem(string text)
         {
-            return new MenuFlyoutItem
+            var item = new MenuFlyoutItem
             {
                 Text = text,
                 IsEnabled = false,
-                MinWidth = 240,
+            };
+            ApplyMenuItemChrome(item);
+            return item;
+        }
+
+        private MenuFlyoutSeparator CreateSeparator()
+        {
+            return new MenuFlyoutSeparator
+            {
+                Margin = new Thickness(12, 4, 12, 4),
+            };
+        }
+
+        private static void ApplyMenuItemChrome(Control item)
+        {
+            item.MinWidth = MenuItemMinWidth;
+            item.MinHeight = MenuItemMinHeight;
+            item.Padding = MenuItemPadding;
+            item.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            item.CornerRadius = new CornerRadius(4);
+        }
+
+        private static FontIcon CreateFluentIcon(string glyph)
+        {
+            return new FontIcon
+            {
+                Glyph = glyph,
+                FontFamily = new FontFamily("Segoe Fluent Icons"),
+                FontSize = 16,
             };
         }
 
         private Style CreateMenuFlyoutPresenterStyle()
         {
             var style = new Style(typeof(MenuFlyoutPresenter));
-            style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 260d));
+            if (TryGetDefaultStyle(typeof(MenuFlyoutPresenter), out Style? defaultStyle) && defaultStyle is not null)
+            {
+                style.BasedOn = defaultStyle;
+            }
+
+            style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, MenuMinWidth));
+            style.Setters.Add(new Setter(FrameworkElement.MaxWidthProperty, 360d));
             style.Setters.Add(new Setter(Control.FontSizeProperty, 14d));
+            style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(8)));
+            style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(4, 6, 4, 6)));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
             style.Setters.Add(new Setter(Control.BackgroundProperty, CreateMenuBackgroundBrush()));
             style.Setters.Add(new Setter(Control.BorderBrushProperty, CreateMenuBorderBrush()));
-            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(1)));
-            style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(4)));
+            style.Setters.Add(new Setter(Control.ForegroundProperty, CreateMenuForegroundBrush()));
             return style;
         }
 
         private Brush CreateMenuBackgroundBrush()
         {
+            if (TryGetThemeBrush(
+                    out Brush? brush,
+                    "AcrylicInAppFillColorDefaultBrush",
+                    "AcrylicBackgroundFillColorDefaultBrush",
+                    "SolidBackgroundFillColorBaseBrush",
+                    "MenuFlyoutPresenterBackground")
+                && brush is not null)
+            {
+                return brush;
+            }
+
             bool light = IsLightTheme();
             return new SolidColorBrush(light
-                ? Windows.UI.Color.FromArgb(246, 250, 250, 250)
-                : Windows.UI.Color.FromArgb(246, 42, 42, 42));
+                ? Color.FromArgb(0xF2, 0xF9, 0xF9, 0xF9)
+                : Color.FromArgb(0xF2, 0x2C, 0x2C, 0x2C));
         }
 
-        private SolidColorBrush CreateMenuBorderBrush()
+        private Brush CreateMenuBorderBrush()
         {
+            if (TryGetThemeBrush(
+                    out Brush? brush,
+                    "SurfaceStrokeColorFlyoutBrush",
+                    "SurfaceStrokeColorDefaultBrush",
+                    "MenuFlyoutPresenterBorderBrush")
+                && brush is not null)
+            {
+                return brush;
+            }
+
             return new SolidColorBrush(IsLightTheme()
-                ? Windows.UI.Color.FromArgb(60, 0, 0, 0)
-                : Windows.UI.Color.FromArgb(58, 255, 255, 255));
+                ? Color.FromArgb(0x0F, 0x00, 0x00, 0x00)
+                : Color.FromArgb(0x15, 0xFF, 0xFF, 0xFF));
+        }
+
+        private Brush CreateMenuForegroundBrush()
+        {
+            if (TryGetThemeBrush(
+                    out Brush? brush,
+                    "TextFillColorPrimaryBrush",
+                    "MenuFlyoutItemForeground")
+                && brush is not null)
+            {
+                return brush;
+            }
+
+            return new SolidColorBrush(IsLightTheme()
+                ? Color.FromArgb(0xE4, 0x00, 0x00, 0x00)
+                : Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
+        }
+
+        private static bool TryGetDefaultStyle(Type targetType, out Style? style)
+        {
+            style = null;
+            if (Application.Current?.Resources is null)
+            {
+                return false;
+            }
+
+            if (Application.Current.Resources.TryGetValue(targetType, out object? value) && value is Style typedStyle)
+            {
+                style = typedStyle;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetThemeBrush(out Brush? brush, params string[] resourceKeys)
+        {
+            brush = null;
+            ResourceDictionary? resources = Application.Current?.Resources;
+            if (resources is null)
+            {
+                return false;
+            }
+
+            foreach (string key in resourceKeys)
+            {
+                if (resources.TryGetValue(key, out object? value) && value is Brush themeBrush)
+                {
+                    brush = themeBrush;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool IsLightTheme()
@@ -476,7 +629,7 @@ namespace ClashWinUI.Services.Implementations
                 {
                     Text = "C",
                     Foreground = new SolidColorBrush(Colors.White),
-                    Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x00, 0x78, 0xD4)),
+                    Background = new SolidColorBrush(Color.FromArgb(0xFF, 0x00, 0x78, 0xD4)),
                 };
                 icon.ForceCreate();
                 createdIcon = icon;
@@ -610,45 +763,49 @@ namespace ClashWinUI.Services.Implementations
             return true;
         }
 
-        private async Task<bool> ExecuteRestartApplicationCommandAsync()
+        private Task<bool> ExecuteRestartApplicationCommandAsync()
         {
             if (_restartApplicationAsyncAction is null)
             {
                 _logService.Add("Tray restart action is not available.", LogLevel.Warning);
-                return false;
+                return Task.FromResult(false);
             }
 
             _logService.Add("Tray menu clicked: Restart application.");
-            await RunOnUiThreadAsync(_restartApplicationAsyncAction);
-            return true;
+            // Do not await process exit/relaunch on the menu command path; that can freeze the host.
+            _ = RunOnUiThreadAsync(_restartApplicationAsyncAction);
+            return Task.FromResult(true);
         }
 
-        private async Task<bool> ExecuteExitCommandAsync()
+        private Task<bool> ExecuteExitCommandAsync()
         {
             if (_isExitInProgress)
             {
-                return false;
+                return Task.FromResult(false);
             }
 
             _isExitInProgress = true;
-            try
-            {
-                _logService.Add("Tray menu clicked: Exit application.");
-                if (_exitApplicationAsyncAction is not null)
-                {
-                    await RunOnUiThreadAsync(_exitApplicationAsyncAction);
-                    return true;
-                }
-                else
-                {
-                    _logService.Add("Tray exit action is not available.", LogLevel.Warning);
-                    return false;
-                }
-            }
-            finally
+            _logService.Add("Tray menu clicked: Exit application.");
+            if (_exitApplicationAsyncAction is null)
             {
                 _isExitInProgress = false;
+                _logService.Add("Tray exit action is not available.", LogLevel.Warning);
+                return Task.FromResult(false);
             }
+
+            // Fire-and-forget: awaiting Exit() would never complete cleanly on this command path.
+            _ = RunOnUiThreadAsync(async () =>
+            {
+                try
+                {
+                    await _exitApplicationAsyncAction();
+                }
+                finally
+                {
+                    _isExitInProgress = false;
+                }
+            });
+            return Task.FromResult(true);
         }
 
         private Task RunOnUiThreadAsync(Func<Task> action)
@@ -704,3 +861,4 @@ namespace ClashWinUI.Services.Implementations
         }
     }
 }
+

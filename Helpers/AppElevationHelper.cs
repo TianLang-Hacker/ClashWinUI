@@ -53,6 +53,21 @@ namespace ClashWinUI.Helpers
 
         public static ElevationRelaunchOutcome TryRelaunch()
         {
+            return TryRelaunchCore(delaySeconds: 0);
+        }
+
+        public static ElevationRelaunchOutcome TryRelaunchDelayed(int delaySeconds = 1)
+        {
+            return TryRelaunchCore(delaySeconds: Math.Clamp(delaySeconds, 1, 10));
+        }
+
+        public static ElevationRelaunchOutcome TryLaunchNewInstance()
+        {
+            return TryRelaunch();
+        }
+
+        private static ElevationRelaunchOutcome TryRelaunchCore(int delaySeconds)
+        {
             ElevationTargetInfo target = ResolveElevationTarget();
             if (!IsValidElevationTarget(target))
             {
@@ -63,13 +78,34 @@ namespace ClashWinUI.Helpers
 
             try
             {
-                Process.Start(new ProcessStartInfo
+                if (delaySeconds <= 0)
                 {
-                    FileName = target.ExecutablePath,
-                    Arguments = string.Empty,
-                    WorkingDirectory = target.WorkingDirectory,
-                    UseShellExecute = true,
-                });
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = target.ExecutablePath,
+                        Arguments = string.Empty,
+                        WorkingDirectory = target.WorkingDirectory,
+                        UseShellExecute = true,
+                    });
+                }
+                else
+                {
+                    string launchCommand = string.Equals(target.LaunchMode, "packaged", StringComparison.OrdinalIgnoreCase)
+                        ? $"explorer.exe \"{EscapeForCmd(target.ExecutablePath)}\""
+                        : $"start \"\" \"{EscapeForCmd(target.ExecutablePath)}\"";
+
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "cmd.exe",
+                        Arguments = $"/c timeout /t {delaySeconds} /nobreak >nul & {launchCommand}",
+                        WorkingDirectory = string.IsNullOrWhiteSpace(target.WorkingDirectory)
+                            ? Environment.SystemDirectory
+                            : target.WorkingDirectory,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                    });
+                }
 
                 return ElevationRelaunchOutcome.Relaunched(target);
             }
@@ -79,9 +115,9 @@ namespace ClashWinUI.Helpers
             }
         }
 
-        public static ElevationRelaunchOutcome TryLaunchNewInstance()
+        private static string EscapeForCmd(string value)
         {
-            return TryRelaunch();
+            return value.Replace("\"", "\"\"", StringComparison.Ordinal);
         }
 
         private static ElevationTargetInfo ResolveElevationTarget()

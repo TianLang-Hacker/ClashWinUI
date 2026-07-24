@@ -1,3 +1,4 @@
+using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -13,38 +14,67 @@ namespace ClashWinUI.Views
 {
     internal sealed class TrayMenuHostWindow : Window
     {
-        private const int HostSize = 1;
         private const int ScreenMargin = 8;
-        private const int MenuGap = 8;
+        private const int AnchorSize = 8;
+        private const int HostSize = 8;
         private const int GwlExStyle = -20;
+        private const int GwlStyle = -16;
         private const int SwHide = 0;
         private const int SwShowNoActivate = 4;
         private const long WsExToolWindow = 0x00000080L;
         private const long WsExAppWindow = 0x00040000L;
+        private const long WsExNoActivate = 0x08000000L;
         private const uint SwpNoActivate = 0x0010;
         private const uint SwpShowWindow = 0x0040;
+        private const long WsPopupStyle = 0x80000000L;
+        private const int WhMouseLl = 14;
+        private const int GaRoot = 2;
+        private const uint WmLButtonDown = 0x0201;
+        private const uint WmRButtonDown = 0x0204;
+        private const uint WmMButtonDown = 0x0207;
+        private const uint WmXButtonDown = 0x020B;
+        private const uint WmNclButtonDown = 0x00A1;
+        private const uint WmNcrButtonDown = 0x00A4;
 
         private static readonly IntPtr HwndTopmost = new(-1);
 
         private readonly IThemeService _themeService;
-        private readonly Grid _anchor;
+        private readonly Grid _root;
+        private readonly Border _anchor;
         private readonly IntPtr _windowHandle;
+        private readonly LowLevelMouseProc _mouseProc;
         private bool _isClosed;
+        private bool _isOutsideClickHookActive;
+        private IntPtr _mouseHookHandle;
+        private MenuFlyout? _openMenu;
 
         public TrayMenuHostWindow(IThemeService themeService)
         {
             _themeService = themeService;
-            _anchor = new Grid
+            _mouseProc = OnLowLevelMouseProc;
+            _anchor = new Border
             {
-                Width = HostSize,
-                Height = HostSize,
+                Width = AnchorSize,
+                Height = AnchorSize,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
                 Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                IsHitTestVisible = false,
             };
 
-            Content = _anchor;
+            _root = new Grid
+            {
+                // Tiny XAML host only anchors the MenuFlyout. Outside-click dismiss uses a
+                // low-level mouse hook so we never cover the desktop with a WinUI surface.
+                Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+                Children = { _anchor },
+            };
+
+            Content = _root;
             _windowHandle = WindowNative.GetWindowHandle(this);
             ConfigureWindow();
             ApplyTheme();
+            _themeService.ThemeChanged += OnThemeChanged;
         }
 
         public void ShowMenu(MenuFlyout menu, IntPtr trayWindowHandle, Guid trayIconId)
@@ -54,14 +84,18 @@ namespace ClashWinUI.Views
                 return;
             }
 
+            DismissOpenMenu();
             ApplyTheme();
 
-            RectInt32 anchorRect = ResolveAnchorRect(trayWindowHandle, trayIconId);
-            DisplayArea displayArea = DisplayArea.GetFromPoint(GetRectCenter(anchorRect), DisplayAreaFallback.Nearest);
-            TaskbarEdge edge = DetectTaskbarEdge(anchorRect, displayArea);
-            PointInt32 hostPoint = CalculateHostPoint(anchorRect, displayArea.WorkArea, edge);
+            RectInt32 iconRect = ResolveAnchorRect(trayWindowHandle, trayIconId);
+            DisplayArea displayArea = DisplayArea.GetFromPoint(GetRectCenter(iconRect), DisplayAreaFallback.Nearest);
+            TaskbarEdge edge = DetectTaskbarEdge(iconRect, displayArea);
+            RectInt32 hostBounds = CreateHostBounds(iconRect, displayArea);
 
-            MoveHost(hostPoint);
+            MoveAndShowHost(hostBounds);
+
+            menu.ShouldConstrainToRootBounds = false;
+            menu.AreOpenCloseAnimationsEnabled = true;
             menu.Placement = edge switch
             {
                 TaskbarEdge.Top => FlyoutPlacementMode.Bottom,
@@ -69,17 +103,34 @@ namespace ClashWinUI.Views
                 TaskbarEdge.Right => FlyoutPlacementMode.Left,
                 _ => FlyoutPlacementMode.Top,
             };
+
+            _openMenu = menu;
             menu.Closed += OnMenuClosed;
-            menu.ShowAt(_anchor);
+            menu.ShowAt(_anchor, new FlyoutShowOptions
+            {
+                Placement = menu.Placement,
+                ShowMode = FlyoutShowMode.Standard,
+            });
+
+            // Install after ShowAt so the opening tray right-click does not immediately dismiss.
+            InstallOutsideClickHook();
         }
 
         public void HideHost()
         {
-            if (_windowHandle == IntPtr.Zero || _isClosed)
+            if (_isClosed)
             {
                 return;
             }
 
+            UninstallOutsideClickHook();
+
+            if (_windowHandle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            AppWindow.MoveAndResize(new RectInt32(0, 0, 1, 1));
             ShowWindow(_windowHandle, SwHide);
         }
 
@@ -90,6 +141,9 @@ namespace ClashWinUI.Views
                 return;
             }
 
+            DismissOpenMenu();
+            UninstallOutsideClickHook();
+            _themeService.ThemeChanged -= OnThemeChanged;
             ShowWindow(_windowHandle, SwHide);
             _isClosed = true;
             Close();
@@ -100,51 +154,215 @@ namespace ClashWinUI.Views
             AppWindow.Title = string.Empty;
             AppWindow.IsShownInSwitchers = false;
             ExtendsContentIntoTitleBar = true;
+            SystemBackdrop = null;
 
             if (AppWindow.Presenter is OverlappedPresenter presenter)
             {
                 presenter.IsMinimizable = false;
                 presenter.IsMaximizable = false;
                 presenter.IsResizable = false;
+                presenter.IsAlwaysOnTop = true;
                 presenter.SetBorderAndTitleBar(false, false);
             }
 
-            AppWindow.MoveAndResize(new RectInt32(0, 0, HostSize, HostSize));
+            AppWindow.MoveAndResize(new RectInt32(0, 0, 1, 1));
 
             if (_windowHandle == IntPtr.Zero)
             {
                 return;
             }
 
+            ApplyHostWindowStyles();
+            ShowWindow(_windowHandle, SwHide);
+        }
+
+        private void ApplyHostWindowStyles()
+        {
             long extendedStyle = GetWindowLongPtr(_windowHandle, GwlExStyle).ToInt64();
             extendedStyle |= WsExToolWindow;
             extendedStyle &= ~WsExAppWindow;
+            extendedStyle &= ~WsExNoActivate;
             SetWindowLongPtr(_windowHandle, GwlExStyle, new IntPtr(extendedStyle));
-            ShowWindow(_windowHandle, SwHide);
         }
 
         private void ApplyTheme()
         {
-            _anchor.RequestedTheme = _themeService.CurrentAppTheme switch
+            ElementTheme targetTheme = _themeService.CurrentAppTheme switch
             {
                 AppThemeMode.Light => ElementTheme.Light,
                 AppThemeMode.Dark => ElementTheme.Dark,
                 _ => ElementTheme.Default,
             };
+
+            if (_root.RequestedTheme != targetTheme)
+            {
+                _root.RequestedTheme = targetTheme;
+            }
         }
 
-        private void MoveHost(PointInt32 point)
+        private void OnThemeChanged(object? sender, EventArgs e)
         {
-            AppWindow.MoveAndResize(new RectInt32(point.X, point.Y, HostSize, HostSize));
+            if (!_isClosed)
+            {
+                ApplyTheme();
+            }
+        }
+
+        private void MoveAndShowHost(RectInt32 bounds)
+        {
+            ApplyHostWindowStyles();
+
+            AppWindow.MoveAndResize(bounds);
             SetWindowPos(
                 _windowHandle,
                 HwndTopmost,
-                point.X,
-                point.Y,
-                HostSize,
-                HostSize,
+                bounds.X,
+                bounds.Y,
+                bounds.Width,
+                bounds.Height,
                 SwpShowWindow | SwpNoActivate);
             ShowWindow(_windowHandle, SwShowNoActivate);
+        }
+
+        private void InstallOutsideClickHook()
+        {
+            if (_isOutsideClickHookActive || _mouseHookHandle != IntPtr.Zero)
+            {
+                return;
+            }
+
+            _mouseHookHandle = SetWindowsHookExW(
+                WhMouseLl,
+                _mouseProc,
+                GetModuleHandleW(null),
+                0);
+
+            _isOutsideClickHookActive = _mouseHookHandle != IntPtr.Zero;
+        }
+
+        private void UninstallOutsideClickHook()
+        {
+            if (_mouseHookHandle != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_mouseHookHandle);
+                _mouseHookHandle = IntPtr.Zero;
+            }
+
+            _isOutsideClickHookActive = false;
+        }
+
+        private IntPtr OnLowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && _openMenu is not null && IsMouseButtonDownMessage((uint)wParam.ToInt32()))
+            {
+                MsllHookStruct info = Marshal.PtrToStructure<MsllHookStruct>(lParam);
+                IntPtr windowUnderCursor = WindowFromPoint(info.Pt);
+                if (!IsWindowOwnedByMenuHost(windowUnderCursor))
+                {
+                    // Do not block the click; just dismiss on the UI thread.
+                    DispatcherQueue.TryEnqueue(DismissOpenMenu);
+                }
+            }
+
+            return CallNextHookEx(_mouseHookHandle, nCode, wParam, lParam);
+        }
+
+        private static bool IsMouseButtonDownMessage(uint message)
+        {
+            return message is WmLButtonDown or WmRButtonDown or WmMButtonDown or WmXButtonDown
+                or WmNclButtonDown or WmNcrButtonDown;
+        }
+
+        private bool IsWindowOwnedByMenuHost(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero || _windowHandle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            IntPtr current = hwnd;
+            for (int depth = 0; depth < 16 && current != IntPtr.Zero; depth++)
+            {
+                if (current == _windowHandle)
+                {
+                    return true;
+                }
+
+                IntPtr root = GetAncestor(current, GaRoot);
+                if (root == _windowHandle)
+                {
+                    return true;
+                }
+
+                IntPtr owner = GetWindow(current, 4 /* GW_OWNER */);
+                if (owner == _windowHandle)
+                {
+                    return true;
+                }
+
+                if (owner != IntPtr.Zero && owner != current)
+                {
+                    current = owner;
+                    continue;
+                }
+
+                if (root != IntPtr.Zero && root != current)
+                {
+                    current = root;
+                    continue;
+                }
+
+                break;
+            }
+
+            GetWindowThreadProcessId(hwnd, out uint windowProcessId);
+            GetWindowThreadProcessId(_windowHandle, out uint hostProcessId);
+            if (windowProcessId == 0 || windowProcessId != hostProcessId)
+            {
+                return false;
+            }
+
+            // WinUI MenuFlyout popups are typically same-process tool/popup windows.
+            // Do not treat ordinary app windows (e.g. MainWindow) as part of the menu.
+            long exStyle = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
+            long style = GetWindowLongPtr(hwnd, GwlStyle).ToInt64();
+            bool isToolWindow = (exStyle & WsExToolWindow) != 0;
+            bool isAppWindow = (exStyle & WsExAppWindow) != 0;
+            bool isPopup = (style & WsPopupStyle) != 0;
+            bool isNoActivate = (exStyle & WsExNoActivate) != 0;
+
+            return (isToolWindow && !isAppWindow) || (isPopup && isNoActivate);
+        }
+
+        private static RectInt32 CreateHostBounds(RectInt32 iconRect, DisplayArea displayArea)
+        {
+            PointInt32 center = GetRectCenter(iconRect);
+            int width = HostSize;
+            int height = HostSize;
+            int x = center.X - (width / 2);
+            int y = center.Y - (height / 2);
+
+            RectInt32 work = displayArea.WorkArea;
+            RectInt32 outer = displayArea.OuterBounds;
+            int minX = outer.X + ScreenMargin;
+            int minY = outer.Y + ScreenMargin;
+            int maxX = outer.X + outer.Width - width - ScreenMargin;
+            int maxY = outer.Y + outer.Height - height - ScreenMargin;
+            if (maxX < minX)
+            {
+                minX = work.X;
+                maxX = Math.Max(work.X, work.X + work.Width - width);
+            }
+
+            if (maxY < minY)
+            {
+                minY = work.Y;
+                maxY = Math.Max(work.Y, work.Y + work.Height - height);
+            }
+
+            x = Math.Clamp(x, minX, Math.Max(minX, maxX));
+            y = Math.Clamp(y, minY, Math.Max(minY, maxY));
+            return new RectInt32(x, y, width, height);
         }
 
         private void OnMenuClosed(object? sender, object e)
@@ -154,24 +372,32 @@ namespace ClashWinUI.Views
                 menu.Closed -= OnMenuClosed;
             }
 
+            if (ReferenceEquals(_openMenu, sender))
+            {
+                _openMenu = null;
+            }
+
             HideHost();
         }
 
-        private static PointInt32 CalculateHostPoint(RectInt32 anchorRect, RectInt32 workArea, TaskbarEdge edge)
+        private void DismissOpenMenu()
         {
-            PointInt32 center = GetRectCenter(anchorRect);
-            int anchorRight = anchorRect.X + anchorRect.Width;
-            int anchorBottom = anchorRect.Y + anchorRect.Height;
-
-            PointInt32 point = edge switch
+            MenuFlyout? menu = _openMenu;
+            if (menu is null)
             {
-                TaskbarEdge.Top => new PointInt32(center.X, anchorBottom + MenuGap),
-                TaskbarEdge.Left => new PointInt32(anchorRight + MenuGap, center.Y),
-                TaskbarEdge.Right => new PointInt32(anchorRect.X - MenuGap, center.Y),
-                _ => new PointInt32(center.X, anchorRect.Y - MenuGap),
-            };
+                HideHost();
+                return;
+            }
 
-            return ClampToWorkArea(point, workArea);
+            try
+            {
+                menu.Hide();
+            }
+            catch
+            {
+                _openMenu = null;
+                HideHost();
+            }
         }
 
         private RectInt32 ResolveAnchorRect(IntPtr trayWindowHandle, Guid trayIconId)
@@ -182,16 +408,7 @@ namespace ClashWinUI.Views
             }
 
             PointInt32 cursor = GetCursorPosition();
-            return new RectInt32(cursor.X, cursor.Y, HostSize, HostSize);
-        }
-
-        private static PointInt32 ClampToWorkArea(PointInt32 point, RectInt32 workArea)
-        {
-            int maxX = workArea.X + workArea.Width - ScreenMargin;
-            int maxY = workArea.Y + workArea.Height - ScreenMargin;
-            return new PointInt32(
-                Math.Clamp(point.X, workArea.X + ScreenMargin, Math.Max(workArea.X + ScreenMargin, maxX)),
-                Math.Clamp(point.Y, workArea.Y + ScreenMargin, Math.Max(workArea.Y + ScreenMargin, maxY)));
+            return new RectInt32(cursor.X, cursor.Y, AnchorSize, AnchorSize);
         }
 
         private static TaskbarEdge DetectTaskbarEdge(RectInt32 anchorRect, DisplayArea displayArea)
@@ -287,6 +504,8 @@ namespace ClashWinUI.Views
                 : new PointInt32(0, 0);
         }
 
+        private delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
+
         [DllImport("shell32.dll", ExactSpelling = true)]
         private static extern int Shell_NotifyIconGetRect(ref NotifyIconIdentifier identifier, out NativeRect iconLocation);
 
@@ -304,6 +523,31 @@ namespace ClashWinUI.Views
 
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
         private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr SetWindowsHookExW(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(NativePoint point);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, int gaFlags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr GetModuleHandleW(string? lpModuleName);
 
         private enum TaskbarEdge
         {
@@ -331,10 +575,21 @@ namespace ClashWinUI.Views
             public int Bottom;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
         private struct NativePoint
         {
             public int X;
             public int Y;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MsllHookStruct
+        {
+            public NativePoint Pt;
+            public uint MouseData;
+            public uint Flags;
+            public uint Time;
+            public IntPtr DwExtraInfo;
         }
     }
 }

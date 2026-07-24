@@ -16,7 +16,7 @@ namespace ClashWinUI.Helpers
         private readonly Func<AppControlCommand, Task> _commandHandler;
         private readonly CancellationTokenSource _cancellation = new();
         private Task? _serverLoopTask;
-        private bool _isDisposed;
+        private int _isDisposed;
 
         public AppControlChannel(AppProcessRole role, Func<AppControlCommand, Task> commandHandler)
         {
@@ -26,7 +26,7 @@ namespace ClashWinUI.Helpers
 
         public void Start()
         {
-            if (_serverLoopTask is not null || _isDisposed)
+            if (_serverLoopTask is not null || Volatile.Read(ref _isDisposed) == 1)
             {
                 return;
             }
@@ -36,23 +36,40 @@ namespace ClashWinUI.Helpers
 
         public void Dispose()
         {
-            if (_isDisposed)
+            if (Interlocked.Exchange(ref _isDisposed, 1) == 1)
             {
                 return;
             }
 
-            _isDisposed = true;
-            _cancellation.Cancel();
             try
             {
-                _serverLoopTask?.GetAwaiter().GetResult();
+                _cancellation.Cancel();
             }
             catch
             {
                 // Best-effort shutdown only.
             }
 
-            _cancellation.Dispose();
+            // Never block here. Waiting for the server loop can deadlock when Dispose is
+            // triggered by a control-command handler that is still running on that loop.
+            Task? serverLoopTask = _serverLoopTask;
+            if (serverLoopTask is not null)
+            {
+                _ = serverLoopTask.ContinueWith(
+                    static _ => { },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+
+            try
+            {
+                _cancellation.Dispose();
+            }
+            catch
+            {
+                // Best-effort shutdown only.
+            }
         }
 
         public static async Task<bool> TrySendAsync(
@@ -108,10 +125,24 @@ namespace ClashWinUI.Helpers
                     }
 
                     AppControlCommand? command = JsonSerializer.Deserialize(payload, ClashJsonContext.Default.AppControlCommand);
-                    if (command is not null)
+                    if (command is null)
                     {
-                        await _commandHandler(command).ConfigureAwait(false);
+                        continue;
                     }
+
+                    // Handle off the accept loop so shutdown/dispose cannot deadlock the pipe server.
+                    Func<AppControlCommand, Task> handler = _commandHandler;
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await handler(command).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                            // Best-effort command handling only.
+                        }
+                    }, CancellationToken.None);
                 }
                 catch (OperationCanceledException)
                 {
@@ -119,7 +150,14 @@ namespace ClashWinUI.Helpers
                 }
                 catch
                 {
-                    await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
                 }
             }
         }

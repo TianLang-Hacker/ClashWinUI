@@ -7,6 +7,7 @@ namespace ClashWinUI.Models
         ShowRoute = 0,
         ShutdownUi = 1,
         ShutdownApp = 2,
+        ExitSelf = 3,
     }
 
     internal sealed class AppControlCommand
@@ -23,6 +24,15 @@ namespace ClashWinUI.Models
             {
                 CommandType = AppControlCommandType.ShowRoute,
                 RouteKey = routeKey ?? string.Empty,
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+        }
+
+        public static AppControlCommand CreateExitSelf()
+        {
+            return new AppControlCommand
+            {
+                CommandType = AppControlCommandType.ExitSelf,
                 CreatedAt = DateTimeOffset.UtcNow,
             };
         }

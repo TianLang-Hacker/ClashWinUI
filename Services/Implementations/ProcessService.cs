@@ -279,141 +279,192 @@ namespace ClashWinUI.Services.Implementations
                     }
                 }
 
+                using IDisposable? startGate = MihomoPortConflictResolver.TryEnterStartGate(TimeSpan.FromSeconds(8));
+                if (startGate is null)
+                {
+                    _logService.Add("Timed out waiting for exclusive Mihomo start gate. Continuing cautiously.", LogLevel.Warning);
+                }
+
+                int freedBeforeStart = MihomoPortConflictResolver.FreeConflictingPorts(
+                    effectiveConfigPath,
+                    kernelPath,
+                    ControllerPort,
+                    DefaultProxyPort,
+                    _logService);
+                if (freedBeforeStart > 0)
+                {
+                    _logService.Add($"Freed {freedBeforeStart} conflicting process(es) before Mihomo startup.", LogLevel.Warning);
+                    await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                }
+
                 string controller = $"{ControllerHost}:{ControllerPort}";
                 string geoDataDirectory = _geoDataService.GeoDataDirectory;
                 Directory.CreateDirectory(geoDataDirectory);
                 string arguments = $"-d \"{geoDataDirectory}\" -f \"{effectiveConfigPath}\" -ext-ctl {controller}";
                 string workingDirectory = Path.GetDirectoryName(kernelPath) ?? AppContext.BaseDirectory;
-                int bindConflictDetected = 0;
-                ResetFailureDiagnostic();
 
-                var process = new Process
+                const int maxStartAttempts = 2;
+                for (int attempt = 1; attempt <= maxStartAttempts; attempt++)
                 {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = kernelPath,
-                        Arguments = arguments,
-                        WorkingDirectory = workingDirectory,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        StandardOutputEncoding = Encoding.UTF8,
-                        StandardErrorEncoding = Encoding.UTF8,
-                    },
-                    EnableRaisingEvents = true,
-                };
+                    int bindConflictDetected = 0;
+                    ResetFailureDiagnostic();
 
-                process.OutputDataReceived += (_, e) =>
-                {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
+                    var process = new Process
                     {
-                        _logService.Add($"[MIHOMO] {e.Data}");
-                        if (TryClassifyMihomoDiagnostic(e.Data, out MihomoFailureKind diagnosticKind))
+                        StartInfo = new ProcessStartInfo
                         {
-                            if (diagnosticKind == MihomoFailureKind.PortBindConflict)
-                            {
-                                Interlocked.Exchange(ref bindConflictDetected, 1);
-                            }
+                            FileName = kernelPath,
+                            Arguments = arguments,
+                            WorkingDirectory = workingDirectory,
+                            UseShellExecute = false,
+                            CreateNoWindow = true,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            StandardOutputEncoding = Encoding.UTF8,
+                            StandardErrorEncoding = Encoding.UTF8,
+                        },
+                        EnableRaisingEvents = true,
+                    };
 
-                            TrackTunKernelFailureDiagnostic(diagnosticKind, e.Data);
-                            UpdateFailureDiagnostic(diagnosticKind, e.Data);
-                        }
-                    }
-                };
-
-                process.ErrorDataReceived += (_, e) =>
-                {
-                    if (!string.IsNullOrWhiteSpace(e.Data))
+                    process.OutputDataReceived += (_, e) =>
                     {
-                        _logService.Add($"[MIHOMO] {e.Data}", LogLevel.Warning);
-                        if (TryClassifyMihomoDiagnostic(e.Data, out MihomoFailureKind diagnosticKind))
+                        if (!string.IsNullOrWhiteSpace(e.Data))
                         {
-                            if (diagnosticKind == MihomoFailureKind.PortBindConflict)
+                            _logService.Add($"[MIHOMO] {e.Data}");
+                            if (TryClassifyMihomoDiagnostic(e.Data, out MihomoFailureKind diagnosticKind))
                             {
-                                Interlocked.Exchange(ref bindConflictDetected, 1);
+                                if (diagnosticKind == MihomoFailureKind.PortBindConflict)
+                                {
+                                    Interlocked.Exchange(ref bindConflictDetected, 1);
+                                }
+
+                                TrackTunKernelFailureDiagnostic(diagnosticKind, e.Data);
+                                UpdateFailureDiagnostic(diagnosticKind, e.Data);
                             }
-
-                            TrackTunKernelFailureDiagnostic(diagnosticKind, e.Data);
-                            UpdateFailureDiagnostic(diagnosticKind, e.Data);
                         }
-                    }
-                };
+                    };
 
-                process.Exited += (_, _) =>
-                {
-                    Process? previousProcess = _mihomoProcess;
-                    if (previousProcess is not null && previousProcess.Id != process.Id)
+                    process.ErrorDataReceived += (_, e) =>
                     {
-                        return;
+                        if (!string.IsNullOrWhiteSpace(e.Data))
+                        {
+                            _logService.Add($"[MIHOMO] {e.Data}", LogLevel.Warning);
+                            if (TryClassifyMihomoDiagnostic(e.Data, out MihomoFailureKind diagnosticKind))
+                            {
+                                if (diagnosticKind == MihomoFailureKind.PortBindConflict)
+                                {
+                                    Interlocked.Exchange(ref bindConflictDetected, 1);
+                                }
+
+                                TrackTunKernelFailureDiagnostic(diagnosticKind, e.Data);
+                                UpdateFailureDiagnostic(diagnosticKind, e.Data);
+                            }
+                        }
+                    };
+
+                    process.Exited += (_, _) =>
+                    {
+                        Process? previousProcess = _mihomoProcess;
+                        if (previousProcess is not null && previousProcess.Id != process.Id)
+                        {
+                            return;
+                        }
+
+                        ClearAttachedProcess(disposeCurrent: false);
+                        _currentConfigPath = null;
+                        PersistRuntimeState();
+                        RaiseRuntimeStateChanged();
+                        _logService.Add("Mihomo process exited.", LogLevel.Warning);
+                    };
+
+                    bool started;
+                    try
+                    {
+                        started = process.Start();
+                    }
+                    catch (Exception ex)
+                    {
+                        _currentConfigPath = null;
+                        process.Dispose();
+                        _logService.Add($"Mihomo start failed: {ex.Message}", LogLevel.Error);
+                        return false;
                     }
 
-                    ClearAttachedProcess(disposeCurrent: false);
-                    _currentConfigPath = null;
-                    PersistRuntimeState();
-                    RaiseRuntimeStateChanged();
-                    _logService.Add("Mihomo process exited.", LogLevel.Warning);
-                };
-
-                bool started;
-                try
-                {
-                    started = process.Start();
-                }
-                catch (Exception ex)
-                {
-                    _currentConfigPath = null;
-                    process.Dispose();
-                    _logService.Add($"Mihomo start failed: {ex.Message}", LogLevel.Error);
-                    return false;
-                }
-
-                if (!started)
-                {
-                    _currentConfigPath = null;
-                    process.Dispose();
-                    _logService.Add("Mihomo start failed: process.Start returned false.", LogLevel.Error);
-                    return false;
-                }
-
-                process.BeginOutputReadLine();
-                process.BeginErrorReadLine();
-
-                DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(2);
-                while (DateTimeOffset.UtcNow < deadline)
-                {
-                    if (process.HasExited)
+                    if (!started)
                     {
-                        int exitCode = process.ExitCode;
+                        _currentConfigPath = null;
+                        process.Dispose();
+                        _logService.Add("Mihomo start failed: process.Start returned false.", LogLevel.Error);
+                        return false;
+                    }
+
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+
+                    DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(2);
+                    bool exitedImmediately = false;
+                    int exitCode = 0;
+                    while (DateTimeOffset.UtcNow < deadline)
+                    {
+                        if (process.HasExited)
+                        {
+                            exitCode = process.ExitCode;
+                            exitedImmediately = true;
+                            break;
+                        }
+
+                        if (Interlocked.CompareExchange(ref bindConflictDetected, 0, 0) == 1)
+                        {
+                            break;
+                        }
+
+                        await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    bool hasBindConflict = Interlocked.CompareExchange(ref bindConflictDetected, 0, 0) == 1;
+                    if (exitedImmediately && !hasBindConflict)
+                    {
                         _currentConfigPath = null;
                         process.Dispose();
                         _logService.Add($"Mihomo exited immediately after start. ExitCode={exitCode}", LogLevel.Error);
                         return false;
                     }
 
-                    if (Interlocked.CompareExchange(ref bindConflictDetected, 0, 0) == 1)
+                    if (hasBindConflict)
                     {
                         _currentConfigPath = null;
                         TryTerminateProcess(process, "port bind conflict during startup");
+                        if (attempt < maxStartAttempts)
+                        {
+                            int freedOnRetry = MihomoPortConflictResolver.FreeConflictingPorts(
+                                effectiveConfigPath,
+                                kernelPath,
+                                ControllerPort,
+                                DefaultProxyPort,
+                                _logService);
+                            _logService.Add(
+                                $"Mihomo port bind conflict on attempt {attempt}/{maxStartAttempts}. Freed={freedOnRetry}. Retrying startup.",
+                                LogLevel.Warning);
+                            if (freedOnRetry > 0)
+                            {
+                                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                            }
+
+                            continue;
+                        }
+
                         _logService.Add("Mihomo startup failed due to port bind conflict.", LogLevel.Error);
                         return false;
                     }
 
-                    await Task.Delay(150, cancellationToken).ConfigureAwait(false);
+                    AttachProcess(process, effectiveConfigPath, persistState: true, raiseEvent: true);
+                    _logService.Add($"Mihomo started with config: {effectiveConfigPath}, GeoDataDir={geoDataDirectory}");
+                    return true;
                 }
 
-                if (Interlocked.CompareExchange(ref bindConflictDetected, 0, 0) == 1)
-                {
-                    _currentConfigPath = null;
-                    TryTerminateProcess(process, "port bind conflict during startup");
-                    _logService.Add("Mihomo startup failed due to port bind conflict.", LogLevel.Error);
-                    return false;
-                }
-
-                AttachProcess(process, effectiveConfigPath, persistState: true, raiseEvent: true);
-                _logService.Add($"Mihomo started with config: {effectiveConfigPath}, GeoDataDir={geoDataDirectory}");
-
-                return true;
+                _currentConfigPath = null;
+                _logService.Add("Mihomo startup failed after retries.", LogLevel.Error);
+                return false;
             }
             finally
             {
@@ -444,7 +495,16 @@ namespace ClashWinUI.Services.Implementations
                         if (!trackedProcess.HasExited)
                         {
                             trackedProcess.Kill(entireProcessTree: true);
-                            await trackedProcess.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+                            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                            waitCts.CancelAfter(TimeSpan.FromSeconds(5));
+                            try
+                            {
+                                await trackedProcess.WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                            {
+                                _logService.Add("Stop Mihomo timed out after kill; continuing restart.", LogLevel.Warning);
+                            }
                         }
 
                         _logService.Add("Mihomo process stopped.");
@@ -861,14 +921,7 @@ namespace ClashWinUI.Services.Implementations
 
         private static bool LooksLikePortBindConflict(string line)
         {
-            if (string.IsNullOrWhiteSpace(line))
-            {
-                return false;
-            }
-
-            return line.Contains("Only one usage of each socket address", StringComparison.OrdinalIgnoreCase)
-                || (line.Contains("listen tcp", StringComparison.OrdinalIgnoreCase)
-                    && line.Contains("bind:", StringComparison.OrdinalIgnoreCase));
+            return MihomoPortConflictResolver.LooksLikePortBindConflict(line);
         }
 
         private static bool TryClassifyMihomoDiagnostic(string line, out MihomoFailureKind kind)
