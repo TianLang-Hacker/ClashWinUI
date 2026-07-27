@@ -12,6 +12,7 @@ namespace ClashWinUI.Services.Interfaces
         MixinSettings LoadMixin(ProfileItem profile);
         void SaveMixin(ProfileItem profile, MixinSettings settings);
         string BuildRuntime(ProfileItem profile);
+        string SaveMixinAndBuildRuntime(ProfileItem profile, MixinSettings settings);
         string GetRuntimePath(ProfileItem profile);
         IReadOnlyList<RuntimeRuleItem> GetRuntimeRules(ProfileItem profile);
         void SetRuleEnabled(ProfileItem profile, string stableId, bool isEnabled);

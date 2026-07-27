@@ -20,23 +20,20 @@ namespace ClashWinUI.Views.Pages
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            RulesViewModel viewModel = ResolveViewModel();
-            if (!ReferenceEquals(_viewModel, viewModel))
+            if (_viewModel is null)
             {
-                ReleaseViewModel();
-                _viewModel = viewModel;
-                DataContext = viewModel;
+                _viewModel = ResolveViewModel();
+                DataContext = _viewModel;
             }
 
             RebindRulesList();
-            await viewModel.InitializeAsync();
+            await _viewModel.InitializeAsync();
 
             base.OnNavigatedTo(e);
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            ReleaseViewModel();
             base.OnNavigatedFrom(e);
         }
 

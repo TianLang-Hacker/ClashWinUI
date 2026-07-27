@@ -142,7 +142,7 @@
     <value>Settings</value>
   </data>
   <data name="NavLightweightMode" xml:space="preserve">
-    <value>Lightweight Mode</value>
+    <value>Lite Mode</value>
   </data>
   <data name="PageOverview" xml:space="preserve">
     <value>Overview</value>
@@ -495,7 +495,10 @@
   <data name="TunRuntimeStatusActive" xml:space="preserve">
     <value>Active</value>
   </data>
-  <data name="TunRuntimeStatusPending" xml:space="preserve">
+    <data name="TunRuntimeStatusOpening" xml:space="preserve">
+    <value>Opening TUN mode.</value>
+  </data>
+<data name="TunRuntimeStatusPending" xml:space="preserve">
     <value>Configured, but currently not active</value>
   </data>
   <data name="TunRuntimeSummaryFallbackProxyFormat" xml:space="preserve">
@@ -950,5 +953,14 @@
   </data>
   <data name="TrayMenuOpenProxiesForMore" xml:space="preserve">
     <value>Open Proxies page for more</value>
+  </data>
+  <data name="SettingsTunElevationRequested" xml:space="preserve">
+    <value>Requesting administrator approval to enable TUN. The app will restart and start TUN after approval…</value>
+  </data>
+  <data name="SettingsTunElevationCancelled" xml:space="preserve">
+    <value>Administrator approval was cancelled. TUN was not enabled.</value>
+  </data>
+  <data name="SettingsTunElevationFailed" xml:space="preserve">
+    <value>Administrator approval failed. TUN was not enabled: {0}</value>
   </data>
 </root>

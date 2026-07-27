@@ -28,17 +28,19 @@ namespace ClashWinUI.Views.Pages
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            LogsViewModel viewModel = ResolveViewModel();
-            AttachViewModel(viewModel);
+            if (_viewModel is null)
+            {
+                AttachViewModel(ResolveViewModel());
+            }
+
             RebindLogsList();
-            await viewModel.InitializeAsync();
+            await _viewModel!.InitializeAsync();
 
             base.OnNavigatedTo(e);
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            DetachViewModel();
             base.OnNavigatedFrom(e);
         }
 

@@ -37,6 +37,12 @@ namespace ClashWinUI.Helpers
                 return _current;
             }
 
+            if (TryTakeOverAsElevatedUi(out AppProcessBootstrapResult? elevatedResult) && elevatedResult is not null)
+            {
+                _current = elevatedResult;
+                return _current;
+            }
+
             bool uiRunning = IsRoleRunning(AppProcessRole.Ui);
             bool trayRunning = IsRoleRunning(AppProcessRole.Tray);
 
@@ -147,6 +153,47 @@ namespace ClashWinUI.Helpers
             {
                 // Best-effort only.
             }
+        }
+
+        private static bool TryTakeOverAsElevatedUi(out AppProcessBootstrapResult? result)
+        {
+            result = null;
+            if (!AppElevationHelper.IsProcessElevated() || !PendingElevatedStartStore.IsPending())
+            {
+                return false;
+            }
+
+            // Old non-elevated UI/tray are exiting after UAC. Wait and exclusively take UI ownership
+            // so we do not flash-exit as a "duplicate instance" or fall into tray-only mode.
+            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(20);
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                if (TryAcquireRole(AppProcessRole.Ui, out Mutex? roleMutex))
+                {
+                    _roleMutex = roleMutex;
+                    PendingElevatedStartStore.Clear();
+                    bool trayRunning = IsRoleRunning(AppProcessRole.Tray);
+                    result = new AppProcessBootstrapResult
+                    {
+                        ShouldExit = false,
+                        Role = AppProcessRole.Ui,
+                        ShouldOwnStartupPipeline = true,
+                        ShouldSpawnTrayCompanion = !trayRunning,
+                    };
+                    return true;
+                }
+
+                Thread.Sleep(150);
+            }
+
+            // Timed out still cannot own UI. Clear the flag to avoid sticky takeover loops.
+            PendingElevatedStartStore.Clear();
+            result = new AppProcessBootstrapResult
+            {
+                ShouldExit = true,
+                Role = AppProcessRole.Ui,
+            };
+            return true;
         }
 
         private static void WaitUntilRoleApparentlyFree(AppProcessRole role, TimeSpan timeout)

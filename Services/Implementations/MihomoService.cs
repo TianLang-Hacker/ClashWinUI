@@ -54,6 +54,7 @@ namespace ClashWinUI.Services.Implementations
         private readonly IKernelPathService _kernelPathService;
         private readonly IProcessService _processService;
         private readonly ITunService _tunService;
+        private bool _lastKnownTunEnabled;
         private readonly HttpClient _httpClient;
         private readonly string _controllerBaseUrl;
         private readonly string? _controllerSecret;
@@ -102,7 +103,12 @@ namespace ClashWinUI.Services.Implementations
             _controllerSecret = Environment.GetEnvironmentVariable("MIHOMO_SECRET");
         }
 
-        public async Task<bool> ApplyConfigAsync(string configPath, CancellationToken cancellationToken = default)
+        public Task<bool> ApplyConfigAsync(string configPath, CancellationToken cancellationToken = default)
+        {
+            return ApplyConfigAsync(configPath, ConfigApplyOptions.Default, cancellationToken);
+        }
+
+        public async Task<bool> ApplyConfigAsync(string configPath, ConfigApplyOptions options, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrWhiteSpace(configPath) || !File.Exists(configPath))
             {
@@ -110,33 +116,38 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
-            ProfileCompatibilityStatus compatibility = await EnsureProfileCompatibilityAsync(configPath, cancellationToken).ConfigureAwait(false);
-            if (compatibility == ProfileCompatibilityStatus.Base64NotYaml)
+            bool lightweight = options == ConfigApplyOptions.LightweightSettings;
+            if (!lightweight)
             {
-                if (TryMarkIncompatibleWarned(configPath))
+                ProfileCompatibilityStatus compatibility = await EnsureProfileCompatibilityAsync(configPath, cancellationToken).ConfigureAwait(false);
+                if (compatibility == ProfileCompatibilityStatus.Base64NotYaml)
                 {
-                    _logService.Add($"Skip ApplyConfig: profile is not Mihomo-compatible: {configPath}", LogLevel.Warning);
+                    if (TryMarkIncompatibleWarned(configPath))
+                    {
+                        _logService.Add($"Skip ApplyConfig: profile is not Mihomo-compatible: {configPath}", LogLevel.Warning);
+                    }
+
+                    return false;
                 }
 
-                return false;
-            }
-
-            GeoDataOperationResult geoDataEnsureResult = await _geoDataService.EnsureGeoDataReadyAsync(cancellationToken).ConfigureAwait(false);
-            if (!geoDataEnsureResult.Success)
-            {
-                _logService.Add($"GeoData ensure failed before apply: {geoDataEnsureResult.Details}", LogLevel.Warning);
+                GeoDataOperationResult geoDataEnsureResult = await _geoDataService.EnsureGeoDataReadyAsync(cancellationToken).ConfigureAwait(false);
+                if (!geoDataEnsureResult.Success)
+                {
+                    _logService.Add($"GeoData ensure failed before apply: {geoDataEnsureResult.Details}", LogLevel.Warning);
+                }
             }
 
             DateTimeOffset operationStartedAt = DateTimeOffset.UtcNow;
-            bool applied = ShouldRestartForTun(configPath)
+            bool applied = ShouldRestartForTun(configPath, options)
                 ? await ApplyConfigWithRestartAsync(configPath, cancellationToken).ConfigureAwait(false)
-                : await ApplyConfigCoreAsync(configPath, cancellationToken).ConfigureAwait(false);
+                : await ApplyConfigCoreAsync(configPath, lightweight, cancellationToken).ConfigureAwait(false);
             if (applied)
             {
+                _lastKnownTunEnabled = _tunService.IsTunEnabled(configPath);
                 return true;
             }
 
-            if (ShouldAttemptGeoDataRecovery(operationStartedAt))
+            if (!lightweight && ShouldAttemptGeoDataRecovery(operationStartedAt))
             {
                 return await RecoverFromGeoDataFailureAsync(configPath, cancellationToken).ConfigureAwait(false);
             }
@@ -144,15 +155,28 @@ namespace ClashWinUI.Services.Implementations
             return false;
         }
 
-        private bool ShouldRestartForTun(string configPath)
+        private bool ShouldRestartForTun(string configPath, ConfigApplyOptions options)
         {
-            if (_tunService.IsTunEnabled(configPath))
+            // Runtime yaml is often rewritten in-place before apply. An explicit force flag is required
+            // for TUN transitions so disable still restarts after the file already says enable=false.
+            if (options == ConfigApplyOptions.ForceRestart)
             {
                 return true;
             }
 
+            bool nextTunEnabled = _tunService.IsTunEnabled(configPath);
             string? currentConfigPath = _processService.CurrentConfigPath;
-            return !string.IsNullOrWhiteSpace(currentConfigPath) && _tunService.IsTunEnabled(currentConfigPath);
+            bool currentFileTunEnabled = !string.IsNullOrWhiteSpace(currentConfigPath) && _tunService.IsTunEnabled(currentConfigPath);
+            bool currentTunEnabled = _lastKnownTunEnabled || currentFileTunEnabled;
+
+            // Lightweight settings (allow-lan/ipv6/mode/log-level) should not force a full restart
+            // merely because TUN is already enabled.
+            if (options == ConfigApplyOptions.LightweightSettings)
+            {
+                return nextTunEnabled != currentTunEnabled;
+            }
+
+            return nextTunEnabled || currentTunEnabled;
         }
 
         private async Task<bool> ApplyConfigWithRestartAsync(string configPath, CancellationToken cancellationToken)
@@ -198,7 +222,7 @@ namespace ClashWinUI.Services.Implementations
             }
         }
 
-        private async Task<bool> ApplyConfigCoreAsync(string configPath, CancellationToken cancellationToken)
+        private async Task<bool> ApplyConfigCoreAsync(string configPath, bool lightweight, CancellationToken cancellationToken)
         {
             try
             {
@@ -212,7 +236,7 @@ namespace ClashWinUI.Services.Implementations
                 ApplyConfigRequestResult patchResult = await SendApplyConfigRequestAsync(HttpMethod.Patch, payloadJson, cancellationToken).ConfigureAwait(false);
                 if (patchResult.Success)
                 {
-                    return await CompleteConfigApplyAsync(configPath, "hot-apply", cancellationToken).ConfigureAwait(false);
+                    return await CompleteConfigApplyAsync(configPath, "hot-apply", lightweight, cancellationToken).ConfigureAwait(false);
                 }
 
                 if (ShouldFallbackToPut(patchResult))
@@ -225,7 +249,7 @@ namespace ClashWinUI.Services.Implementations
                     ApplyConfigRequestResult putResult = await SendApplyConfigRequestAsync(HttpMethod.Put, payloadJson, cancellationToken).ConfigureAwait(false);
                     if (putResult.Success)
                     {
-                        return await CompleteConfigApplyAsync(configPath, "hot-apply", cancellationToken).ConfigureAwait(false);
+                        return await CompleteConfigApplyAsync(configPath, "hot-apply", lightweight, cancellationToken).ConfigureAwait(false);
                     }
 
                     LogApplyFailure(configPath, putResult);
@@ -518,8 +542,44 @@ namespace ClashWinUI.Services.Implementations
             return false;
         }
 
-        private async Task<bool> CompleteConfigApplyAsync(string configPath, string stage, CancellationToken cancellationToken)
+        private async Task<bool> CompleteConfigApplyAsync(string configPath, string stage, bool lightweight, CancellationToken cancellationToken)
         {
+            if (lightweight)
+            {
+                for (int attempt = 1; attempt <= 4; attempt++)
+                {
+                    string? version = await GetVersionAsync(cancellationToken).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(version))
+                    {
+                        List<ProxyGroup> groups;
+                        lock (_groupCacheSync)
+                        {
+                            groups = _lastRuntimeGroups.Select(CloneProxyGroup).ToList();
+                        }
+
+                        if (groups.Count == 0)
+                        {
+                            groups = ProxyGroupParser.ParseFromFile(configPath).Select(CloneProxyGroup).ToList();
+                        }
+
+                        CacheRuntimeGroups(groups);
+                        ClearApplyFailureHistory(configPath);
+                        _processService.ResetFailureDiagnostic();
+                        _logService.Add($"Mihomo config applied (lightweight): {configPath}");
+                        ConfigApplied?.Invoke(this, configPath);
+                        return true;
+                    }
+
+                    if (attempt < 4)
+                    {
+                        await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+
+                _logService.Add($"Mihomo lightweight apply controller not ready: {configPath}", LogLevel.Warning);
+                return false;
+            }
+
             ControllerConvergenceResult convergence = await WaitForControllerConvergenceAsync(
                 configPath,
                 stage,

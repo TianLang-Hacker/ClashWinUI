@@ -1,4 +1,4 @@
-﻿using ClashWinUI.ViewModels;
+using ClashWinUI.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -17,31 +17,31 @@ namespace ClashWinUI.Views.Pages
         public HomePage()
         {
             InitializeComponent();
+            NavigationCacheMode = NavigationCacheMode.Enabled;
         }
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            HomeViewModel viewModel = ResolveViewModel();
-            if (!ReferenceEquals(_viewModel, viewModel))
+            if (_viewModel is null)
             {
-                ReleaseViewModel(clearChartHosts: false);
-                ActualThemeChanged -= OnActualThemeChanged;
+                HomeViewModel viewModel = ResolveViewModel();
                 _viewModel = viewModel;
                 DataContext = viewModel;
                 viewModel.ApplyChartTheme(ActualTheme);
+                ActualThemeChanged -= OnActualThemeChanged;
                 ActualThemeChanged += OnActualThemeChanged;
             }
 
-            await viewModel.InitializeAsync();
-            viewModel.StartAutoRefresh();
-            QueueChartsLoad(viewModel);
+            await _viewModel.InitializeAsync();
+            _viewModel.StartAutoRefresh();
+            QueueChartsLoad(_viewModel);
 
             base.OnNavigatedTo(e);
         }
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            ReleaseViewModel(clearChartHosts: true);
+            _viewModel?.StopAutoRefresh();
             base.OnNavigatedFrom(e);
         }
 

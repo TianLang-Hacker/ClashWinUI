@@ -119,6 +119,19 @@ namespace ClashWinUI.Services.Implementations.Config
             RaiseConfigurationChanged();
         }
 
+        public string SaveMixinAndBuildRuntime(ProfileItem profile, MixinSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(settings);
+
+            ProfileConfigWorkspace workspace = EnsureWorkspace(profile);
+            WriteMixinSettings(workspace.MixinPath, settings);
+            BuildRuntimeInternal(workspace);
+            InvalidateRuntimeRulesCache();
+            _pageWarmCacheService.Clear();
+            RaiseConfigurationChanged();
+            return workspace.RuntimePath;
+        }
+
         public string BuildRuntime(ProfileItem profile)
         {
             ProfileConfigWorkspace workspace = EnsureWorkspace(profile);

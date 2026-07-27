@@ -3,6 +3,7 @@ using ClashWinUI.Models;
 using ClashWinUI.Services.Implementations.Native;
 using ClashWinUI.Services.Interfaces;
 using System;
+using System.Threading;
 using System.Collections.Generic;
 using System.IO;
 using System.Diagnostics;
@@ -128,11 +129,34 @@ namespace ClashWinUI.Services.Implementations
 
                 if (!driverLoaded)
                 {
+                    for (int attempt = 0; attempt < 4 && !driverLoaded; attempt++)
+                    {
+                        Thread.Sleep(200);
+                        driverVersionRaw = native.GetRunningDriverVersion();
+                        driverLoaded = driverVersionRaw != 0;
+                    }
+
+                    driverVersion = FormatDriverVersion(driverVersionRaw);
+                }
+
+                // Openable adapter means the driver session is effectively available.
+                if (!driverLoaded && discovery.AdapterHandle is not null)
+                {
+                    driverLoaded = true;
+                    if (string.IsNullOrWhiteSpace(driverVersion))
+                    {
+                        driverVersion = "unknown";
+                    }
+                }
+
+                if (!driverLoaded && discovery.AdapterHandle is null)
+                {
+                    // Ghost NetworkInterface remnants without an active Wintun session.
                     TunRuntimeStatus dependencyStatus = CreateRuntimeStatus(
                         snapshot,
                         false,
                         driverVersion,
-                        true,
+                        selectedAdapter.AdapterPresent,
                         false,
                         firewallEnabled,
                         MihomoFailureKind.TunDependency,
@@ -795,7 +819,31 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
-            return EnumerateCandidateOpenNames(snapshot).Any(name => name.Equals(configuredDeviceName, StringComparison.OrdinalIgnoreCase));
+            return EnumerateCandidateOpenNames(snapshot).Any(name => IsSameOrWindowsSuffixedAdapterName(name, configuredDeviceName));
+        }
+
+        private static bool IsSameOrWindowsSuffixedAdapterName(string candidateName, string configuredDeviceName)
+        {
+            string candidate = NormalizeScalar(candidateName);
+            string configured = NormalizeScalar(configuredDeviceName);
+            if (string.IsNullOrWhiteSpace(candidate) || string.IsNullOrWhiteSpace(configured))
+            {
+                return false;
+            }
+
+            if (candidate.Equals(configured, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            // Windows renames duplicate adapters as "Name 1", "Name 2", ...
+            if (!candidate.StartsWith(configured, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            string suffix = candidate.Substring(configured.Length).Trim();
+            return suffix.Length > 0 && suffix.All(char.IsDigit);
         }
 
         private static int GetDiscoveryRank(string discoverySource)
@@ -977,10 +1025,15 @@ namespace ClashWinUI.Services.Implementations
                 return false;
             }
 
-            return combined.Contains("clash-verge", StringComparison.OrdinalIgnoreCase)
+            // clash-verge residual service/process is common and must not influence TUN health decisions.
+            if (combined.Contains("clash-verge", StringComparison.OrdinalIgnoreCase)
                 || combined.Contains("clash_verge", StringComparison.OrdinalIgnoreCase)
-                || combined.Contains("verge", StringComparison.OrdinalIgnoreCase)
-                || combined.Contains("clash", StringComparison.OrdinalIgnoreCase);
+                || combined.Contains("verge", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return combined.Contains("clash", StringComparison.OrdinalIgnoreCase);
         }
 
         private static IReadOnlyList<TunAdapterSnapshot> GetForeignCandidateSnapshots(

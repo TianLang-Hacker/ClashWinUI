@@ -1,3 +1,4 @@
+using Microsoft.UI.Xaml;
 using ClashWinUI.Helpers;
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
@@ -7,6 +8,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+
+using ClashWinUI.ViewModels;
 
 namespace ClashWinUI.Services.Implementations
 {
@@ -181,6 +184,44 @@ namespace ClashWinUI.Services.Implementations
                 return true;
             }
 
+            MixinSettings previousSettings = CloneMixinSettings(settings);
+            settings.TunEnabled = enabled;
+
+            if (enabled && !AppElevationHelper.IsProcessElevated())
+            {
+                try
+                {
+                    await Task.Run(
+                        () => _configService.SaveMixinAndBuildRuntime(activeProfile, settings),
+                        cancellationToken).ConfigureAwait(false);
+
+                    bool relaunched = false;
+                    if (Application.Current is App app)
+                    {
+                        relaunched = await app.RequestElevatedRestartForTunAsync(MainViewModel.SettingsRouteKey)
+                            .ConfigureAwait(false);
+                    }
+
+                    if (relaunched)
+                    {
+                        _logService.Add("Tray TUN enable requested administrator elevation. Restarting elevated process.");
+                        return true;
+                    }
+
+                    await RestoreMixinSettingsAsync(activeProfile, previousSettings, cancellationToken).ConfigureAwait(false);
+                    _logService.Add("Tray TUN enable cancelled or failed during elevation.", LogLevel.Warning);
+                    await RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    await RestoreMixinSettingsAsync(activeProfile, previousSettings, cancellationToken).ConfigureAwait(false);
+                    _logService.Add($"Tray TUN elevation failed: {ex.Message}", LogLevel.Warning);
+                    await RefreshSnapshotAsync(cancellationToken).ConfigureAwait(false);
+                    return false;
+                }
+            }
+
             if (enabled)
             {
                 TunPreparationResult preparation = await Task.Run(
@@ -193,9 +234,7 @@ namespace ClashWinUI.Services.Implementations
                 }
             }
 
-            MixinSettings previousSettings = CloneMixinSettings(settings);
-            settings.TunEnabled = enabled;
-            bool applied = await SaveBuildApplyAndSyncAsync(activeProfile, settings, cancellationToken).ConfigureAwait(false);
+            bool applied = await SaveBuildApplyAndSyncAsync(activeProfile, settings, cancellationToken, forceRestartForTun: true).ConfigureAwait(false);
             if (!applied)
             {
                 await RestoreMixinSettingsAsync(activeProfile, previousSettings, cancellationToken).ConfigureAwait(false);
@@ -475,7 +514,8 @@ namespace ClashWinUI.Services.Implementations
         private async Task<bool> SaveBuildApplyAndSyncAsync(
             ProfileItem profile,
             MixinSettings settings,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool forceRestartForTun = false)
         {
             string runtimePath = await Task.Run(() =>
             {
@@ -483,7 +523,10 @@ namespace ClashWinUI.Services.Implementations
                 return _configService.BuildRuntime(profile);
             }, cancellationToken).ConfigureAwait(false);
 
-            bool applied = await _mihomoService.ApplyConfigAsync(runtimePath, cancellationToken).ConfigureAwait(false);
+            ConfigApplyOptions applyOptions = forceRestartForTun
+                ? ConfigApplyOptions.ForceRestart
+                : ConfigApplyOptions.Default;
+            bool applied = await _mihomoService.ApplyConfigAsync(runtimePath, applyOptions, cancellationToken).ConfigureAwait(false);
             if (applied || PathsEqual(_processService.CurrentConfigPath, runtimePath))
             {
                 await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(

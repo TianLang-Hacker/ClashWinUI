@@ -43,6 +43,11 @@ namespace ClashWinUI.Services.Implementations
                 throw new ArgumentException($"Unknown route key: {routeKey}", nameof(routeKey));
             }
 
+            if (_frame.Content is not null && _frame.Content.GetType() == pageType)
+            {
+                return;
+            }
+
             Stopwatch stopwatch = Stopwatch.StartNew();
             _frame.Navigate(pageType);
             _frame.BackStack.Clear();

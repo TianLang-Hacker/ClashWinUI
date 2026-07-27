@@ -495,7 +495,10 @@
   <data name="TunRuntimeStatusActive" xml:space="preserve">
     <value>已生效</value>
   </data>
-  <data name="TunRuntimeStatusPending" xml:space="preserve">
+    <data name="TunRuntimeStatusOpening" xml:space="preserve">
+    <value>正在開啟TUN模式。</value>
+  </data>
+<data name="TunRuntimeStatusPending" xml:space="preserve">
     <value>已設定，但目前未生效</value>
   </data>
   <data name="TunRuntimeSummaryFallbackProxyFormat" xml:space="preserve">
@@ -950,5 +953,14 @@
   </data>
   <data name="TrayMenuOpenProxiesForMore" xml:space="preserve">
     <value>開啟代理頁查看更多</value>
+  </data>
+  <data name="SettingsTunElevationRequested" xml:space="preserve">
+    <value>正在請求系統管理員權限以啟用 TUN，授權後將自動重啟並啟動 TUN…</value>
+  </data>
+  <data name="SettingsTunElevationCancelled" xml:space="preserve">
+    <value>已取消系統管理員授權，未啟用 TUN。</value>
+  </data>
+  <data name="SettingsTunElevationFailed" xml:space="preserve">
+    <value>系統管理員授權失敗，未能啟用 TUN：{0}</value>
   </data>
 </root>

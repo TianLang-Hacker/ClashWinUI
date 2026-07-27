@@ -1,5 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Page
+    NavigationCacheMode="Enabled"
     x:Class="ClashWinUI.Views.Pages.ConnectionsPage"
     x:Name="Root"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

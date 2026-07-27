@@ -18,6 +18,7 @@ namespace ClashWinUI.ViewModels
         private const int DownloadPageIndex = 4;
         private const int CompletePageIndex = 5;
 
+        private const string ThemeSystem = "system";
         private const string ThemeLight = "light";
         private const string ThemeDark = "dark";
         private const string BackdropMica = "mica";
@@ -114,8 +115,10 @@ namespace ClashWinUI.ViewModels
             _profileService = profileService;
 
             CurrentPageIndex = IntroPageIndex;
+            _isUpdatingThemeSelection = true;
             SelectedAppThemeTag = MapAppThemeToTag(_themeService.CurrentAppTheme);
             SelectedBackdropTag = MapBackdropToTag(_themeService.CurrentBackdrop);
+            _isUpdatingThemeSelection = false;
             SelectedLanguageTag = _localizedStrings.CurrentLanguage;
             IsOnlineKernelSelected = true;
             CustomKernelPathInput = _kernelPathService.CustomKernelPath ?? _kernelPathService.DefaultKernelPath;
@@ -548,8 +551,9 @@ namespace ClashWinUI.ViewModels
         {
             return tag switch
             {
+                ThemeLight => AppThemeMode.Light,
                 ThemeDark => AppThemeMode.Dark,
-                _ => AppThemeMode.Light,
+                _ => AppThemeMode.System,
             };
         }
 
@@ -557,8 +561,9 @@ namespace ClashWinUI.ViewModels
         {
             return mode switch
             {
+                AppThemeMode.Light => ThemeLight,
                 AppThemeMode.Dark => ThemeDark,
-                _ => ThemeLight,
+                _ => ThemeSystem,
             };
         }
 

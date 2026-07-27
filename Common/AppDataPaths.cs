@@ -17,6 +17,8 @@ namespace ClashWinUI.Common
 
         public static string PendingLaunchFilePath => Path.Combine(StateDirectoryPath, "pending-launch.json");
 
+        public static string PendingElevatedStartFilePath => Path.Combine(StateDirectoryPath, "pending-elevated-start.flag");
+
         public static string RuntimeStateFilePath => Path.Combine(StateDirectoryPath, "runtime-state.json");
 
         public static string AppSettingsFilePath => Path.Combine(RootDirectoryPath, "appsettings.json");

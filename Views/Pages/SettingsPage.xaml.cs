@@ -26,7 +26,13 @@ namespace ClashWinUI.Views.Pages
             SettingsViewModel viewModel = ResolveViewModel();
             if (!ReferenceEquals(_viewModel, viewModel))
             {
-                ReleaseViewModel(disposeImmediately: true);
+                // Keep previous instance only when it is still owned by the port settings window.
+                if (_viewModel is not null
+                    && (_portSettingsWindow is null || !ReferenceEquals(_portSettingsWindow.SettingsViewModel, _viewModel)))
+                {
+                    ReleaseViewModel(disposeImmediately: true);
+                }
+
                 _viewModel = viewModel;
                 DataContext = viewModel;
             }
@@ -38,9 +44,7 @@ namespace ClashWinUI.Views.Pages
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            bool canDisposeImmediately = _portSettingsWindow is null
-                || !ReferenceEquals(_portSettingsWindow.SettingsViewModel, _viewModel);
-            ReleaseViewModel(canDisposeImmediately);
+            // Keep the page/view-model warm while NavigationCacheMode is enabled.
             base.OnNavigatedFrom(e);
         }
 

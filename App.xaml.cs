@@ -221,6 +221,74 @@ namespace ClashWinUI
             }
         }
 
+        public async Task<bool> RequestElevatedRestartForTunAsync(string? routeKey = null)
+        {
+            IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
+            if (AppElevationHelper.IsProcessElevated())
+            {
+                return false;
+            }
+
+            string normalizedRoute = string.IsNullOrWhiteSpace(routeKey)
+                ? MainViewModel.SettingsRouteKey
+                : routeKey;
+            PendingLaunchStore.Save(normalizedRoute);
+            PendingElevatedStartStore.Save();
+
+            // Keep the non-elevated tray alive when elevating from UI so the taskbar icon remains visible.
+            // Only dismiss the UI peer when the tray itself is requesting elevation.
+            if (IsTrayRole && AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui))
+            {
+                await AppControlChannel.TrySendAsync(AppProcessRole.Ui, AppControlCommand.CreateExitSelf());
+                await WaitUntilRoleExitsAsync(AppProcessRole.Ui, TimeSpan.FromSeconds(5));
+            }
+
+            bool isPackaged = AppPackageInfoHelper.IsPackaged();
+            ElevationRelaunchOutcome outcome = AppElevationHelper.TryRelaunchAsAdministrator();
+            switch (outcome.Status)
+            {
+                case ElevationRelaunchStatus.Relaunched:
+                    logService.Add(
+                        $"TUN enable requested elevation. Relaunching as administrator. Mode={(isPackaged ? "packaged" : "unpackaged")}; " +
+                        $"Target={outcome.Target.ExecutablePath}; Route={normalizedRoute}");
+                    break;
+                case ElevationRelaunchStatus.UserCancelled:
+                    PendingElevatedStartStore.Clear();
+                    logService.Add(
+                        $"TUN elevation cancelled by user. Mode={(isPackaged ? "packaged" : "unpackaged")}; " +
+                        $"Target={outcome.Target.ExecutablePath}; Detail={outcome.Message}",
+                        LogLevel.Warning);
+                    return false;
+                default:
+                    PendingElevatedStartStore.Clear();
+                    logService.Add(
+                        $"TUN elevation failed. Mode={(isPackaged ? "packaged" : "unpackaged")}; " +
+                        $"Target={outcome.Target.ExecutablePath}; Detail={outcome.Message}",
+                        LogLevel.Warning);
+                    return false;
+            }
+
+            if (Interlocked.Exchange(ref _shutdownRequested, 1) == 1)
+            {
+                return true;
+            }
+
+            await _shutdownSync.WaitAsync();
+            try
+            {
+                // Exit quickly: elevated instance is waiting to acquire the UI role mutex.
+                await ShutdownCurrentInstanceAsync(includeRuntimeCleanup: true);
+                AppProcessBootstrapper.ReleaseRole();
+                Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                TerminateProcessHard();
+                return true;
+            }
+            finally
+            {
+                _shutdownSync.Release();
+            }
+        }
+
         public async Task RequestExitSelfAsync()
         {
             if (Interlocked.Exchange(ref _shutdownRequested, 1) == 1)
@@ -325,7 +393,8 @@ namespace ClashWinUI
                 if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
                 {
                     Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
-                    Exit();
+                    AppProcessBootstrapper.ReleaseRole();
+                    TerminateProcessHard();
                     return;
                 }
 
@@ -350,7 +419,8 @@ namespace ClashWinUI
                 if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
                 {
                     Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
-                    Exit();
+                    AppProcessBootstrapper.ReleaseRole();
+                    TerminateProcessHard();
                     return;
                 }
             }
@@ -405,6 +475,7 @@ namespace ClashWinUI
                 if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
                 {
                     Interlocked.Exchange(ref _skipProcessExitCleanup, 1);
+                    AppProcessBootstrapper.ReleaseRole();
                     TerminateProcessHard();
                     return;
                 }
@@ -445,6 +516,8 @@ namespace ClashWinUI
             IProcessService processService = _host.Services.GetRequiredService<IProcessService>();
             ITunService tunService = _host.Services.GetRequiredService<ITunService>();
             ISystemProxyService systemProxyService = _host.Services.GetRequiredService<ISystemProxyService>();
+            IConfigService configService = _host.Services.GetRequiredService<IConfigService>();
+            IProfileService profileService = _host.Services.GetRequiredService<IProfileService>();
 
             try
             {
@@ -476,14 +549,52 @@ namespace ClashWinUI
                         startupConfigPath);
                 }
 
-                if (controllerReady)
+                if (controllerReady && tunService.IsTunEnabled(startupConfigPath))
                 {
-                    controllerReady = await ValidateStartupTunRuntimeAsync(
-                        processService,
+                    TunRuntimeValidationOutcome tunValidation = await TunRuntimeValidationHelper.ValidateAsync(
                         tunService,
                         kernelPathService,
-                        logService,
-                        startupConfigPath);
+                        processService,
+                        startupConfigPath).ConfigureAwait(false);
+                    if (!tunValidation.Success)
+                    {
+                        processService.UpdateFailureDiagnostic(tunValidation.FailureKind, tunValidation.Message);
+                        logService.Add(
+                            $"Startup controller is ready, but TUN runtime is unhealthy: {tunValidation.Message}",
+                            LogLevel.Warning);
+
+                        string? recoveredPath = await TryDisableTunAfterStartupFailureAsync(
+                            processService,
+                            configService,
+                            profileService,
+                            tunService,
+                            systemProxyService,
+                            logService,
+                            startupConfigPath,
+                            tunValidation.Message);
+                        if (!string.IsNullOrWhiteSpace(recoveredPath))
+                        {
+                            startupConfigPath = recoveredPath;
+                            logService.Add(
+                                "TUN startup failed; automatically disabled TUN and restarted without TUN so the app stays usable.",
+                                LogLevel.Warning);
+                        }
+                        else
+                        {
+                            // Keep the controller if it is still alive; do not treat TUN failure as total startup death.
+                            controllerReady = processService.IsRunning
+                                && await WaitForControllerReadyAsync(
+                                    processService.ControllerHost,
+                                    processService.ControllerPort,
+                                    TimeSpan.FromSeconds(3));
+                            if (controllerReady)
+                            {
+                                logService.Add(
+                                    "TUN startup failed and auto-disable recovery did not fully complete; continuing with current controller session.",
+                                    LogLevel.Warning);
+                            }
+                        }
+                    }
                 }
 
                 if (!controllerReady)
@@ -504,24 +615,15 @@ namespace ClashWinUI
                                 TimeSpan.FromSeconds(20));
                             if (controllerReady)
                             {
-                                controllerReady = await ValidateStartupTunRuntimeAsync(
-                                    processService,
-                                    tunService,
-                                    kernelPathService,
-                                    logService,
-                                    fallbackConfigPath);
-                                if (controllerReady)
-                                {
-                                    processService.ResetFailureDiagnostic();
-                                    startupConfigPath = fallbackConfigPath;
-                                }
+                                processService.ResetFailureDiagnostic();
+                                startupConfigPath = fallbackConfigPath;
                             }
                         }
                     }
-                    else if (!shouldFallbackToDefaultConfig)
+                    else if (MihomoFailureKindHelper.IsTunFailure(diagnostic.Kind))
                     {
                         logService.Add(
-                            $"Skip fallback to default startup config because TUN startup validation failed. Detail={diagnostic.Message}",
+                            $"Primary startup failed after TUN issues. Detail={diagnostic.Message}",
                             LogLevel.Warning);
                     }
                 }
@@ -602,6 +704,11 @@ namespace ClashWinUI
                 return false;
             }
 
+            // Ensure the elevated process waits for this instance to release role mutexes
+            // instead of treating itself as a duplicate and flash-exiting.
+            PendingElevatedStartStore.Save();
+            PendingLaunchStore.Save(MainViewModel.SettingsRouteKey);
+
             ElevationRelaunchOutcome outcome = AppElevationHelper.TryRelaunchAsAdministrator();
             switch (outcome.Status)
             {
@@ -611,6 +718,7 @@ namespace ClashWinUI
                         $"StartupConfig={startupConfigPath}; Target={outcome.Target.ExecutablePath}");
                     return true;
                 case ElevationRelaunchStatus.UserCancelled:
+                    PendingElevatedStartStore.Clear();
                     logService.Add(
                         $"Administrator relaunch cancelled by user. Continue without elevation. " +
                         $"Mode={(isPackaged ? "packaged" : "unpackaged")}; StartupConfig={startupConfigPath}; " +
@@ -618,6 +726,7 @@ namespace ClashWinUI
                         LogLevel.Warning);
                     return false;
                 default:
+                    PendingElevatedStartStore.Clear();
                     logService.Add(
                         $"Administrator relaunch failed. Continue without elevation. " +
                         $"Mode={(isPackaged ? "packaged" : "unpackaged")}; StartupConfig={startupConfigPath}; " +
@@ -821,7 +930,8 @@ namespace ClashWinUI
             }
 
             IAppLogService logService = _host.Services.GetRequiredService<IAppLogService>();
-            ElevationRelaunchOutcome outcome = AppElevationHelper.TryLaunchNewInstance();
+            // Elevated UI must spawn a medium-IL tray process; elevated tray icons often do not show.
+            ElevationRelaunchOutcome outcome = AppElevationHelper.TryLaunchUnelevatedInstance();
             if (outcome.Status != ElevationRelaunchStatus.Relaunched)
             {
                 logService.Add(
@@ -1232,6 +1342,78 @@ namespace ClashWinUI
                 processService.ControllerHost,
                 processService.ControllerPort,
                 TimeSpan.FromSeconds(20));
+        }
+
+        private async Task<string?> TryDisableTunAfterStartupFailureAsync(
+            IProcessService processService,
+            IConfigService configService,
+            IProfileService profileService,
+            ITunService tunService,
+            ISystemProxyService systemProxyService,
+            IAppLogService logService,
+            string failedConfigPath,
+            string failureDetail)
+        {
+            try
+            {
+                ProfileItem? activeProfile = profileService.GetActiveProfile();
+                if (activeProfile is null)
+                {
+                    logService.Add(
+                        $"TUN auto-disable skipped because no active profile is available. FailedConfig={failedConfigPath}",
+                        LogLevel.Warning);
+                    return null;
+                }
+
+                MixinSettings settings = await Task.Run(() => configService.LoadMixin(activeProfile)).ConfigureAwait(false);
+                if (!settings.TunEnabled)
+                {
+                    return null;
+                }
+
+                settings.TunEnabled = false;
+                string runtimePath = await Task.Run(() => configService.SaveMixinAndBuildRuntime(activeProfile, settings))
+                    .ConfigureAwait(false);
+
+                bool restarted = await processService.RestartAsync(runtimePath).ConfigureAwait(false);
+                if (!restarted)
+                {
+                    logService.Add(
+                        $"TUN auto-disable rebuild succeeded but Mihomo restart failed. Runtime={runtimePath}; Detail={failureDetail}",
+                        LogLevel.Warning);
+                    return null;
+                }
+
+                bool ready = await WaitForControllerReadyAsync(
+                    processService.ControllerHost,
+                    processService.ControllerPort,
+                    TimeSpan.FromSeconds(20)).ConfigureAwait(false);
+                if (!ready)
+                {
+                    logService.Add(
+                        $"TUN auto-disable restart completed but controller is not ready. Runtime={runtimePath}",
+                        LogLevel.Warning);
+                    return null;
+                }
+
+                await SystemProxyRuntimePolicyHelper.ApplyForRuntimeAsync(
+                    systemProxyService,
+                    processService,
+                    tunService,
+                    runtimePath).ConfigureAwait(false);
+
+                if (!string.IsNullOrWhiteSpace(failureDetail))
+                {
+                    processService.UpdateFailureDiagnostic(MihomoFailureKind.TunDependency, failureDetail);
+                }
+
+                return runtimePath;
+            }
+            catch (Exception ex)
+            {
+                logService.Add($"TUN auto-disable recovery failed: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
         }
 
         private static async Task<bool> ValidateStartupTunRuntimeAsync(

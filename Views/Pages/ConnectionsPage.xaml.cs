@@ -140,17 +140,15 @@ namespace ClashWinUI.Views.Pages
 
         protected override async void OnNavigatedTo(NavigationEventArgs e)
         {
-            ConnectionsViewModel viewModel = ResolveViewModel();
-            if (!ReferenceEquals(_viewModel, viewModel))
+            if (_viewModel is null)
             {
-                ReleaseViewModel();
-                _viewModel = viewModel;
-                DataContext = viewModel;
+                _viewModel = ResolveViewModel();
+                DataContext = _viewModel;
             }
 
             RebindConnectionsList();
-            await viewModel.InitializeAsync();
-            viewModel.StartAutoRefresh();
+            await _viewModel.InitializeAsync();
+            _viewModel.StartAutoRefresh();
 
             ApplySessionOrResponsiveWidths(ActualWidth);
             EnsureConnectionsScrollViewerHooked();
@@ -160,7 +158,7 @@ namespace ClashWinUI.Views.Pages
 
         protected override void OnNavigatedFrom(NavigationEventArgs e)
         {
-            ReleaseViewModel();
+            _viewModel?.StopAutoRefresh();
             base.OnNavigatedFrom(e);
         }
 

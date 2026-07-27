@@ -73,10 +73,13 @@
 
                             <StackPanel Spacing="8">
                                 <TextBlock Text="{Binding [ThemeModeLabel], Source={StaticResource L}}" />
-                                <ComboBox
+                                                                <ComboBox
                                     Width="220"
                                     SelectedValue="{Binding SelectedAppThemeTag, Mode=TwoWay}"
                                     SelectedValuePath="Tag">
+                                    <ComboBoxItem
+                                        Content="{Binding [ThemeModeSystem], Source={StaticResource L}}"
+                                        Tag="system" />
                                     <ComboBoxItem
                                         Content="{Binding [ThemeModeLight], Source={StaticResource L}}"
                                         Tag="light" />

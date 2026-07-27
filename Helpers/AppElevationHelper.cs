@@ -66,6 +66,39 @@ namespace ClashWinUI.Helpers
             return TryRelaunch();
         }
 
+        public static ElevationRelaunchOutcome TryLaunchUnelevatedInstance()
+        {
+            if (!IsProcessElevated())
+            {
+                return TryLaunchNewInstance();
+            }
+
+            ElevationTargetInfo target = ResolveElevationTarget();
+            if (!IsValidElevationTarget(target))
+            {
+                return ElevationRelaunchOutcome.Failed(
+                    target,
+                    $"Unelevated launch target executable is unavailable. Mode={target.LaunchMode}; Path={target.ExecutablePath}");
+            }
+
+            try
+            {
+                // explorer.exe runs at medium IL and can start a non-elevated companion from an elevated parent.
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = "\"" + target.ExecutablePath + "\"",
+                    UseShellExecute = true,
+                });
+
+                return ElevationRelaunchOutcome.Relaunched(target);
+            }
+            catch (Exception ex)
+            {
+                return ElevationRelaunchOutcome.Failed(target, ex.Message);
+            }
+        }
+
         private static ElevationRelaunchOutcome TryRelaunchCore(int delaySeconds)
         {
             ElevationTargetInfo target = ResolveElevationTarget();

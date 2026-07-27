@@ -1,4 +1,3 @@
-﻿
 using ClashWinUI.Models;
 using System;
 using System.Collections.Generic;
@@ -11,6 +10,7 @@ namespace ClashWinUI.Services.Interfaces
     {
         event EventHandler<string>? ConfigApplied;
         Task<bool> ApplyConfigAsync(string configPath, CancellationToken cancellationToken = default);
+        Task<bool> ApplyConfigAsync(string configPath, ConfigApplyOptions options, CancellationToken cancellationToken = default);
         Task<ProxyGroupLoadResult> GetProxyGroupsAsync(string runtimePath, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<ProxyNode>> GetProxiesAsync(CancellationToken cancellationToken = default);
         Task<string?> GetVersionAsync(CancellationToken cancellationToken = default);
