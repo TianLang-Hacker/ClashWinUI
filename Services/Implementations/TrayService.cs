@@ -469,6 +469,17 @@ namespace ClashWinUI.Services.Implementations
 
         private Brush CreateMenuBackgroundBrush()
         {
+            if (_themeService.CurrentBackdrop == BackdropMode.Mica
+                || _themeService.CurrentBackdrop == BackdropMode.MicaAlt)
+            {
+                return new SolidColorBrush(Colors.Transparent);
+            }
+
+            return CreateMenuBackgroundBrushFallback();
+        }
+
+        private Brush CreateMenuBackgroundBrushFallback()
+        {
             if (TryGetThemeBrush(
                     out Brush? brush,
                     "AcrylicInAppFillColorDefaultBrush",

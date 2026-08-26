@@ -85,7 +85,7 @@ namespace ClashWinUI.Views
             StartupTrace.Write("MainWindow ctor: theme initialized");
             if (_appSettingsService.WelcomeCompleted)
             {
-                CreateShell(resetNavigation: true);
+                Activated += OnWindowActivated;
             }
             else
             {
@@ -137,12 +137,21 @@ namespace ClashWinUI.Views
             StartupTrace.Write("MainWindow.ShowWelcomeWizard: completed");
         }
 
+        private void OnWindowActivated(object sender, WindowActivatedEventArgs args)
+        {
+            Activated -= OnWindowActivated;
+            DispatcherQueue.TryEnqueue(() => CreateShell(resetNavigation: true));
+        }
+
         private void OnWelcomeWizardCompleted(object? sender, EventArgs e)
         {
             StartupTrace.Write("MainWindow.OnWelcomeWizardCompleted: start");
             _welcomeWizardViewModel.Completed -= OnWelcomeWizardCompleted;
-            CreateShell(resetNavigation: true);
-            WelcomeCompleted?.Invoke(this, EventArgs.Empty);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                CreateShell(resetNavigation: true);
+                WelcomeCompleted?.Invoke(this, EventArgs.Empty);
+            });
         }
 
         private async Task FreezeShellAsync()
@@ -369,6 +378,7 @@ namespace ClashWinUI.Views
         {
             AppWindow.Changed -= OnAppWindowChanged;
             AppWindow.Closing -= OnAppWindowClosing;
+            Activated -= OnWindowActivated;
             Closed -= OnWindowClosed;
             PortSettingsWindow.OpenWindowsChanged -= OnPortSettingsWindowsChanged;
             _themeService.UnregisterWindow(this);

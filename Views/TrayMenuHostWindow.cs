@@ -1,11 +1,16 @@
 using ClashWinUI.Models;
 using ClashWinUI.Services.Interfaces;
+using Microsoft.UI;
+using Microsoft.UI.Composition;
+using Microsoft.UI.Composition.SystemBackdrops;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 using WinRT.Interop;
@@ -24,9 +29,21 @@ namespace ClashWinUI.Views
         private const long WsExToolWindow = 0x00000080L;
         private const long WsExAppWindow = 0x00040000L;
         private const long WsExNoActivate = 0x08000000L;
+        private const long WsExLayered = 0x00080000L;
+        private const uint LwaAlpha = 0x00000002;
         private const uint SwpNoActivate = 0x0010;
         private const uint SwpShowWindow = 0x0040;
         private const long WsPopupStyle = 0x80000000L;
+        private const int DwmwaNcrenderingPolicy = 2;
+        private const int DwmwaWindowCornerPreference = 33;
+        private const int DwmNcrenderingPolicyEnabled = 2;
+        private const int DwmwaUseImmersiveDarkMode = 20;
+        private const int DwmwaSystemBackdropType = 38;
+        private const int DwmNcrenderingPolicyDisabled = 1;
+        private const int DwmWindowCornerPreferenceDoNotRound = 1;
+        private const int DwmSystemBackdropNone = 1;
+        private const int DwmSystemBackdropMica = 2;
+        private const int DwmSystemBackdropMicaAlt = 4;
         private const int WhMouseLl = 14;
         private const int GaRoot = 2;
         private const uint WmLButtonDown = 0x0201;
@@ -43,15 +60,21 @@ namespace ClashWinUI.Views
         private readonly Border _anchor;
         private readonly IntPtr _windowHandle;
         private readonly LowLevelMouseProc _mouseProc;
+        private readonly DispatcherQueueTimer _backdropRefreshTimer;
         private bool _isClosed;
         private bool _isOutsideClickHookActive;
         private IntPtr _mouseHookHandle;
+        private readonly Dictionary<IntPtr, MenuFlyoutPresenter> _menuPopupPresenters = new();
         private MenuFlyout? _openMenu;
 
         public TrayMenuHostWindow(IThemeService themeService)
         {
             _themeService = themeService;
             _mouseProc = OnLowLevelMouseProc;
+            _backdropRefreshTimer = DispatcherQueue.CreateTimer();
+            _backdropRefreshTimer.Interval = TimeSpan.FromMilliseconds(75);
+            _backdropRefreshTimer.IsRepeating = true;
+            _backdropRefreshTimer.Tick += OnBackdropRefreshTimerTick;
             _anchor = new Border
             {
                 Width = AnchorSize,
@@ -84,6 +107,8 @@ namespace ClashWinUI.Views
                 return;
             }
 
+            _backdropRefreshTimer.Stop();
+            ClearMenuBackdrop();
             DismissOpenMenu();
             ApplyTheme();
 
@@ -105,15 +130,34 @@ namespace ClashWinUI.Views
             };
 
             _openMenu = menu;
+            menu.Opened -= OnMenuOpened;
+            menu.Closed -= OnMenuClosed;
+            menu.Opened += OnMenuOpened;
             menu.Closed += OnMenuClosed;
-            menu.ShowAt(_anchor, new FlyoutShowOptions
-            {
-                Placement = menu.Placement,
-                ShowMode = FlyoutShowMode.Standard,
-            });
 
-            // Install after ShowAt so the opening tray right-click does not immediately dismiss.
-            InstallOutsideClickHook();
+            try
+            {
+                menu.ShowAt(_anchor, new FlyoutShowOptions
+                {
+                    Placement = menu.Placement,
+                    ShowMode = FlyoutShowMode.Standard,
+                });
+                ApplyOpenMenuBackdrop();
+                _backdropRefreshTimer.Start();
+                DispatcherQueue.TryEnqueue(ApplyOpenMenuBackdrop);
+
+                // Install after ShowAt so the opening tray right-click does not immediately dismiss.
+                InstallOutsideClickHook();
+            }
+            catch
+            {
+                menu.Opened -= OnMenuOpened;
+                menu.Closed -= OnMenuClosed;
+                _openMenu = null;
+                ClearMenuBackdrop();
+                HideHost();
+                throw;
+            }
         }
 
         public void HideHost()
@@ -123,6 +167,8 @@ namespace ClashWinUI.Views
                 return;
             }
 
+            _backdropRefreshTimer.Stop();
+            ClearMenuBackdrop();
             UninstallOutsideClickHook();
 
             if (_windowHandle == IntPtr.Zero)
@@ -142,6 +188,8 @@ namespace ClashWinUI.Views
             }
 
             DismissOpenMenu();
+            _backdropRefreshTimer.Stop();
+            ClearMenuBackdrop();
             UninstallOutsideClickHook();
             _themeService.ThemeChanged -= OnThemeChanged;
             ShowWindow(_windowHandle, SwHide);
@@ -173,6 +221,7 @@ namespace ClashWinUI.Views
             }
 
             ApplyHostWindowStyles();
+            DisableHostWindowShadow();
             ShowWindow(_windowHandle, SwHide);
         }
 
@@ -182,7 +231,22 @@ namespace ClashWinUI.Views
             extendedStyle |= WsExToolWindow;
             extendedStyle &= ~WsExAppWindow;
             extendedStyle &= ~WsExNoActivate;
+            extendedStyle |= WsExLayered;
             SetWindowLongPtr(_windowHandle, GwlExStyle, new IntPtr(extendedStyle));
+            SetLayeredWindowAttributes(_windowHandle, 0, 0, LwaAlpha);
+        }
+
+        private void DisableHostWindowShadow()
+        {
+            if (_windowHandle == IntPtr.Zero)
+            {
+                return;
+            }
+
+            int renderingPolicy = DwmNcrenderingPolicyDisabled;
+            int cornerPreference = DwmWindowCornerPreferenceDoNotRound;
+            DwmSetWindowAttribute(_windowHandle, DwmwaNcrenderingPolicy, ref renderingPolicy, sizeof(int));
+            DwmSetWindowAttribute(_windowHandle, DwmwaWindowCornerPreference, ref cornerPreference, sizeof(int));
         }
 
         private void ApplyTheme()
@@ -200,17 +264,103 @@ namespace ClashWinUI.Views
             }
         }
 
+        private void ApplyOpenMenuBackdrop()
+        {
+            if (_openMenu is null || _isClosed || _root.XamlRoot is null)
+            {
+                return;
+            }
+
+            BackdropMode backdropMode = _themeService.CurrentBackdrop;
+            if (backdropMode == BackdropMode.Acrylic || !OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            {
+                ClearMenuBackdrop();
+                return;
+            }
+
+            foreach (Popup popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(_root.XamlRoot))
+            {
+                if (popup.Child is not MenuFlyoutPresenter presenter || presenter.XamlRoot is null)
+                {
+                    continue;
+                }
+
+                IntPtr popupHandle = Win32Interop.GetWindowFromWindowId(
+                    presenter.XamlRoot.ContentIslandEnvironment.AppWindowId);
+                if (popupHandle == IntPtr.Zero)
+                {
+                    continue;
+                }
+
+                ApplyDwmBackdropToPopup(popupHandle, presenter, backdropMode);
+            }
+
+        }
+
+        private void ApplyDwmBackdropToPopup(IntPtr popupHandle, MenuFlyoutPresenter presenter, BackdropMode backdropMode)
+        {
+            int backdropType = backdropMode == BackdropMode.MicaAlt
+                ? DwmSystemBackdropMicaAlt
+                : DwmSystemBackdropMica;
+            int isDark = _root.ActualTheme == ElementTheme.Dark ? 1 : 0;
+            int renderingPolicy = DwmNcrenderingPolicyEnabled;
+            DwmSetWindowAttribute(popupHandle, DwmwaNcrenderingPolicy, ref renderingPolicy, sizeof(int));
+            DwmSetWindowAttribute(popupHandle, DwmwaUseImmersiveDarkMode, ref isDark, sizeof(int));
+            DwmSetWindowAttribute(popupHandle, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
+
+            // The popup's XAML presenter must not paint an opaque fill over the DWM material.
+            _menuPopupPresenters[popupHandle] = presenter;
+            presenter.ClearValue(Control.BackgroundProperty);
+            presenter.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        }
+
+        private void ClearMenuBackdrop()
+        {
+            foreach (IntPtr popupHandle in new List<IntPtr>(_menuPopupPresenters.Keys))
+            {
+                ClearMenuBackdrop(popupHandle);
+            }
+        }
+
+        private void ClearMenuBackdrop(IntPtr popupHandle)
+        {
+            int backdropType = DwmSystemBackdropNone;
+            DwmSetWindowAttribute(popupHandle, DwmwaSystemBackdropType, ref backdropType, sizeof(int));
+            if (_menuPopupPresenters.Remove(popupHandle, out MenuFlyoutPresenter? presenter))
+            {
+                presenter.ClearValue(Control.BackgroundProperty);
+            }
+        }
+
+        private void OnBackdropRefreshTimerTick(DispatcherQueueTimer sender, object args)
+        {
+            ApplyOpenMenuBackdrop();
+        }
+
+        private void OnMenuOpened(object? sender, object e)
+        {
+            if (!ReferenceEquals(_openMenu, sender))
+            {
+                return;
+            }
+
+            ApplyOpenMenuBackdrop();
+            _backdropRefreshTimer.Start();
+        }
+
         private void OnThemeChanged(object? sender, EventArgs e)
         {
             if (!_isClosed)
             {
                 ApplyTheme();
+                ApplyOpenMenuBackdrop();
             }
         }
 
         private void MoveAndShowHost(RectInt32 bounds)
         {
             ApplyHostWindowStyles();
+            DisableHostWindowShadow();
 
             AppWindow.MoveAndResize(bounds);
             SetWindowPos(
@@ -367,14 +517,62 @@ namespace ClashWinUI.Views
 
         private void OnMenuClosed(object? sender, object e)
         {
-            if (sender is MenuFlyout menu)
+            if (sender is not MenuFlyout menu || !ReferenceEquals(_openMenu, sender))
             {
-                menu.Closed -= OnMenuClosed;
+                return;
             }
 
-            if (ReferenceEquals(_openMenu, sender))
+            DispatcherQueue.TryEnqueue(() =>
             {
-                _openMenu = null;
+                if (!ReferenceEquals(_openMenu, menu))
+                {
+                    return;
+                }
+
+                if (HasOpenMenuPopup())
+                {
+                    ApplyOpenMenuBackdrop();
+                    _backdropRefreshTimer.Start();
+                    return;
+                }
+
+                CompleteMenuSession();
+            });
+        }
+
+        private bool HasOpenMenuPopup()
+        {
+            if (_root.XamlRoot is null)
+            {
+                return false;
+            }
+
+            foreach (Popup popup in VisualTreeHelper.GetOpenPopupsForXamlRoot(_root.XamlRoot))
+            {
+                if (popup.Child is MenuFlyoutPresenter presenter && presenter.XamlRoot is not null)
+                {
+                    IntPtr handle = Win32Interop.GetWindowFromWindowId(
+                        presenter.XamlRoot.ContentIslandEnvironment.AppWindowId);
+                    if (handle != IntPtr.Zero)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private void CompleteMenuSession()
+        {
+            MenuFlyout? menu = _openMenu;
+            _openMenu = null;
+            _backdropRefreshTimer.Stop();
+            ClearMenuBackdrop();
+            if (menu is not null)
+            {
+                menu.Opened -= OnMenuOpened;
+                menu.Closed -= OnMenuClosed;
             }
 
             HideHost();
@@ -395,7 +593,11 @@ namespace ClashWinUI.Views
             }
             catch
             {
+                menu.Opened -= OnMenuOpened;
+                menu.Closed -= OnMenuClosed;
                 _openMenu = null;
+                _backdropRefreshTimer.Stop();
+                ClearMenuBackdrop();
                 HideHost();
             }
         }
@@ -523,6 +725,13 @@ namespace ClashWinUI.Views
 
         [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
         private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetLayeredWindowAttributes(IntPtr hWnd, uint crKey, byte bAlpha, uint dwFlags);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hWnd, int attribute, ref int value, int valueSize);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern IntPtr SetWindowsHookExW(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);

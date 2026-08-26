@@ -398,8 +398,8 @@ namespace ClashWinUI
                     return;
                 }
 
+                StartTrayCompanionLaunch();
                 await StartRuntimeStartupPipelineAsync(startupConfigPath, initializeTrayOnCompletion: false);
-                await EnsureTrayCompanionAsync();
             }
             catch (Exception ex)
             {
@@ -442,10 +442,11 @@ namespace ClashWinUI
                 return;
             }
 
+            StartTrayCompanionLaunch();
+
             if (_bootstrapResult.ShouldOwnStartupPipeline)
             {
                 await StartRuntimeStartupPipelineAsync(startupConfigPath ?? ResolveStartupConfigPath(), initializeTrayOnCompletion: false);
-                await EnsureTrayCompanionAsync();
             }
             else
             {
@@ -461,16 +462,24 @@ namespace ClashWinUI
         {
             await _host.StartAsync();
             InitializeControlChannel();
+            InitializeTray();
 
             if (!appSettingsService.WelcomeCompleted)
             {
-                InitializeTray();
                 return;
             }
 
-            bool attached = await TryAttachToPersistedRuntimeAsync(waitForStartupOwner: AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui));
+            bool uiRoleRunning = AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui);
+            bool attached = await TryAttachToPersistedRuntimeAsync(waitForStartupOwner: uiRoleRunning);
             if (!attached)
             {
+                if (uiRoleRunning && AppProcessBootstrapper.IsRoleRunning(AppProcessRole.Ui))
+                {
+                    _host.Services.GetRequiredService<IAppLogService>()
+                        .Add("UI role is still starting runtime; tray will not start a second Mihomo instance.");
+                    return;
+                }
+
                 string startupConfigPath = ResolveStartupConfigPath();
                 if (TryRelaunchAsAdministratorForTunStartup(startupConfigPath))
                 {
@@ -761,6 +770,30 @@ namespace ClashWinUI
             }
 
             return false;
+        }
+
+        private void StartTrayCompanionLaunch()
+        {
+            if (!IsUiRole)
+            {
+                return;
+            }
+
+            _ = LaunchTrayCompanionAsync();
+        }
+
+        private async Task LaunchTrayCompanionAsync()
+        {
+            try
+            {
+                await EnsureTrayCompanionAsync();
+            }
+            catch (Exception ex)
+            {
+                StartupTrace.WriteException("Tray companion launch failed", ex);
+                _host.Services.GetRequiredService<IAppLogService>()
+                    .Add($"Tray companion launch failed: {ex}", LogLevel.Warning);
+            }
         }
 
         private void InitializeTray()
